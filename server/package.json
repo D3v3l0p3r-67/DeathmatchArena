@@ -1,0 +1,32 @@
+{
+  "name": "@deathmatch/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Authoritative Colyseus game server for Deathmatch Arena",
+  "main": "build/index.js",
+  "scripts": {
+    "dev": "tsx watch --clear-screen=false src/index.ts",
+    "build": "node scripts/build.mjs",
+    "start": "node build/index.js",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@colyseus/monitor": "^0.17.8",
+    "@colyseus/playground": "^0.17.12",
+    "@colyseus/schema": "^4.0.31",
+    "@colyseus/tools": "^0.17.20",
+    "@deathmatch/shared": "*",
+    "colyseus": "^0.17.10",
+    "cors": "^2.8.5",
+    "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.0",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.12",
+    "typescript": "^5.7.3"
+  }
+}

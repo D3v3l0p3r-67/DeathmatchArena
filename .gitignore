@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Build output
+server/build/
+client/dist/
+*.tsbuildinfo
+
+# Local environment overrides
+.env
+.env.*
+!.env.example
+
+# Colyseus dev-mode state cache (written into whichever cwd the server runs from)
+.devmode.json
+
+# Logs / editor / OS noise
+*.log
+npm-debug.log*
+.vite/
+.DS_Store
+.idea/
+.vscode/

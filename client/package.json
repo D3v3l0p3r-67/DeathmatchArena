@@ -1,0 +1,22 @@
+{
+  "name": "@deathmatch/client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Phaser 3 client for Deathmatch Arena",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@colyseus/sdk": "^0.17.43",
+    "@deathmatch/shared": "*",
+    "phaser": "^3.90.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "vite": "^8.2.2"
+  }
+}

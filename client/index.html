@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+    <meta name="description" content="Deathmatch Arena - a fast browser multiplayer deathmatch shooter." />
+    <title>Deathmatch Arena</title>
+  </head>
+  <body>
+    <!-- Phaser renders the world here; every UI layer above is plain DOM so that
+         text stays crisp at any scale and screens are easy to restyle. -->
+    <div id="game-root"></div>
+
+    <div id="ui-root">
+      <!-- ============================= MAIN MENU ============================= -->
+      <section class="screen screen--menu" data-screen="menu">
+        <div class="panel panel--menu">
+          <h1 class="title">
+            <span class="title__death">DEATHMATCH</span>
+            <span class="title__arena">ARENA</span>
+          </h1>
+          <p class="tagline">Last player standing wins. No respawns.</p>
+
+          <form class="form" id="join-form" autocomplete="off">
+            <label class="label" for="name-input">Display name</label>
+            <input
+              class="input"
+              id="name-input"
+              name="name"
+              type="text"
+              maxlength="16"
+              placeholder="Enter your name"
+              spellcheck="false"
+            />
+            <p class="field-error" id="name-error" role="alert"></p>
+            <button class="button button--primary" id="play-button" type="submit">Play</button>
+          </form>
+
+          <p class="hint">
+            <kbd>A</kbd><kbd>D</kbd> move &middot; <kbd>Space</kbd> jump &middot;
+            <kbd>Mouse</kbd> aim &middot; <kbd>Click</kbd> fire &middot; <kbd>R</kbd> reload
+          </p>
+          <p class="connection-error" id="connection-error" role="alert"></p>
+        </div>
+      </section>
+
+      <!-- ============================ MATCHMAKING ============================ -->
+      <section class="screen screen--matchmaking" data-screen="matchmaking">
+        <div class="panel">
+          <div class="spinner" aria-hidden="true"></div>
+          <h2 class="panel__title">Finding match...</h2>
+          <p class="panel__subtitle" id="matchmaking-status">Connecting to the arena</p>
+          <button class="button button--ghost" id="cancel-matchmaking" type="button">Cancel</button>
+        </div>
+      </section>
+
+      <!-- =========================== WAITING ROOM ============================ -->
+      <section class="screen screen--lobby" data-screen="lobby">
+        <div class="panel">
+          <h2 class="panel__title">Waiting for players</h2>
+          <p class="counter" id="lobby-count">Players: 0 / 10</p>
+          <p class="panel__subtitle" id="lobby-hint">Need 2 players to start</p>
+          <ul class="player-list" id="lobby-players"></ul>
+          <button class="button button--ghost" id="leave-lobby" type="button">Leave</button>
+        </div>
+      </section>
+
+      <!-- ============================= COUNTDOWN ============================= -->
+      <section class="screen screen--countdown" data-screen="countdown">
+        <div class="countdown" id="countdown-value">3</div>
+      </section>
+
+      <!-- ================================ HUD =============================== -->
+      <div class="hud" data-layer="hud">
+        <div class="hud__corner hud__corner--top-left">
+          <div class="hud__stat">
+            <span class="hud__label">Alive</span>
+            <span class="hud__value" id="hud-alive">0 / 0</span>
+          </div>
+          <div class="hud__stat">
+            <span class="hud__label">Kills</span>
+            <span class="hud__value" id="hud-kills">0</span>
+          </div>
+          <div class="hud__stat hud__stat--muted">
+            <span class="hud__label">State</span>
+            <span class="hud__value" id="hud-match-state">WAITING</span>
+          </div>
+        </div>
+
+        <ul class="kill-feed" id="kill-feed"></ul>
+
+        <div class="hud__bottom">
+          <div class="health">
+            <div class="health__bar">
+              <div class="health__fill" id="hud-health-fill"></div>
+            </div>
+            <div class="health__value"><span id="hud-health">100</span> <small>HP</small></div>
+          </div>
+
+          <div class="weapon">
+            <div class="weapon__name" id="hud-weapon">Assault Rifle</div>
+            <div class="weapon__ammo">
+              <span id="hud-ammo">30</span><span class="weapon__ammo-sep">/</span
+              ><span id="hud-magazine">30</span>
+            </div>
+            <div class="weapon__reload" id="hud-reload">
+              <span class="weapon__reload-label">RELOADING</span>
+              <div class="weapon__reload-bar"><div class="weapon__reload-fill" id="hud-reload-fill"></div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="crosshair" id="crosshair" aria-hidden="true"></div>
+        <div class="hitmarker" id="hitmarker" aria-hidden="true"></div>
+        <div class="damage-flash" id="damage-flash" aria-hidden="true"></div>
+      </div>
+
+      <!-- =========================== DEATH / SPECTATE ======================== -->
+      <div class="spectator" data-layer="spectator">
+        <div class="spectator__banner">
+          <h2 class="spectator__title">You were eliminated.</h2>
+          <p class="spectator__subtitle">
+            Spectating <strong id="spectate-target">-</strong> &middot; placed
+            <strong id="spectate-placement">-</strong>
+          </p>
+          <p class="spectator__hint">
+            <kbd>&larr;</kbd> <kbd>&rarr;</kbd> switch player
+          </p>
+        </div>
+      </div>
+
+      <!-- ============================== RESULTS ============================== -->
+      <section class="screen screen--results" data-screen="results">
+        <div class="panel panel--results">
+          <p class="results__eyebrow">Winner</p>
+          <h2 class="results__winner" id="results-winner">-</h2>
+          <table class="standings">
+            <thead>
+              <tr>
+                <th scope="col">#</th>
+                <th scope="col">Player</th>
+                <th scope="col">Kills</th>
+              </tr>
+            </thead>
+            <tbody id="results-body"></tbody>
+          </table>
+          <p class="results__next" id="results-next">Next match starting soon...</p>
+          <div class="results__actions">
+            <button class="button button--primary" id="play-again" type="button">Play again</button>
+            <button class="button button--ghost" id="back-to-menu" type="button">Main menu</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================ NOTIFICATIONS ========================== -->
+      <div class="notices" id="notices" role="status"></div>
+
+      <!-- ============================ DEBUG OVERLAY ========================== -->
+      <div class="debug" data-layer="debug">
+        <div class="debug__row"><span>FPS</span><b id="debug-fps">-</b></div>
+        <div class="debug__row"><span>Ping</span><b id="debug-ping">-</b></div>
+        <div class="debug__row"><span>Position</span><b id="debug-position">-</b></div>
+        <div class="debug__row"><span>Predict err</span><b id="debug-error">-</b></div>
+        <div class="debug__row"><span>Pending inputs</span><b id="debug-pending">-</b></div>
+        <div class="debug__row"><span>Room</span><b id="debug-room">-</b></div>
+        <div class="debug__row"><span>Session</span><b id="debug-session">-</b></div>
+        <div class="debug__row"><span>Players</span><b id="debug-players">-</b></div>
+        <div class="debug__row"><span>Projectiles</span><b id="debug-projectiles">-</b></div>
+        <div class="debug__hint">F3 toggles this overlay</div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
