@@ -212,16 +212,47 @@ in environment variables, because the client and server must agree on it exactly
 - `npm start` runs the build. `PORT` is read from the environment.
 - `/health` is available as a liveness probe.
 
-Deploy from the repository root so `shared/` is present at build time, then point the
-client at the deployed endpoint:
+### Required settings
+
+Deploy from the repository root: the server build inlines `shared/`, and the root
+`npm run build` produces both the server bundle and the client.
+
+| Setting | Value |
+| --- | --- |
+| Root directory | the repository root (not `server/`) |
+| Build command | `npm install && npm run build` |
+| Start command | `npm start` |
+
+Set one environment variable in addition to the environment's own `NODE_ENV`:
 
 ```
-VITE_SERVER_URL=wss://<your-app>.colyseus.cloud
+NPM_CONFIG_PRODUCTION=false
 ```
 
-Alternatively set `SERVE_CLIENT=true` on the server to serve the built client from the
-same process, in which case the client derives the endpoint from the page origin and
-`VITE_SERVER_URL` can be left unset.
+Colyseus Cloud installs with npm's production flag on, which skips `devDependencies`.
+The build tooling (`esbuild`, `vite`, `typescript`) lives there, so without this the
+deploy fails during `npm run build` with `vite: not found` or `esbuild: not found`.
+
+### Serving the client
+
+With `NODE_ENV=production` the server also serves `client/dist` from the same process
+(`SERVE_CLIENT` defaults to on), so a single deployment covers both the game and the
+multiplayer. The client derives its endpoint from the page origin, which means
+`VITE_SERVER_URL` can stay unset and there is no CORS to configure. Look for
+`Serving client build` in the startup logs to confirm.
+
+### Hosting the client elsewhere
+
+To serve the client from your own web server instead, set `SERVE_CLIENT=false` on the
+deployment and point the client at the endpoint at build time:
+
+```bash
+VITE_SERVER_URL=wss://<your-app>.colyseus.cloud npm run build:client
+```
+
+`VITE_SERVER_URL` is baked in at build time, not read at runtime, so the client must be
+rebuilt whenever the endpoint changes. Set `CORS_ORIGIN` to the site's origin, since the
+matchmaking request is then cross-origin.
 
 ---
 
