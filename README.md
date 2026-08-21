@@ -223,6 +223,11 @@ Deploy from the repository root: the server build inlines `shared/`, and the roo
 | Build command | `npm install && npm run build` |
 | Start command | `npm start` |
 
+`ecosystem.config.cjs` in the repository root is required: Colyseus Cloud runs the
+app under PM2 and its post-deploy hook aborts with "missing ecosystem config file"
+if it is absent. It pins the process count to 1, which suits a shared-vCPU plan and
+keeps every room in one memory space — raise it only alongside a larger plan.
+
 Set one environment variable in addition to the environment's own `NODE_ENV`:
 
 ```
