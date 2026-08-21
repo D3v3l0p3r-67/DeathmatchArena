@@ -1,0 +1,33 @@
+{
+  "name": "deathmatch-arena",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Deathmatch Arena - server-authoritative browser multiplayer 2D shooter (Phaser 3 + Colyseus)",
+  "type": "module",
+  "workspaces": [
+    "shared",
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,client -c cyan,magenta \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "npm run dev --workspace @deathmatch/server",
+    "dev:client": "npm run dev --workspace @deathmatch/client",
+    "build": "npm run build:server && npm run build:client",
+    "build:server": "npm run build --workspace @deathmatch/server",
+    "build:client": "npm run build --workspace @deathmatch/client",
+    "start": "npm run start --workspace @deathmatch/server",
+    "typecheck": "tsc --noEmit -p tsconfig.json && npm run typecheck --workspaces --if-present",
+    "clean": "rm -rf node_modules */node_modules server/build client/dist",
+    "test": "tsx --test tests/**/*.test.ts"
+  },
+  "devDependencies": {
+    "@colyseus/sdk": "^0.17.43",
+    "concurrently": "^9.1.2",
+    "typescript": "^5.7.3",
+    "tsx": "^4.23.12"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
