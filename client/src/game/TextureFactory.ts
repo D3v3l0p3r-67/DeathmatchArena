@@ -21,6 +21,7 @@ export const TextureKeys = {
   Crate: "crate",
   PowerUpOrb: "power-up-orb",
   MeleeArc: "melee-arc",
+  Grenade: "grenade",
 } as const;
 
 export function generatePlaceholderTextures(scene: Phaser.Scene): void {
@@ -36,6 +37,7 @@ export function generatePlaceholderTextures(scene: Phaser.Scene): void {
   createCrate(scene);
   createPowerUpOrb(scene);
   createMeleeArc(scene);
+  createGrenade(scene);
 }
 
 /** White so it can be tinted per player; the silhouette carries the identity. */
@@ -171,6 +173,23 @@ function createMeleeArc(scene: Phaser.Scene): void {
   graphics.fillPath();
 
   graphics.generateTexture(TextureKeys.MeleeArc, size, size);
+  graphics.destroy();
+}
+
+/** A stubby cylinder with a lever, so it reads as a grenade at a glance. */
+function createGrenade(scene: Phaser.Scene): void {
+  const size = 18;
+  const graphics = scene.make.graphics({ x: 0, y: 0 }, false);
+
+  graphics.fillStyle(0x4d7c3f, 1);
+  graphics.fillRoundedRect(3, 2, 12, 14, 4);
+  graphics.fillStyle(0x2f4d27, 1);
+  graphics.fillRect(3, 8, 12, 2);
+  // The lever.
+  graphics.fillStyle(0xc9c9c9, 1);
+  graphics.fillRect(13, 0, 4, 6);
+
+  graphics.generateTexture(TextureKeys.Grenade, size, size);
   graphics.destroy();
 }
 

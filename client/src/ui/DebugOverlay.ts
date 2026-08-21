@@ -13,6 +13,7 @@ export interface DebugSnapshot {
   projectileCount: number;
   crateCount: number;
   powerUpCount: number;
+  grenadeCount: number;
 }
 
 /**
@@ -37,6 +38,7 @@ export class DebugOverlay {
     projectiles: requireElement("debug-projectiles"),
     crates: requireElement("debug-crates"),
     powerUps: requireElement("debug-powerups"),
+    grenades: requireElement("debug-grenades"),
   };
 
   private visible = false;
@@ -83,5 +85,6 @@ export class DebugOverlay {
     setText(this.fields.projectiles, String(snapshot.projectileCount));
     setText(this.fields.crates, String(snapshot.crateCount));
     setText(this.fields.powerUps, String(snapshot.powerUpCount));
+    setText(this.fields.grenades, String(snapshot.grenadeCount));
   }
 }

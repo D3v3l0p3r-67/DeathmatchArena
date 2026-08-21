@@ -11,6 +11,7 @@ import {
 import type { PlayerRuntime } from "../rooms/PlayerRuntime.js";
 import type { RoomContext } from "../rooms/RoomContext.js";
 import type { PlayerState } from "../rooms/schema/PlayerState.js";
+import type { GrenadeSystem } from "./GrenadeSystem.js";
 import type { WeaponSystem } from "./WeaponSystem.js";
 
 /**
@@ -31,6 +32,7 @@ export class MovementSystem {
     private readonly context: RoomContext,
     private readonly world: CollisionWorld,
     private readonly weapons: WeaponSystem,
+    private readonly grenades: GrenadeSystem,
     /** The playable limits, which the closing walls narrow over a match. */
     private readonly getBounds: () => WorldBounds,
   ) {}
@@ -90,6 +92,9 @@ export class MovementSystem {
       stepPlayerMovement(runtime.movement, input, FIXED_DELTA, this.world, bounds);
       player.aimAngle = input.aimAngle;
       this.weapons.processInput(player, runtime, input, now);
+      // Grenades share the tick so a throw leaves from the exact position the
+      // player occupied when they released the button.
+      this.grenades.processInput(player, runtime, input, now);
 
       copyInput(input, runtime.lastInput);
       player.lastProcessedInput = input.seq;
@@ -118,5 +123,6 @@ function copyInput(source: InputCommand, target: InputCommand): void {
   target.jump = source.jump;
   target.fire = source.fire;
   target.reload = source.reload;
+  target.chargeGrenade = source.chargeGrenade;
   target.aimAngle = source.aimAngle;
 }

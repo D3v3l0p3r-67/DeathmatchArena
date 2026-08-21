@@ -20,6 +20,7 @@ import type {
   ArenaShrinkConfig,
   CrateConfig,
   GameConfig,
+  GrenadeConfig,
   PowerUpDefinition,
   PowerUpSpawnConfig,
   WeaponDefinition,
@@ -133,6 +134,10 @@ export class GameConfigView {
   getArenaShrinkConfig(): ArenaShrinkConfig {
     return this.config.arenaShrink;
   }
+
+  getGrenadeConfig(): GrenadeConfig {
+    return this.config.grenades;
+  }
 }
 
 /** Build an independent view over a deep copy of `config`. */
@@ -218,4 +223,8 @@ export function getPowerUpSpawnConfig(): PowerUpSpawnConfig {
 
 export function getArenaShrinkConfig(): ArenaShrinkConfig {
   return current.getArenaShrinkConfig();
+}
+
+export function getGrenadeConfig(): GrenadeConfig {
+  return current.getGrenadeConfig();
 }

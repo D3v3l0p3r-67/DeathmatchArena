@@ -62,6 +62,18 @@ export class PlayerState extends Schema implements SyncedPlayer {
    */
   @type("uint8") jumpsRemaining: number = PHYSICS.MAX_JUMPS;
 
+  /** Grenades left to throw. Only the server ever changes this. */
+  @type("uint8") grenades = 0;
+
+  /**
+   * True while the player is winding up a throw.
+   *
+   * Synchronised so other clients can show the wind-up; the local charge bar is
+   * drawn from the client's own press time for smoothness, but the strength that
+   * actually matters is measured here on the server.
+   */
+  @type("boolean") chargingGrenade = false;
+
   /**
    * Sequence number of the last input this player's state includes.
    * The client replays everything after it to reconcile its prediction.

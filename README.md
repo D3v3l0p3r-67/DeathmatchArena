@@ -44,7 +44,7 @@ Useful server endpoints in development:
 ### Other commands
 
 ```bash
-npm test           # 87 tests: physics, combat, power-ups, debug access, protocol and a real networked match
+npm test           # 104 tests: physics, combat, grenades, power-ups, debug access, protocol and a real networked match
 npm run typecheck  # tsc --noEmit across all three packages
 npm run build      # bundles the server and builds the client
 npm start          # runs the built server
@@ -60,6 +60,7 @@ D / Right Arrow     move right
 Space / W / Up      jump (press again in mid-air for a second jump)
 Mouse               aim
 Left Mouse          fire (hold — the rifle is automatic)
+Right Mouse         hold to charge a grenade throw, release to throw
 R                   reload
 Left / Right Arrow  switch spectated player (while dead)
 F3                  toggle the debug overlay
@@ -110,6 +111,7 @@ and is imported by both sides — nothing in `client/` or `server/` redefines it
 | `systems/MatchManager.ts` | Match lifecycle, spawning, damage resolution, eliminations, winner |
 | `systems/PowerUpSystem.ts` | Crate spawning and destruction, revealed pickups, active effects |
 | `systems/ArenaShrinkSystem.ts` | The closing walls, and the damage they do |
+| `systems/GrenadeSystem.ts` | Throw charging, grenade flight and bounces, fuses and blasts |
 | `debug/DebugAuthorizationService.ts` | Who may use debug tooling; the only place that decides |
 | `debug/DebugRegistry.ts` | The debug command catalogue and the room's tunable values |
 | `debug/DebugCommandService.ts` | Authorization gate, argument validation and dispatch |
@@ -347,6 +349,7 @@ does the power-up become an entity clients can see.
 | --- | --- | --- |
 | Medkit | `health-50` | Restores a configured fraction of maximum health, capped at the maximum. |
 | Speed Boost | `speed-boost` | Multiplies movement speed for a configured duration. |
+| Grenades | `grenade-pack` | Hands over a configured number of grenades, up to the carrying limit. |
 | Shotgun | `weapon-shotgun` | Grants the weapon named by `weaponId`. |
 | Chainsaw | `weapon-chainsaw` | Same mechanism, different `weaponId`. |
 
@@ -357,6 +360,34 @@ power-up that is disabled — or one granting a disabled weapon — never spawns
 Adding another weapon power-up is one entry in `config/defaults.ts`: the applier
 is registered per *type*, not per id, so `{ type: "weapon", weaponId: "..." }`
 needs no new code.
+
+### Grenades
+
+Every player starts a match with one grenade; more come from crates like anything
+else. Holding the right mouse button winds up a throw, and releasing it throws
+along the current aim.
+
+The client's entire contribution is *a held button and an aim angle*. It never
+sends a charge duration, a velocity, a hit or a damage number. The server sees
+the button go down, sees it come up, and measures the interval against its own
+clock — which is why a modified client cannot claim a full-power throw it never
+charged, and why holding for an hour still only yields the configured maximum.
+
+From there the server owns everything: the arc under gravity, the bounces off
+geometry and off the closing walls, the fuse, and the blast. Damage falls off
+linearly from the centre of the explosion to a configured floor at the edge, and
+the thrower is checked like everybody else — standing next to your own grenade
+hurts. Blasts open crates too.
+
+The HUD shows the grenade count, and a power bar while a throw is charging. The
+bar is drawn from the client's own press time so it moves at frame rate, but it
+fills against the same configured maximum the server measures with, so a full bar
+really is a full-power throw.
+
+Every value is configurable (`grenades`) and exposed as a room-scoped debug
+tunable: starting and maximum count, minimum and maximum throw speed, maximum
+charge time, gravity, bounciness, friction, fuse, blast radius, maximum damage,
+damage at the edge, and how many a pickup grants.
 
 ### Spawn points
 
@@ -500,6 +531,9 @@ npm test
   crush damage, disabling it) and the crate pipeline end to end: spawn points, weighted
   contents, crate damage and destruction, revealed pickups, collection, and every
   power-up effect including expiry. Also asserts a crate never exposes its contents.
+- **`tests/grenades.test.ts`** — the loadout, charge-to-speed curve (including an
+  absurd hold being clamped), flight under gravity, bouncing off geometry, the fuse,
+  and a blast that falls off with distance and catches the thrower too.
 - **`tests/protocol.test.ts`** — input codec round-trips, malformed payload rejection,
   name validation, rate limiting.
 - **`tests/match.test.ts`** — end-to-end against a real Colyseus server over a real

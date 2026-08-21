@@ -16,6 +16,7 @@ import type { PlayerRuntime } from "../rooms/PlayerRuntime.js";
 import type { RoomContext } from "../rooms/RoomContext.js";
 import type { PlayerState } from "../rooms/schema/PlayerState.js";
 import type { ArenaShrinkSystem } from "./ArenaShrinkSystem.js";
+import type { GrenadeSystem } from "./GrenadeSystem.js";
 import type { PowerUpSystem } from "./PowerUpSystem.js";
 import type { ProjectileSystem } from "./ProjectileSystem.js";
 import type { WeaponSystem } from "./WeaponSystem.js";
@@ -40,6 +41,7 @@ export class MatchManager {
     private readonly projectiles: ProjectileSystem,
     private readonly powerUps: PowerUpSystem,
     private readonly arenaShrink: ArenaShrinkSystem,
+    private readonly grenades: GrenadeSystem,
   ) {}
 
   update(now: number): void {
@@ -164,6 +166,7 @@ export class MatchManager {
     this.projectiles.clear();
     this.powerUps.clear();
     this.arenaShrink.reset();
+    this.grenades.clear();
 
     const standings = this.buildStandings();
     const payload: MatchResultMessage = {
@@ -188,6 +191,7 @@ export class MatchManager {
     this.projectiles.clear();
     this.powerUps.clear();
     this.arenaShrink.reset();
+    this.grenades.clear();
     this.requeueRequests.clear();
 
     for (const player of state.players.values()) {
@@ -203,6 +207,8 @@ export class MatchManager {
       player.lastProcessedInput = 0;
       // Power-up weapons are earned per match, never carried into the next one.
       player.weaponId = this.context.config.getDefaultWeaponId();
+      player.grenades = 0;
+      player.chargingGrenade = false;
       if (runtime) this.powerUps.clearSpeedBoost(player, runtime);
       runtime?.resetForMatch(now);
     }
@@ -250,6 +256,7 @@ export class MatchManager {
 
     // Everyone starts a match on the default weapon; the rest is earned from crates.
     this.weapons.equip(player, runtime, this.context.config.getDefaultWeaponId());
+    this.grenades.resupply(player);
   }
 
   /**
@@ -311,7 +318,11 @@ export class MatchManager {
 
     const runtime = this.context.runtimes.get(victim.sessionId);
     runtime?.clearInputs();
-    if (runtime) this.powerUps.clearSpeedBoost(victim, runtime);
+    if (runtime) {
+      this.powerUps.clearSpeedBoost(victim, runtime);
+      // A wind-up dies with its owner; grenades already in flight do not.
+      this.grenades.cancelCharge(victim, runtime);
+    }
     this.projectiles.destroyOwnedBy(victim.sessionId);
 
     if (killer && killer.sessionId !== victim.sessionId) {

@@ -12,6 +12,7 @@ import {
 import type { RoomContext } from "../rooms/RoomContext.js";
 import type { PlayerState } from "../rooms/schema/PlayerState.js";
 import type { MatchManager } from "../systems/MatchManager.js";
+import type { GrenadeSystem } from "../systems/GrenadeSystem.js";
 import type { PowerUpSystem } from "../systems/PowerUpSystem.js";
 import type { WeaponSystem } from "../systems/WeaponSystem.js";
 
@@ -20,6 +21,7 @@ export interface DebugCommandContext {
   room: RoomContext;
   weapons: WeaponSystem;
   powerUps: PowerUpSystem;
+  grenades: GrenadeSystem;
   matchManager: MatchManager;
   /** The room's current configuration view. */
   config: GameConfigView;
@@ -135,6 +137,120 @@ function buildTunables(config: GameConfig): Tunable[] {
       step: 1,
       read: (c) => c.crate.health,
       write: (c, v) => void (c.crate.health = Math.round(Number(v))),
+    },
+    {
+      path: "grenades.enabled",
+      label: "Grenades: enabled",
+      read: (c) => c.grenades.enabled,
+      write: (c, v) => void (c.grenades.enabled = Boolean(v)),
+    },
+    {
+      path: "grenades.startingCount",
+      label: "Grenades: starting count",
+      min: 0,
+      max: 20,
+      step: 1,
+      read: (c) => c.grenades.startingCount,
+      write: (c, v) => void (c.grenades.startingCount = Math.round(Number(v))),
+    },
+    {
+      path: "grenades.maxCount",
+      label: "Grenades: carrying limit",
+      min: 1,
+      max: 20,
+      step: 1,
+      read: (c) => c.grenades.maxCount,
+      write: (c, v) => void (c.grenades.maxCount = Math.round(Number(v))),
+    },
+    {
+      path: "grenades.minThrowSpeed",
+      label: "Grenades: min throw (px/s)",
+      min: 50,
+      max: 3000,
+      step: 10,
+      read: (c) => c.grenades.minThrowSpeed,
+      write: (c, v) => void (c.grenades.minThrowSpeed = Number(v)),
+    },
+    {
+      path: "grenades.maxThrowSpeed",
+      label: "Grenades: max throw (px/s)",
+      min: 50,
+      max: 4000,
+      step: 10,
+      read: (c) => c.grenades.maxThrowSpeed,
+      write: (c, v) => void (c.grenades.maxThrowSpeed = Number(v)),
+    },
+    {
+      path: "grenades.maxChargeMs",
+      label: "Grenades: max charge (ms)",
+      min: 50,
+      max: 10000,
+      step: 50,
+      read: (c) => c.grenades.maxChargeMs,
+      write: (c, v) => void (c.grenades.maxChargeMs = Number(v)),
+    },
+    {
+      path: "grenades.gravity",
+      label: "Grenades: gravity (px/s2)",
+      min: 0,
+      max: 8000,
+      step: 50,
+      read: (c) => c.grenades.gravity,
+      write: (c, v) => void (c.grenades.gravity = Number(v)),
+    },
+    {
+      path: "grenades.bounciness",
+      label: "Grenades: bounciness",
+      min: 0,
+      max: 1,
+      step: 0.02,
+      read: (c) => c.grenades.bounciness,
+      write: (c, v) => void (c.grenades.bounciness = Number(v)),
+    },
+    {
+      path: "grenades.friction",
+      label: "Grenades: friction",
+      min: 0,
+      max: 1,
+      step: 0.02,
+      read: (c) => c.grenades.friction,
+      write: (c, v) => void (c.grenades.friction = Number(v)),
+    },
+    {
+      path: "grenades.fuseMs",
+      label: "Grenades: fuse (ms)",
+      min: 100,
+      max: 20000,
+      step: 100,
+      read: (c) => c.grenades.fuseMs,
+      write: (c, v) => void (c.grenades.fuseMs = Number(v)),
+    },
+    {
+      path: "grenades.explosionRadius",
+      label: "Grenades: blast radius (px)",
+      min: 10,
+      max: 1200,
+      step: 5,
+      read: (c) => c.grenades.explosionRadius,
+      write: (c, v) => void (c.grenades.explosionRadius = Number(v)),
+    },
+    {
+      path: "grenades.maxDamage",
+      label: "Grenades: max damage",
+      min: 0,
+      max: 500,
+      step: 1,
+      read: (c) => c.grenades.maxDamage,
+      write: (c, v) => void (c.grenades.maxDamage = Number(v)),
+    },
+    {
+      path: "grenades.minDamageMultiplier",
+      label: "Grenades: damage at edge",
+      min: 0,
+      max: 1,
+      step: 0.02,
+      read: (c) => c.grenades.minDamageMultiplier,
+      write: (c, v) => void (c.grenades.minDamageMultiplier = Number(v)),
     },
     {
       path: "arenaShrink.enabled",
@@ -384,6 +500,24 @@ function buildTunables(config: GameConfig): Tunable[] {
       });
     }
 
+    if (powerUp.type === PowerUpType.GRENADE) {
+      tunables.push({
+        path: `${prefix}.amount`,
+        label: `${name}: grenades granted`,
+        min: 1,
+        max: 20,
+        step: 1,
+        read: (c) => {
+          const target = powerUpBy(c, id);
+          return target?.type === PowerUpType.GRENADE ? target.amount : undefined;
+        },
+        write: (c, v) => {
+          const target = powerUpBy(c, id);
+          if (target?.type === PowerUpType.GRENADE) target.amount = Math.round(Number(v));
+        },
+      });
+    }
+
     if (powerUp.type === PowerUpType.SPEED) {
       tunables.push(
         {
@@ -579,6 +713,32 @@ export class DebugRegistry {
           return applied > 0
             ? { ok: true, message: `Applied ${definition.name} to ${applied} player(s)` }
             : { ok: false, message: `${definition.name} had no effect on the target` };
+        },
+      },
+
+      {
+        spec: {
+          id: "grant-grenades",
+          label: "Grant grenades",
+          description: "Top a player up to the carrying limit.",
+          category: "Loadout",
+          params: [
+            targetParam,
+            { key: "amount", label: "Amount", type: "number", min: 1, max: 20, step: 1, defaultValue: 1 },
+          ],
+        },
+        run: (context, args) => {
+          const amount = Math.max(1, Math.round(Number(args.amount)));
+          const targets = resolveTargets(context, args.target);
+          if (targets.length === 0) return { ok: false, message: "No matching player" };
+
+          let granted = 0;
+          for (const player of targets) {
+            if (context.grenades.grant(player, amount)) granted += 1;
+          }
+          return granted > 0
+            ? { ok: true, message: `Gave grenades to ${granted} player(s)` }
+            : { ok: false, message: "Everyone targeted is already carrying the maximum" };
         },
       },
 

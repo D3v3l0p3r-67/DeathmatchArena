@@ -10,6 +10,7 @@ import {
   type DebugCommandRequest,
   type DebugCommandResult,
   type DebugStatePayload,
+  type GrenadeExplodedPayload,
   type InputCommand,
   type MeleeSwingPayload,
   type KillPayload,
@@ -21,6 +22,7 @@ import {
   type PowerUpCollectedPayload,
   type SyncedCrate,
   type SyncedGameState,
+  type SyncedGrenade,
   type SyncedPlayer,
   type SyncedPowerUp,
   type SyncedProjectile,
@@ -43,6 +45,8 @@ export interface NetworkEvents {
   crateRemoved: { crate: SyncedCrate };
   powerUpAdded: { powerUp: SyncedPowerUp };
   powerUpRemoved: { powerUp: SyncedPowerUp };
+  grenadeAdded: { grenade: SyncedGrenade };
+  grenadeRemoved: { grenade: SyncedGrenade };
   matchStateChanged: { matchState: MatchStateValue };
   countdownChanged: { seconds: number };
   kill: KillPayload;
@@ -55,6 +59,7 @@ export interface NetworkEvents {
   debugResult: DebugCommandResult;
   crateDestroyed: CrateDestroyedPayload;
   meleeSwing: MeleeSwingPayload;
+  grenadeExploded: GrenadeExplodedPayload;
   disconnected: { code: number; reason: string };
   error: { message: string };
 }
@@ -284,6 +289,13 @@ export class NetworkManager {
       this.events.emit("powerUpRemoved", { powerUp });
     });
 
+    $(room.state).grenades.onAdd((grenade: SyncedGrenade) => {
+      this.events.emit("grenadeAdded", { grenade });
+    });
+    $(room.state).grenades.onRemove((grenade: SyncedGrenade) => {
+      this.events.emit("grenadeRemoved", { grenade });
+    });
+
     $(room.state).listen("matchState", (matchState: MatchStateValue) => {
       this.events.emit("matchStateChanged", { matchState });
     });
@@ -311,6 +323,9 @@ export class NetworkManager {
     );
     room.onMessage(ServerMessage.MELEE_SWING, (payload: MeleeSwingPayload) =>
       this.events.emit("meleeSwing", payload),
+    );
+    room.onMessage(ServerMessage.GRENADE_EXPLODED, (payload: GrenadeExplodedPayload) =>
+      this.events.emit("grenadeExploded", payload),
     );
     room.onMessage(ServerMessage.DEBUG_STATE, (payload: DebugStatePayload) =>
       this.events.emit("debugState", payload),
@@ -380,6 +395,10 @@ type StateCallbackProxy = (state: SyncedGameState) => {
   powerUps: {
     onAdd(callback: (powerUp: SyncedPowerUp, id: string) => void): void;
     onRemove(callback: (powerUp: SyncedPowerUp, id: string) => void): void;
+  };
+  grenades: {
+    onAdd(callback: (grenade: SyncedGrenade, id: string) => void): void;
+    onRemove(callback: (grenade: SyncedGrenade, id: string) => void): void;
   };
   listen<K extends keyof SyncedGameState>(
     field: K,

@@ -39,6 +39,7 @@ import { DebugRegistry, type DebugCommandContext } from "../debug/DebugRegistry.
 import { createLogger, type Logger } from "../utils/logger.js";
 import { ArenaShrinkSystem } from "../systems/ArenaShrinkSystem.js";
 import { CollisionSystem } from "../systems/CollisionSystem.js";
+import { GrenadeSystem } from "../systems/GrenadeSystem.js";
 import { MatchManager } from "../systems/MatchManager.js";
 import { MovementSystem } from "../systems/MovementSystem.js";
 import { PowerUpSystem } from "../systems/PowerUpSystem.js";
@@ -77,6 +78,7 @@ export class BattleRoom extends Room<{ state: GameState }> {
   private weaponSystem!: WeaponSystem;
   private powerUpSystem!: PowerUpSystem;
   private arenaShrinkSystem!: ArenaShrinkSystem;
+  private grenadeSystem!: GrenadeSystem;
   private movementSystem!: MovementSystem;
   private matchManager!: MatchManager;
 
@@ -120,12 +122,14 @@ export class BattleRoom extends Room<{ state: GameState }> {
     this.collisionSystem = new CollisionSystem(this.world);
     this.projectileSystem = new ProjectileSystem(this.context, this.collisionSystem);
     this.weaponSystem = new WeaponSystem(this.context, this.projectileSystem, this.collisionSystem);
-    this.powerUpSystem = new PowerUpSystem(this.context, this.weaponSystem);
     this.arenaShrinkSystem = new ArenaShrinkSystem(this.context);
+    this.grenadeSystem = new GrenadeSystem(this.context, () => this.arenaShrinkSystem.bounds);
+    this.powerUpSystem = new PowerUpSystem(this.context, this.weaponSystem, this.grenadeSystem);
     this.movementSystem = new MovementSystem(
       this.context,
       this.world,
       this.weaponSystem,
+      this.grenadeSystem,
       () => this.arenaShrinkSystem.bounds,
     );
     this.matchManager = new MatchManager(
@@ -134,6 +138,7 @@ export class BattleRoom extends Room<{ state: GameState }> {
       this.projectileSystem,
       this.powerUpSystem,
       this.arenaShrinkSystem,
+      this.grenadeSystem,
     );
 
     // The walls start at the arena's own edges, so clients have sane limits
@@ -297,6 +302,7 @@ export class BattleRoom extends Room<{ state: GameState }> {
       this.projectileSystem.update(FIXED_DELTA, now);
       this.powerUpSystem.update(now);
       this.arenaShrinkSystem.update(FIXED_DELTA, now);
+      this.grenadeSystem.update(FIXED_DELTA, now);
       this.matchManager.update(now);
     }
 
@@ -426,6 +432,7 @@ export class BattleRoom extends Room<{ state: GameState }> {
       room: this.context,
       weapons: this.weaponSystem,
       powerUps: this.powerUpSystem,
+      grenades: this.grenadeSystem,
       matchManager: this.matchManager,
       config: this.configView,
       replaceConfig: (config) => {
@@ -448,6 +455,7 @@ export class BattleRoom extends Room<{ state: GameState }> {
 
   private removePlayer(sessionId: string): void {
     this.projectileSystem.destroyOwnedBy(sessionId);
+    this.grenadeSystem.destroyOwnedBy(sessionId);
     this.state.players.delete(sessionId);
     this.runtimes.delete(sessionId);
     this.clientsBySession.delete(sessionId);

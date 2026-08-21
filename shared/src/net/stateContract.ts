@@ -40,6 +40,10 @@ export interface SyncedPlayer {
   readonly boostSeconds: number;
   /** Jumps left before landing; 0 means the mid-air jump is spent. */
   readonly jumpsRemaining: number;
+  /** Grenades left to throw. */
+  readonly grenades: number;
+  /** True while this player is winding up a grenade throw. */
+  readonly chargingGrenade: boolean;
   /** Sequence number of the last input included in this snapshot. */
   readonly lastProcessedInput: number;
   readonly connected: boolean;
@@ -86,6 +90,18 @@ export interface SyncedPowerUp {
   readonly y: number;
 }
 
+/** A grenade in flight. The explosion is resolved entirely server-side. */
+export interface SyncedGrenade {
+  readonly id: string;
+  readonly ownerId: string;
+  readonly x: number;
+  readonly y: number;
+  readonly velocityX: number;
+  readonly velocityY: number;
+  /** Whole seconds left on the fuse. */
+  readonly fuseSeconds: number;
+}
+
 export interface SyncedGameState {
   readonly matchState: MatchStateValue;
   readonly arenaId: string;
@@ -93,6 +109,7 @@ export interface SyncedGameState {
   readonly projectiles: ReadonlyMap<string, SyncedProjectile>;
   readonly crates: ReadonlyMap<string, SyncedCrate>;
   readonly powerUps: ReadonlyMap<string, SyncedPowerUp>;
+  readonly grenades: ReadonlyMap<string, SyncedGrenade>;
   readonly countdownSeconds: number;
   readonly playerCount: number;
   readonly aliveCount: number;

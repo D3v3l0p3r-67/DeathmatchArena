@@ -6,6 +6,7 @@ import {
   validatePlayerName,
   type MatchResultMessage,
   type MatchStateValue,
+  getGrenadeConfig,
   type PowerUpCollectedPayload,
 } from "@deathmatch/shared";
 import { clientConfig } from "./config.js";
@@ -350,6 +351,7 @@ export class App {
       totalPlayers: state.startingPlayerCount || state.playerCount,
       shrinkCountdownSeconds: state.shrinkCountdownSeconds,
       shrinking: state.shrinking,
+      grenadeCharge: this.getGameScene()?.getGrenadeChargeProgress(grenadeMaxChargeMs()) ?? 0,
     });
 
     const scene = this.getGameScene();
@@ -379,6 +381,7 @@ export class App {
       projectileCount: scene?.projectileCount ?? 0,
       crateCount: scene?.crateCount ?? 0,
       powerUpCount: scene?.powerUpCount ?? 0,
+      grenadeCount: scene?.grenadeCount ?? 0,
     });
   }
 
@@ -406,3 +409,8 @@ export class App {
 }
 
 export { BOOT_SCENE_KEY };
+
+/** The configured wind-up time the local power bar fills against. */
+function grenadeMaxChargeMs(): number {
+  return getGrenadeConfig().maxChargeMs;
+}

@@ -64,6 +64,44 @@ export class EffectsSystem {
     });
   }
 
+  /**
+   * A grenade blast, drawn at the radius the server actually used.
+   *
+   * The ring is the damage radius, so what you see is what hurt you.
+   */
+  explosion(x: number, y: number, radius: number): void {
+    const flash = this.scene.add
+      .image(x, y, TextureKeys.BulletGlow)
+      .setTint(0xffb347)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setDepth(19)
+      .setScale(radius / 24);
+
+    this.scene.tweens.add({
+      targets: flash,
+      alpha: { from: 1, to: 0 },
+      scale: (radius / 24) * 1.5,
+      duration: 380,
+      ease: "Quad.easeOut",
+      onComplete: () => flash.destroy(),
+    });
+
+    const ring = this.scene.add
+      .circle(x, y, radius, 0xff6b6b, 0)
+      .setStrokeStyle(3, 0xff8a4a, 0.9)
+      .setDepth(19);
+
+    this.scene.tweens.add({
+      targets: ring,
+      alpha: 0,
+      duration: 420,
+      ease: "Quad.easeOut",
+      onComplete: () => ring.destroy(),
+    });
+
+    this.impact(x, y, 0xffb347, 22);
+  }
+
   impact(x: number, y: number, color = 0xffd166, count = 6): void {
     for (let i = 0; i < count; i++) {
       const angle = Math.random() * Math.PI * 2;

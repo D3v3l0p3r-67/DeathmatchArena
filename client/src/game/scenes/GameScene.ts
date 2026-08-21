@@ -13,7 +13,9 @@ import {
   type MeleeSwingPayload,
   type PowerUpCollectedPayload,
   type SyncedCrate,
+  type GrenadeExplodedPayload,
   type SyncedGameState,
+  type SyncedGrenade,
   type SyncedPlayer,
   type SyncedPowerUp,
   type SyncedProjectile,
@@ -27,6 +29,7 @@ import { EffectsSystem } from "../EffectsSystem.js";
 import { InputController } from "../InputController.js";
 import { ShrinkWallsView } from "../ShrinkWallsView.js";
 import { CrateView } from "../entities/CrateView.js";
+import { GrenadeView } from "../entities/GrenadeView.js";
 import { PlayerView } from "../entities/PlayerView.js";
 import { PowerUpView } from "../entities/PowerUpView.js";
 import { ProjectileView } from "../entities/ProjectileView.js";
@@ -76,6 +79,7 @@ export class GameScene extends Phaser.Scene {
   private readonly projectileViews = new Map<string, ProjectileView>();
   private readonly crateViews = new Map<string, CrateView>();
   private readonly powerUpViews = new Map<string, PowerUpView>();
+  private readonly grenadeViews = new Map<string, GrenadeView>();
 
   private accumulatorMs = 0;
   private started = false;
@@ -137,6 +141,9 @@ export class GameScene extends Phaser.Scene {
     events.on("crateDestroyed", (payload) => this.onCrateDestroyed(payload));
     events.on("powerUpCollected", (payload) => this.onPowerUpCollected(payload));
     events.on("meleeSwing", (payload) => this.onMeleeSwing(payload));
+    events.on("grenadeAdded", ({ grenade }) => this.addGrenadeView(grenade));
+    events.on("grenadeRemoved", ({ grenade }) => this.removeGrenadeView(grenade));
+    events.on("grenadeExploded", (payload) => this.onGrenadeExploded(payload));
     events.on("patch", ({ state, receivedAt }) => this.onPatch(state, receivedAt));
     events.on("damage", (payload) => this.onDamage(payload));
     events.on("matchStateChanged", ({ matchState }) => this.onMatchStateChanged(matchState));
@@ -154,6 +161,35 @@ export class GameScene extends Phaser.Scene {
     for (const projectile of state.projectiles.values()) this.addProjectileView(projectile);
     for (const crate of state.crates.values()) this.addCrateView(crate);
     for (const powerUp of state.powerUps.values()) this.addPowerUpView(powerUp);
+    for (const grenade of state.grenades.values()) this.addGrenadeView(grenade);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Grenades
+  // ---------------------------------------------------------------------------
+
+  private addGrenadeView(grenade: SyncedGrenade): void {
+    if (this.grenadeViews.has(grenade.id)) return;
+    this.grenadeViews.set(grenade.id, new GrenadeView(this, grenade, performance.now()));
+  }
+
+  private removeGrenadeView(grenade: SyncedGrenade): void {
+    this.grenadeViews.get(grenade.id)?.destroy();
+    this.grenadeViews.delete(grenade.id);
+  }
+
+  /** The blast is already resolved; this only makes it visible. */
+  private onGrenadeExploded(payload: GrenadeExplodedPayload): void {
+    this.effects.explosion(payload.x, payload.y, payload.radius);
+
+    // Shake harder the closer the blast was to whoever is being watched.
+    const view = this.playerViews.get(this.spectateTargetId || this.network.sessionId);
+    if (!view) return;
+    const distance = Math.hypot(view.container.x - payload.x, view.container.y - payload.y);
+    if (distance > payload.radius * 3) return;
+
+    const strength = 1 - Math.min(1, distance / (payload.radius * 3));
+    this.cameraController.shake(260, 0.004 + strength * 0.012);
   }
 
   // ---------------------------------------------------------------------------
@@ -309,6 +345,10 @@ export class GameScene extends Phaser.Scene {
       const powerUp = state.powerUps.get(id);
       if (powerUp) view.refresh(powerUp);
     }
+    for (const [id, view] of this.grenadeViews) {
+      const grenade = state.grenades.get(id);
+      if (grenade) view.syncFromServer(grenade, receivedAt);
+    }
 
     this.detectLocalDeath(state);
   }
@@ -366,6 +406,8 @@ export class GameScene extends Phaser.Scene {
       this.crateViews.clear();
       for (const view of this.powerUpViews.values()) view.destroy();
       this.powerUpViews.clear();
+      for (const view of this.grenadeViews.values()) view.destroy();
+      this.grenadeViews.clear();
     }
   }
 
@@ -387,8 +429,17 @@ export class GameScene extends Phaser.Scene {
     this.renderLocalPlayer(deltaSeconds);
     this.renderRemotePlayers(now, deltaSeconds);
     this.renderProjectiles(now);
+    this.renderGrenades(now, deltaSeconds);
     this.renderShrinkWalls(deltaSeconds);
     this.updateCamera(deltaSeconds);
+  }
+
+  private renderGrenades(now: number, deltaSeconds: number): void {
+    const state = this.network.state;
+    if (!state) return;
+    for (const [id, view] of this.grenadeViews) {
+      view.render(now, deltaSeconds, state.grenades.get(id)?.fuseSeconds ?? 0);
+    }
   }
 
   private renderShrinkWalls(deltaSeconds: number): void {
@@ -598,6 +649,15 @@ export class GameScene extends Phaser.Scene {
 
   get powerUpCount(): number {
     return this.powerUpViews.size;
+  }
+
+  get grenadeCount(): number {
+    return this.grenadeViews.size;
+  }
+
+  /** Local wind-up progress, 0..1, for the HUD power bar. */
+  getGrenadeChargeProgress(maxChargeMs: number): number {
+    return this.inputController.chargeProgress(maxChargeMs);
   }
 
   /** Tear everything down when leaving a room, so the scene can be reused. */
