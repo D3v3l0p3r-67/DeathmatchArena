@@ -104,9 +104,17 @@
               <span id="hud-ammo">30</span><span class="weapon__ammo-sep">/</span
               ><span id="hud-magazine">30</span>
             </div>
+            <div class="weapon__melee" id="hud-melee">MELEE</div>
             <div class="weapon__reload" id="hud-reload">
               <span class="weapon__reload-label">RELOADING</span>
               <div class="weapon__reload-bar"><div class="weapon__reload-fill" id="hud-reload-fill"></div></div>
+            </div>
+          </div>
+
+          <div class="effects" id="hud-effects">
+            <div class="effect effect--speed" id="hud-effect-speed">
+              <span class="effect__label">SPEED</span>
+              <span class="effect__timer" id="hud-effect-speed-timer">0s</span>
             </div>
           </div>
         </div>
@@ -167,6 +175,8 @@
         <div class="debug__row"><span>Session</span><b id="debug-session">-</b></div>
         <div class="debug__row"><span>Players</span><b id="debug-players">-</b></div>
         <div class="debug__row"><span>Projectiles</span><b id="debug-projectiles">-</b></div>
+        <div class="debug__row"><span>Crates</span><b id="debug-crates">-</b></div>
+        <div class="debug__row"><span>Power-ups</span><b id="debug-powerups">-</b></div>
         <div class="debug__hint">F3 toggles this overlay</div>
       </div>
     </div>

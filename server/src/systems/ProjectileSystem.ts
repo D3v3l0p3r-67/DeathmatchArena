@@ -1,10 +1,12 @@
 import {
   PROJECTILE,
+  getDamageAtDistance,
   getProjectileLifetimeMs,
   type WeaponDefinition,
 } from "@deathmatch/shared";
 import type { RoomContext } from "../rooms/RoomContext.js";
 import { ProjectileState } from "../rooms/schema/ProjectileState.js";
+import type { CrateState } from "../rooms/schema/CrateState.js";
 import type { PlayerState } from "../rooms/schema/PlayerState.js";
 import type { CollisionSystem } from "./CollisionSystem.js";
 
@@ -15,6 +17,8 @@ interface ProjectileRuntime {
   /** Distance travelled so far, checked against the weapon's range. */
   travelled: number;
   maxDistance: number;
+  /** Kept so damage can be re-evaluated against the distance actually flown. */
+  weapon: WeaponDefinition;
 }
 
 /**
@@ -57,8 +61,9 @@ export class ProjectileSystem {
     state.ownerId = ownerId;
     state.x = x;
     state.y = y;
-    state.velocityX = Math.cos(angle) * weapon.bulletSpeed;
-    state.velocityY = Math.sin(angle) * weapon.bulletSpeed;
+    const bulletSpeed = weapon.ranged?.bulletSpeed ?? 0;
+    state.velocityX = Math.cos(angle) * bulletSpeed;
+    state.velocityY = Math.sin(angle) * bulletSpeed;
     state.damage = weapon.damage;
     state.createdAt = now;
     state.weaponId = weapon.id;
@@ -69,6 +74,7 @@ export class ProjectileSystem {
       expiresAt: now + lifetime,
       travelled: 0,
       maxDistance: weapon.range,
+      weapon,
     });
     this.context.state.projectiles.set(state.id, state);
 
@@ -80,17 +86,23 @@ export class ProjectileSystem {
     if (this.runtimes.size === 0) return;
 
     const playerList = Array.from(this.context.state.players.values());
+    const crateList = Array.from(this.context.state.crates.values());
 
     for (const runtime of Array.from(this.runtimes.values())) {
       if (now >= runtime.expiresAt) {
         this.destroy(runtime.state.id);
         continue;
       }
-      this.advance(runtime, dt, playerList);
+      this.advance(runtime, dt, playerList, crateList);
     }
   }
 
-  private advance(runtime: ProjectileRuntime, dt: number, players: readonly PlayerState[]): void {
+  private advance(
+    runtime: ProjectileRuntime,
+    dt: number,
+    players: readonly PlayerState[],
+    crates: readonly CrateState[],
+  ): void {
     const state = runtime.state;
     const totalDx = state.velocityX * dt;
     const totalDy = state.velocityY * dt;
@@ -111,16 +123,41 @@ export class ProjectileSystem {
       // Players take priority: a bullet that would clip a wall behind a player
       // must still register the hit.
       const playerHit = this.collision.raycastPlayers(fromX, fromY, toX, toY, players, state.ownerId);
+      const crateHit = this.collision.raycastCrates(fromX, fromY, toX, toY, crates);
       const worldHit = this.collision.raycastWorld(fromX, fromY, toX, toY);
 
-      if (playerHit && (!worldHit || playerHit.t <= worldHit.t)) {
+      // Whichever of the three the bullet reaches first is what it hits.
+      const firstT = Math.min(
+        playerHit?.t ?? Number.POSITIVE_INFINITY,
+        crateHit?.t ?? Number.POSITIVE_INFINITY,
+        worldHit?.t ?? Number.POSITIVE_INFINITY,
+      );
+
+      if (playerHit && playerHit.t === firstT) {
+        // Damage is evaluated at the distance actually flown, so a falloff weapon
+        // is only as strong as the range it hit from.
+        const distance = runtime.travelled + stepDistance * playerHit.t;
         this.context.applyDamage(
           playerHit.player.sessionId,
           state.ownerId,
-          state.damage,
+          getDamageAtDistance(runtime.weapon, distance),
           playerHit.x,
           playerHit.y,
           state.weaponId,
+        );
+        this.destroy(state.id);
+        return;
+      }
+
+      if (crateHit && crateHit.t === firstT) {
+        const distance = runtime.travelled + stepDistance * crateHit.t;
+        state.x = crateHit.x;
+        state.y = crateHit.y;
+        this.context.damageCrate(
+          crateHit.crate.id,
+          getDamageAtDistance(runtime.weapon, distance),
+          state.ownerId,
+          this.context.now(),
         );
         this.destroy(state.id);
         return;

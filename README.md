@@ -44,7 +44,7 @@ Useful server endpoints in development:
 ### Other commands
 
 ```bash
-npm test           # 33 tests: physics, combat, protocol, and a real networked match
+npm test           # 61 tests: physics, combat, power-ups, protocol, and a real networked match
 npm run typecheck  # tsc --noEmit across all three packages
 npm run build      # bundles the server and builds the client
 npm start          # runs the built server
@@ -70,7 +70,7 @@ F3                  toggle the debug overlay
 ## Repository layout
 
 ```
-shared/    constants, types, physics, weapon data, network contracts
+shared/    constants, types, physics, configuration, network contracts
 server/    authoritative Colyseus server
 client/    Phaser 3 client
 tests/     unit + end-to-end tests (run against a real server over a real socket)
@@ -83,10 +83,14 @@ and is imported by both sides — nothing in `client/` or `server/` redefines it
 
 | File | Contents |
 | --- | --- |
+| `config/types.ts` | The configuration data model: weapons, power-ups, crates, spawning |
+| `config/defaults.ts` | The values the game ships with — data, no logic |
+| `config/registry.ts` | The accessors gameplay reads, and the hook for loading config from elsewhere |
 | `game/constants.ts` | Tick rates, network tuning, match rules, player physics |
 | `game/physics.ts` | The movement step, used by both server simulation and client prediction |
-| `game/arena.ts` | Arena geometry and spawn points |
-| `game/weapons.ts` | Data-driven weapon definitions |
+| `game/arena.ts` | Arena geometry, player spawn points and power-up spawn points |
+| `game/weapons.ts` | Weapon behaviour derived from weapon data (fire interval, damage falloff, melee arc) |
+| `game/powerups.ts` | Power-up behaviour derived from power-up data (health restore, weighted picks) |
 | `game/CollisionWorld.ts` | Broadphase + raycasting against arena geometry |
 | `net/messages.ts` | Message names and payload types |
 | `net/inputCodec.ts` | Compact input encoding, with decode-side validation |
@@ -104,6 +108,7 @@ and is imported by both sides — nothing in `client/` or `server/` redefines it
 | `systems/ProjectileSystem.ts` | Projectile movement, lifetime, and swept collision |
 | `systems/CollisionSystem.ts` | Segment-vs-world and segment-vs-player tests |
 | `systems/MatchManager.ts` | Match lifecycle, spawning, damage resolution, eliminations, winner |
+| `systems/PowerUpSystem.ts` | Crate spawning and destruction, revealed pickups, active effects |
 
 Systems depend on a small `RoomContext` interface rather than on `BattleRoom`, which
 keeps them unit-testable and free of circular imports.
@@ -261,6 +266,103 @@ matchmaking request is then cross-origin.
 
 ---
 
+## Weapons, power-ups and crates
+
+All of it is data. Gameplay systems read definitions and act on them; nothing
+branches on a weapon or power-up id, so a new weapon or a retuned drop rate is a
+configuration change rather than a code change.
+
+### Weapons
+
+| Weapon | Id | Character |
+| --- | --- | --- |
+| Assault Rifle | `assault-rifle` | The starting weapon. Automatic, accurate, flat damage at any range. |
+| Shotgun | `shotgun` | Nine pellets per shot, wide spread, brutal in a corridor and nearly harmless across the arena. |
+| Chainsaw | `chainsaw` | Melee. No projectile, no ammunition, very high damage — but it only hurts what it can actually touch. |
+
+A weapon definition carries `damage`, `range`, `fireRate`, `magazineSize` and
+`reloadTime` in common, plus one optional block for what only its kind needs:
+
+- **`ranged`** — `bulletSpeed`, `spread`, `pellets`, and an optional `falloff`
+  curve. The shotgun is simply a weapon whose definition asks for nine pellets
+  and a steep falloff; there is no shotgun-specific branch anywhere.
+- **`melee`** — `arcDegrees` and `attackIntervalMs`. The server tests, from its
+  own positions, whether anything is inside the arc, within range, and not behind
+  a wall. The client only ever says *"I swung"* — it cannot name a victim.
+
+Damage falloff holds full damage to `startDistance`, falls linearly to
+`minMultiplier` at `endDistance`, and stays there. It is evaluated against the
+distance a projectile actually flew, so a weapon is only as strong as the range
+it hit from.
+
+### Power-ups
+
+Power-ups never appear directly in the arena. The flow is entirely server-owned:
+
+```
+spawn timer -> free spawn point -> crate (contents chosen by weight)
+            -> damage -> destruction -> revealed pickup -> contact -> effect
+```
+
+A crate's contents are held server-side and are **not** part of the synchronised
+state, so no client can see inside an unopened crate. Only when the crate breaks
+does the power-up become an entity clients can see.
+
+| Power-up | Id | Effect |
+| --- | --- | --- |
+| Medkit | `health-50` | Restores a configured fraction of maximum health, capped at the maximum. |
+| Speed Boost | `speed-boost` | Multiplies movement speed for a configured duration. |
+| Shotgun | `weapon-shotgun` | Grants the weapon named by `weaponId`. |
+| Chainsaw | `weapon-chainsaw` | Same mechanism, different `weaponId`. |
+
+Crate contents are drawn by **weight**, not uniformly. Weights are relative, so
+`30 / 30 / 25 / 15` means the medkit is twice as likely as the chainsaw. A
+power-up that is disabled — or one granting a disabled weapon — never spawns.
+
+Adding another weapon power-up is one entry in `config/defaults.ts`: the applier
+is registered per *type*, not per id, so `{ type: "weapon", weaponId: "..." }`
+needs no new code.
+
+### Spawn points
+
+Power-up spawn points live on the **arena**, not in the game config, because a
+position is only meaningful against that map's geometry — a new map brings its
+own set, and points can be added or removed freely. The server picks a free one
+at random, never stacks two crates on the same point, and keeps a point reserved
+until its revealed power-up has been collected or expired.
+
+### Configuring it
+
+Every tunable value lives in `shared/src/config/`, split deliberately:
+
+- **`types.ts`** — the data model. Plain JSON-compatible types, so the same shape
+  can come from a database or an HTTP API.
+- **`defaults.ts`** — the values the game ships with. Data only, no logic.
+- **`registry.ts`** — what gameplay actually reads, plus `loadGameConfig()`.
+
+Systems go through the registry, never through `defaults.ts`. That is the seam an
+administration interface will use: hand `loadGameConfig()` a config fetched from
+anywhere at boot and every system picks it up, with no gameplay change.
+
+Configurable today, without touching TypeScript logic:
+
+| Area | Values |
+| --- | --- |
+| Weapons | enabled, damage, range, fire rate, magazine size, reload time, automatic |
+| Shotgun | pellet count, spread, falloff curve, bullet speed |
+| Chainsaw | damage, contact range, attack interval, arc |
+| Power-ups | enabled, spawn weight, display name, colour |
+| Health | restore fraction (percentage of maximum, not a fixed number) |
+| Speed boost | multiplier, duration |
+| Crates | health, size, lifetime |
+| Spawning | interval, first-spawn delay, max active crates, pickup radius, revealed lifetime |
+| Spawn points | per arena, in `game/arena.ts` |
+
+Ids are stable and internal; `name` is what players see. The two are separate, so
+renaming a weapon in the HUD never breaks a reference to it.
+
+---
+
 ## Debugging
 
 Press **F3** (or append `?debug=1`) for an overlay showing FPS, ping, the local
@@ -282,7 +384,11 @@ npm test
 - **`tests/physics.test.ts`** — arena integrity (spawns are free, grounded and enclosed),
   movement, jump height, wall collision, and determinism of the shared step.
 - **`tests/combat.test.ts`** — projectile collision, tunnelling at high bullet speeds,
-  friendly-fire-with-self, weapon validation, and the elimination path.
+  friendly-fire-with-self, weapon validation, the elimination path, shotgun pellets
+  and falloff, and chainsaw contact rules (range, arc, walls, attack interval).
+- **`tests/powerups.test.ts`** — the crate pipeline end to end: spawn points, weighted
+  contents, crate damage and destruction, revealed pickups, collection, and every
+  power-up effect including expiry. Also asserts a crate never exposes its contents.
 - **`tests/protocol.test.ts`** — input codec round-trips, malformed payload rejection,
   name validation, rate limiting.
 - **`tests/match.test.ts`** — end-to-end against a real Colyseus server over a real
@@ -296,9 +402,14 @@ npm test
 
 The seams are already in place for the obvious next features:
 
-- **More weapons** — add an entry to `shared/game/weapons.ts`; nothing else hard-codes
-  weapon behaviour.
-- **More maps** — add an arena to `shared/game/arena.ts` and select it with `ARENA_ID`.
+- **More weapons** — add an entry to `shared/src/config/defaults.ts`; nothing else
+  hard-codes weapon behaviour.
+- **More power-ups** — another entry in the same file. A new *weapon* power-up needs
+  no code at all; a genuinely new kind of effect needs one applier in `PowerUpSystem`.
+- **An admin interface** — the data model is already separate from the logic. Point
+  `loadGameConfig()` at an API or a database and the values stop being source code.
+- **More maps** — add an arena to `shared/src/game/arena.ts`, including its own
+  power-up spawn points, and select it with `ARENA_ID`.
 - **Pickups, grenades, destructibles** — new server systems driven from the room's fixed
   tick, plus schema entries for anything clients must see.
 - **Teams, modes, rankings, bots** — the room already separates match lifecycle

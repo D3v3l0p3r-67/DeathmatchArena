@@ -18,6 +18,9 @@ export const TextureKeys = {
   Spark: "spark",
   MuzzleFlash: "muzzle-flash",
   Pixel: "pixel",
+  Crate: "crate",
+  PowerUpOrb: "power-up-orb",
+  MeleeArc: "melee-arc",
 } as const;
 
 export function generatePlaceholderTextures(scene: Phaser.Scene): void {
@@ -30,6 +33,9 @@ export function generatePlaceholderTextures(scene: Phaser.Scene): void {
   createSpark(scene);
   createMuzzleFlash(scene);
   createPixel(scene);
+  createCrate(scene);
+  createPowerUpOrb(scene);
+  createMeleeArc(scene);
 }
 
 /** White so it can be tinted per player; the silhouette carries the identity. */
@@ -116,6 +122,55 @@ function createPixel(scene: Phaser.Scene): void {
   graphics.fillStyle(0xffffff, 1);
   graphics.fillRect(0, 0, 1, 1);
   graphics.generateTexture(TextureKeys.Pixel, 1, 1);
+  graphics.destroy();
+}
+
+/** White so the crate can be tinted as it takes damage. */
+function createCrate(scene: Phaser.Scene): void {
+  const size = 44;
+  const graphics = scene.make.graphics({ x: 0, y: 0 }, false);
+
+  graphics.fillStyle(0xffffff, 1);
+  graphics.fillRoundedRect(0, 0, size, size, 5);
+
+  // Plank seams and corner braces, so a crate reads as a crate at a glance.
+  graphics.fillStyle(0x000000, 0.24);
+  graphics.fillRect(0, size / 2 - 2, size, 4);
+  graphics.fillRect(size / 2 - 2, 0, 4, size);
+  graphics.fillStyle(0x000000, 0.16);
+  graphics.fillRect(0, 0, size, 4);
+  graphics.fillRect(0, size - 4, size, 4);
+
+  graphics.generateTexture(TextureKeys.Crate, size, size);
+  graphics.destroy();
+}
+
+/** Tinted per power-up definition, so one texture serves every kind. */
+function createPowerUpOrb(scene: Phaser.Scene): void {
+  const size = 34;
+  const graphics = scene.make.graphics({ x: 0, y: 0 }, false);
+
+  graphics.fillStyle(0xffffff, 0.18);
+  graphics.fillCircle(size / 2, size / 2, size / 2);
+  graphics.fillStyle(0xffffff, 0.55);
+  graphics.fillCircle(size / 2, size / 2, size / 2 - 5);
+  graphics.fillStyle(0xffffff, 1);
+  graphics.fillCircle(size / 2, size / 2, size / 2 - 10);
+
+  graphics.generateTexture(TextureKeys.PowerUpOrb, size, size);
+  graphics.destroy();
+}
+
+/** A soft wedge used to show where a melee swing reached. */
+function createMeleeArc(scene: Phaser.Scene): void {
+  const size = 96;
+  const graphics = scene.make.graphics({ x: 0, y: 0 }, false);
+
+  graphics.fillStyle(0xffffff, 0.5);
+  graphics.slice(0, size / 2, size, Phaser.Math.DegToRad(-38), Phaser.Math.DegToRad(38), false);
+  graphics.fillPath();
+
+  graphics.generateTexture(TextureKeys.MeleeArc, size, size);
   graphics.destroy();
 }
 

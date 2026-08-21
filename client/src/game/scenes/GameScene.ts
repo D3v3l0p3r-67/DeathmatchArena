@@ -8,9 +8,14 @@ import {
   getCollisionWorld,
   type ArenaDefinition,
   type CollisionWorld,
+  type CrateDestroyedPayload,
   type DamagePayload,
+  type MeleeSwingPayload,
+  type PowerUpCollectedPayload,
+  type SyncedCrate,
   type SyncedGameState,
   type SyncedPlayer,
+  type SyncedPowerUp,
   type SyncedProjectile,
 } from "@deathmatch/shared";
 import type { NetworkManager } from "../../net/NetworkManager.js";
@@ -20,7 +25,9 @@ import { ArenaRenderer } from "../ArenaRenderer.js";
 import { CameraController } from "../CameraController.js";
 import { EffectsSystem } from "../EffectsSystem.js";
 import { InputController } from "../InputController.js";
+import { CrateView } from "../entities/CrateView.js";
 import { PlayerView } from "../entities/PlayerView.js";
+import { PowerUpView } from "../entities/PowerUpView.js";
 import { ProjectileView } from "../entities/ProjectileView.js";
 
 export const GAME_SCENE_KEY = "GameScene";
@@ -33,6 +40,8 @@ export interface GameSceneEvents {
   /** Fired when the local player comes back alive, i.e. at the start of a new match. */
   onLocalRespawn(): void;
   onSpectateTargetChanged(name: string): void;
+  /** A power-up was collected by anyone; the shell decides whether to announce it. */
+  onPowerUpCollected(payload: PowerUpCollectedPayload): void;
 }
 
 /**
@@ -63,6 +72,8 @@ export class GameScene extends Phaser.Scene {
   private readonly playerViews = new Map<string, PlayerView>();
   private readonly remoteBuffers = new Map<string, SnapshotBuffer>();
   private readonly projectileViews = new Map<string, ProjectileView>();
+  private readonly crateViews = new Map<string, CrateView>();
+  private readonly powerUpViews = new Map<string, PowerUpView>();
 
   private accumulatorMs = 0;
   private started = false;
@@ -116,6 +127,13 @@ export class GameScene extends Phaser.Scene {
     events.on("playerRemoved", ({ sessionId }) => this.removePlayerView(sessionId));
     events.on("projectileAdded", ({ projectile }) => this.addProjectileView(projectile));
     events.on("projectileRemoved", ({ projectile }) => this.removeProjectileView(projectile));
+    events.on("crateAdded", ({ crate }) => this.addCrateView(crate));
+    events.on("crateRemoved", ({ crate }) => this.removeCrateView(crate));
+    events.on("powerUpAdded", ({ powerUp }) => this.addPowerUpView(powerUp));
+    events.on("powerUpRemoved", ({ powerUp }) => this.removePowerUpView(powerUp));
+    events.on("crateDestroyed", (payload) => this.onCrateDestroyed(payload));
+    events.on("powerUpCollected", (payload) => this.onPowerUpCollected(payload));
+    events.on("meleeSwing", (payload) => this.onMeleeSwing(payload));
     events.on("patch", ({ state, receivedAt }) => this.onPatch(state, receivedAt));
     events.on("damage", (payload) => this.onDamage(payload));
     events.on("matchStateChanged", ({ matchState }) => this.onMatchStateChanged(matchState));
@@ -131,6 +149,70 @@ export class GameScene extends Phaser.Scene {
 
     for (const [sessionId, player] of state.players) this.addPlayerView(player, sessionId);
     for (const projectile of state.projectiles.values()) this.addProjectileView(projectile);
+    for (const crate of state.crates.values()) this.addCrateView(crate);
+    for (const powerUp of state.powerUps.values()) this.addPowerUpView(powerUp);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Crates and power-ups
+  // ---------------------------------------------------------------------------
+
+  private addCrateView(crate: SyncedCrate): void {
+    if (this.crateViews.has(crate.id)) return;
+    this.crateViews.set(crate.id, new CrateView(this, crate));
+  }
+
+  private removeCrateView(crate: SyncedCrate): void {
+    this.crateViews.get(crate.id)?.destroy();
+    this.crateViews.delete(crate.id);
+  }
+
+  private addPowerUpView(powerUp: SyncedPowerUp): void {
+    if (this.powerUpViews.has(powerUp.id)) return;
+    this.powerUpViews.set(powerUp.id, new PowerUpView(this, powerUp));
+  }
+
+  private removePowerUpView(powerUp: SyncedPowerUp): void {
+    const view = this.powerUpViews.get(powerUp.id);
+    if (!view) return;
+    view.destroy();
+    this.powerUpViews.delete(powerUp.id);
+  }
+
+  /** The crate broke open -- splinters, and a nudge of screen shake if it was ours. */
+  private onCrateDestroyed(payload: CrateDestroyedPayload): void {
+    this.effects.impact(payload.x, payload.y, 0xc9a227, 16);
+    if (payload.destroyedBy === this.network.sessionId) {
+      this.cameraController.shake(90, 0.003);
+    }
+  }
+
+  private onPowerUpCollected(payload: PowerUpCollectedPayload): void {
+    this.effects.impact(payload.x, payload.y, 0xffffff, 12);
+    this.hooks.onPowerUpCollected(payload);
+  }
+
+  /**
+   * Draw a melee swing.
+   *
+   * The server has already decided what the swing hit; this only visualises it,
+   * which is why `connected` arrives as a flag rather than being inferred here.
+   */
+  private onMeleeSwing(payload: MeleeSwingPayload): void {
+    const view = this.playerViews.get(payload.sessionId);
+    if (!view) return;
+
+    this.effects.meleeSwing(
+      view.container.x,
+      view.container.y + PLAYER.AIM_ORIGIN_Y,
+      payload.aimAngle,
+      payload.weaponId,
+      payload.connected,
+    );
+
+    if (payload.connected && payload.sessionId === this.network.sessionId) {
+      this.cameraController.shake(70, 0.0022);
+    }
   }
 
   private addPlayerView(player: SyncedPlayer, sessionId: string): void {
@@ -212,6 +294,15 @@ export class GameScene extends Phaser.Scene {
 
     for (const view of this.projectileViews.values()) view.syncFromServer(receivedAt);
 
+    for (const [id, view] of this.crateViews) {
+      const crate = state.crates.get(id);
+      if (crate) view.refresh(crate);
+    }
+    for (const [id, view] of this.powerUpViews) {
+      const powerUp = state.powerUps.get(id);
+      if (powerUp) view.refresh(powerUp);
+    }
+
     this.detectLocalDeath(state);
   }
 
@@ -264,6 +355,10 @@ export class GameScene extends Phaser.Scene {
     if (matchState === MatchState.FINISHED || matchState === MatchState.WAITING) {
       for (const view of this.projectileViews.values()) view.destroy();
       this.projectileViews.clear();
+      for (const view of this.crateViews.values()) view.destroy();
+      this.crateViews.clear();
+      for (const view of this.powerUpViews.values()) view.destroy();
+      this.powerUpViews.clear();
     }
   }
 
@@ -481,6 +576,14 @@ export class GameScene extends Phaser.Scene {
 
   get projectileCount(): number {
     return this.projectileViews.size;
+  }
+
+  get crateCount(): number {
+    return this.crateViews.size;
+  }
+
+  get powerUpCount(): number {
+    return this.powerUpViews.size;
   }
 
   /** Tear everything down when leaving a room, so the scene can be reused. */

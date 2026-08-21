@@ -1,5 +1,5 @@
 import { Schema, type } from "@colyseus/schema";
-import { DEFAULT_WEAPON_ID, PLAYER, type SyncedPlayer } from "@deathmatch/shared";
+import { PLAYER, getDefaultWeaponId, type SyncedPlayer } from "@deathmatch/shared";
 
 /**
  * Everything about a player that clients need in order to render the match.
@@ -37,7 +37,21 @@ export class PlayerState extends Schema implements SyncedPlayer {
 
   @type("uint16") ammo = 0;
   @type("boolean") reloading = false;
-  @type("string") weaponId = DEFAULT_WEAPON_ID;
+  @type("string") weaponId = getDefaultWeaponId();
+
+  /**
+   * Movement speed multiplier from an active power-up effect; 1 when none.
+   *
+   * Synchronised because the client's prediction has to run with the same cap the
+   * server used, or a boosted player would fight their own reconciliation.
+   */
+  @type("float32") speedMultiplier = 1;
+
+  /**
+   * Whole seconds left on the active speed effect, 0 when none.
+   * Whole seconds so this changes at most once per second instead of every patch.
+   */
+  @type("uint8") boostSeconds = 0;
 
   /**
    * Sequence number of the last input this player's state includes.

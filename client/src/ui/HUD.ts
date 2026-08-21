@@ -1,4 +1,13 @@
-import { MatchState, PLAYER, clamp, getWeapon, type MatchStateValue, type SyncedPlayer } from "@deathmatch/shared";
+import {
+  MatchState,
+  PLAYER,
+  clamp,
+  getWeapon,
+  isMelee,
+  usesAmmo,
+  type MatchStateValue,
+  type SyncedPlayer,
+} from "@deathmatch/shared";
 import { query, requireElement, setText, toggleClass } from "./dom.js";
 
 export interface HudSnapshot {
@@ -23,6 +32,9 @@ export class HUD {
   private readonly ammoGroup = requireElement("hud-ammo").parentElement!;
   private readonly magazine = requireElement("hud-magazine");
   private readonly weaponName = requireElement("hud-weapon");
+  private readonly meleeBadge = requireElement("hud-melee");
+  private readonly speedEffect = requireElement("hud-effect-speed");
+  private readonly speedEffectTimer = requireElement("hud-effect-speed-timer");
   private readonly reload = requireElement("hud-reload");
   private readonly reloadFill = requireElement("hud-reload-fill");
   private readonly alive = requireElement("hud-alive");
@@ -59,16 +71,38 @@ export class HUD {
     toggleClass(this.healthFill, "is-hurt", ratio <= 0.6 && ratio > 0.3);
     toggleClass(this.healthFill, "is-critical", ratio <= 0.3);
 
+    // Everything below is read from the weapon definition, so a weapon added
+    // through configuration presents itself correctly with no change here.
     const weapon = getWeapon(player.weaponId);
     setText(this.weaponName, weapon.name);
-    setText(this.ammo, String(player.ammo));
-    setText(this.magazine, String(weapon.magazineSize));
-    toggleClass(this.ammoGroup, "is-empty", player.ammo === 0);
+
+    const ammoDriven = usesAmmo(weapon);
+    this.ammoGroup.style.display = ammoDriven ? "" : "none";
+    toggleClass(this.meleeBadge, "is-active", isMelee(weapon));
+
+    if (ammoDriven) {
+      setText(this.ammo, String(player.ammo));
+      setText(this.magazine, String(weapon.magazineSize));
+      toggleClass(this.ammoGroup, "is-empty", player.ammo === 0);
+    }
 
     this.updateReload(player.reloading, weapon.reloadTime);
+    this.updateEffects(player);
 
     const inFight = snapshot.matchState === MatchState.PLAYING && player.alive;
     toggleClass(this.crosshair, "is-active", inFight);
+  }
+
+  /**
+   * Show any active power-up effect.
+   *
+   * The countdown is server-sent in whole seconds, so the HUD neither guesses nor
+   * needs a synchronised clock.
+   */
+  private updateEffects(player: SyncedPlayer): void {
+    const boosted = player.boostSeconds > 0;
+    toggleClass(this.speedEffect, "is-active", boosted);
+    if (boosted) setText(this.speedEffectTimer, `${player.boostSeconds}s`);
   }
 
   /** Track reload progress locally so the server does not have to stream a timer. */

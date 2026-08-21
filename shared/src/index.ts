@@ -11,11 +11,17 @@
 export * from "./core/math.js";
 export * from "./core/geometry.js";
 
+// Configuration (data an administration interface will eventually own)
+export * from "./config/types.js";
+export * from "./config/defaults.js";
+export * from "./config/registry.js";
+
 // Game model
 export * from "./game/constants.js";
 export * from "./game/types.js";
 export * from "./game/arena.js";
 export * from "./game/weapons.js";
+export * from "./game/powerups.js";
 export * from "./game/CollisionWorld.js";
 export * from "./game/physics.js";
 

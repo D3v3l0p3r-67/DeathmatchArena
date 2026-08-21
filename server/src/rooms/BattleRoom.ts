@@ -30,6 +30,7 @@ import { createLogger, type Logger } from "../utils/logger.js";
 import { CollisionSystem } from "../systems/CollisionSystem.js";
 import { MatchManager } from "../systems/MatchManager.js";
 import { MovementSystem } from "../systems/MovementSystem.js";
+import { PowerUpSystem } from "../systems/PowerUpSystem.js";
 import { ProjectileSystem } from "../systems/ProjectileSystem.js";
 import { WeaponSystem } from "../systems/WeaponSystem.js";
 import { PlayerRuntime } from "./PlayerRuntime.js";
@@ -63,6 +64,7 @@ export class BattleRoom extends Room<{ state: GameState }> {
   private collisionSystem!: CollisionSystem;
   private projectileSystem!: ProjectileSystem;
   private weaponSystem!: WeaponSystem;
+  private powerUpSystem!: PowerUpSystem;
   private movementSystem!: MovementSystem;
   private matchManager!: MatchManager;
 
@@ -90,9 +92,15 @@ export class BattleRoom extends Room<{ state: GameState }> {
     this.context = this.createContext();
     this.collisionSystem = new CollisionSystem(this.world);
     this.projectileSystem = new ProjectileSystem(this.context, this.collisionSystem);
-    this.weaponSystem = new WeaponSystem(this.context, this.projectileSystem);
+    this.weaponSystem = new WeaponSystem(this.context, this.projectileSystem, this.collisionSystem);
+    this.powerUpSystem = new PowerUpSystem(this.context, this.weaponSystem);
     this.movementSystem = new MovementSystem(this.context, this.world, this.weaponSystem);
-    this.matchManager = new MatchManager(this.context, this.weaponSystem, this.projectileSystem);
+    this.matchManager = new MatchManager(
+      this.context,
+      this.weaponSystem,
+      this.projectileSystem,
+      this.powerUpSystem,
+    );
 
     // Simulate at 60Hz, but only broadcast deltas at 20Hz: physics stays crisp
     // while bandwidth stays modest.
@@ -237,6 +245,7 @@ export class BattleRoom extends Room<{ state: GameState }> {
       const now = Date.now();
       this.movementSystem.update(FIXED_DELTA, now);
       this.projectileSystem.update(FIXED_DELTA, now);
+      this.powerUpSystem.update(now);
       this.matchManager.update(now);
     }
 
@@ -319,6 +328,8 @@ export class BattleRoom extends Room<{ state: GameState }> {
       },
       applyDamage: (victimId, attackerId, amount, x, y, weaponId) =>
         this.matchManager.applyDamage(victimId, attackerId, amount, x, y, weaponId),
+      damageCrate: (crateId, amount, attackerId, now) =>
+        this.powerUpSystem.damageCrate(crateId, amount, attackerId, now),
     };
   }
 

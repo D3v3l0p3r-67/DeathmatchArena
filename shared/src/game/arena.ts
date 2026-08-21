@@ -22,6 +22,14 @@ export interface ArenaDefinition {
   fogColor: number;
   surfaces: Surface[];
   spawnPoints: SpawnPoint[];
+  /**
+   * Where power-up crates may appear. Part of the map rather than the game
+   * config, because a position is only meaningful against this geometry -- a new
+   * map brings its own, and points can be added or removed here freely.
+   *
+   * Each point is the crate's centre, resting on a surface.
+   */
+  powerUpSpawnPoints: SpawnPoint[];
 }
 
 const { FLOOR, PLATFORM, WALL, OBSTACLE } = SurfaceType;
@@ -101,6 +109,26 @@ const FOUNDRY: ArenaDefinition = {
     surface(1400, 260, 400, 24, PLATFORM),
     surface(1080, 520, 200, 22, PLATFORM),
     surface(1920, 520, 200, 22, PLATFORM),
+  ],
+  powerUpSpawnPoints: [
+    // Left tower
+    { x: 280, y: 1598 },
+    { x: 600, y: 1478 },
+    { x: 310, y: 878 },
+    // Ground level, clear of the obstacles
+    { x: 700, y: 1718 },
+    { x: 1350, y: 1718 },
+    { x: 2500, y: 1718 },
+    // Central mesa and the climb above it
+    { x: 1300, y: 1298 },
+    { x: 1900, y: 1298 },
+    { x: 1500, y: 1118 },
+    { x: 1600, y: 858 },
+    { x: 1600, y: 678 },
+    // Right tower
+    { x: 2600, y: 1478 },
+    { x: 2920, y: 1598 },
+    { x: 2890, y: 878 },
   ],
   spawnPoints: [
     { x: 280, y: 1595 },

@@ -30,6 +30,14 @@ export interface SyncedPlayer {
   readonly ammo: number;
   readonly reloading: boolean;
   readonly weaponId: string;
+  /** Movement speed multiplier from an active effect; 1 when nothing is active. */
+  readonly speedMultiplier: number;
+  /**
+   * Whole seconds left on the active speed effect, 0 when none.
+   * Whole seconds rather than a deadline so the value changes at most once per
+   * second -- no clock synchronisation, and almost nothing on the wire.
+   */
+  readonly boostSeconds: number;
   /** Sequence number of the last input included in this snapshot. */
   readonly lastProcessedInput: number;
   readonly connected: boolean;
@@ -49,11 +57,40 @@ export interface SyncedProjectile {
   readonly weaponId: string;
 }
 
+/**
+ * A breakable crate.
+ *
+ * Note what is *absent*: the power-up inside. The server keeps that to itself
+ * until the crate breaks, so a modified client cannot see through crates and
+ * cherry-pick which ones to open.
+ */
+export interface SyncedCrate {
+  readonly id: string;
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+  readonly health: number;
+  readonly maxHealth: number;
+}
+
+/** A power-up revealed by a broken crate, waiting to be collected. */
+export interface SyncedPowerUp {
+  /** Entity id, unique per spawned pickup. */
+  readonly id: string;
+  /** Id of the power-up *definition*, which the client uses only to draw it. */
+  readonly powerUpId: string;
+  readonly x: number;
+  readonly y: number;
+}
+
 export interface SyncedGameState {
   readonly matchState: MatchStateValue;
   readonly arenaId: string;
   readonly players: ReadonlyMap<string, SyncedPlayer>;
   readonly projectiles: ReadonlyMap<string, SyncedProjectile>;
+  readonly crates: ReadonlyMap<string, SyncedCrate>;
+  readonly powerUps: ReadonlyMap<string, SyncedPowerUp>;
   readonly countdownSeconds: number;
   readonly playerCount: number;
   readonly aliveCount: number;

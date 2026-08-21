@@ -1,148 +1,26 @@
 /**
  * Deterministic coverage of the server-authoritative combat path:
- * weapon validation -> projectile spawn -> swept collision -> damage.
- *
- * These drive the real systems against a stub room context, so hits are exercised
- * from exact positions instead of relying on where matchmaking happens to spawn
- * players.
+ * weapon validation -> projectile spawn -> swept collision -> damage -> elimination.
  */
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 
-process.env.VERBOSE_LOGGING = "false";
-
 import {
-  CollisionWorld,
+  ASSAULT_RIFLE_ID,
+  CHAINSAW_ID,
   FIXED_DELTA,
   MatchState,
   PLAYER,
+  SHOTGUN_ID,
   ServerMessage,
   createInputCommand,
-  getArena,
+  getDamageAtDistance,
   getFireIntervalMs,
   getWeapon,
-  type ArenaDefinition,
   type KillPayload,
 } from "@deathmatch/shared";
+import { createHarness, fireAt, type Harness } from "./harness.js";
 
-const { PlayerState } = await import("../server/src/rooms/schema/PlayerState.js");
-const { GameState } = await import("../server/src/rooms/schema/GameState.js");
-const { PlayerRuntime } = await import("../server/src/rooms/PlayerRuntime.js");
-const { CollisionSystem } = await import("../server/src/systems/CollisionSystem.js");
-const { ProjectileSystem } = await import("../server/src/systems/ProjectileSystem.js");
-const { WeaponSystem } = await import("../server/src/systems/WeaponSystem.js");
-const { MatchManager } = await import("../server/src/systems/MatchManager.js");
-
-type RoomContext = import("../server/src/rooms/RoomContext.js").RoomContext;
-
-interface BroadcastRecord {
-  type: string;
-  payload: unknown;
-}
-
-interface DamageRecord {
-  victimId: string;
-  attackerId: string;
-  amount: number;
-  x: number;
-  y: number;
-}
-
-interface Harness {
-  context: RoomContext;
-  state: InstanceType<typeof GameState>;
-  collision: InstanceType<typeof CollisionSystem>;
-  projectiles: InstanceType<typeof ProjectileSystem>;
-  weapons: InstanceType<typeof WeaponSystem>;
-  matchManager: InstanceType<typeof MatchManager>;
-  runtimes: Map<string, InstanceType<typeof PlayerRuntime>>;
-  damage: DamageRecord[];
-  broadcasts: BroadcastRecord[];
-  addPlayer(sessionId: string, x: number, y: number): InstanceType<typeof PlayerState>;
-  /** Advance the projectile simulation by `steps` fixed ticks. */
-  step(steps: number, startTime?: number): void;
-}
-
-const arena: ArenaDefinition = getArena("foundry");
-const world = new CollisionWorld(arena);
-
-function createHarness(): Harness {
-  const state = new GameState();
-  state.matchState = MatchState.PLAYING;
-  const runtimes = new Map<string, InstanceType<typeof PlayerRuntime>>();
-  const damage: DamageRecord[] = [];
-  const broadcasts: BroadcastRecord[] = [];
-
-  const context = {
-    state,
-    arena,
-    world,
-    logger: { debug() {}, info() {}, warn() {}, error() {}, child: () => context.logger },
-    runtimes,
-    now: () => 0,
-    // Fixed 0.5 keeps weapon spread at exactly zero deviation, so aim is exact.
-    random: () => 0.5,
-    broadcast(type: string, payload: unknown) {
-      broadcasts.push({ type, payload });
-    },
-    sendTo() {},
-    setLocked() {},
-    // Damage resolution is the real thing, so a lethal hit runs the actual
-    // elimination path rather than a stub that only subtracts health.
-    applyDamage(victimId: string, attackerId: string, amount: number, x: number, y: number, weaponId: string) {
-      damage.push({ victimId, attackerId, amount, x, y });
-      matchManager.applyDamage(victimId, attackerId, amount, x, y, weaponId);
-    },
-  } as unknown as RoomContext;
-
-  const collision = new CollisionSystem(world);
-  const projectiles = new ProjectileSystem(context, collision);
-  const weapons = new WeaponSystem(context, projectiles);
-  const matchManager = new MatchManager(context, weapons, projectiles);
-
-  return {
-    context,
-    state,
-    collision,
-    projectiles,
-    weapons,
-    matchManager,
-    runtimes,
-    damage,
-    broadcasts,
-    addPlayer(sessionId, x, y) {
-      const player = new PlayerState();
-      player.sessionId = sessionId;
-      player.name = sessionId;
-      player.x = x;
-      player.y = y;
-      player.alive = true;
-      player.inMatch = true;
-      player.health = PLAYER.MAX_HEALTH;
-      state.players.set(sessionId, player);
-
-      const runtime = new PlayerRuntime(0);
-      runtimes.set(sessionId, runtime);
-      weapons.equip(player, runtime);
-      return player;
-    },
-    step(steps, startTime = 0) {
-      for (let i = 0; i < steps; i++) {
-        projectiles.update(FIXED_DELTA, startTime + i * FIXED_DELTA * 1000);
-      }
-    },
-  };
-}
-
-/** Fire once, bypassing the input plumbing. */
-function fireAt(harness: Harness, shooterId: string, angle: number, now: number): void {
-  const player = harness.state.players.get(shooterId)!;
-  const runtime = harness.runtimes.get(shooterId)!;
-  const input = createInputCommand(1);
-  input.fire = true;
-  input.aimAngle = angle;
-  harness.weapons.processInput(player, runtime, input, now);
-}
 
 describe("projectile collision", () => {
   let harness: Harness;
@@ -198,8 +76,13 @@ describe("projectile collision", () => {
     // A hypersonic round covers 333px per 60Hz tick. A naive per-tick position
     // test would sample straight past both a 28px player and a 26px wall; only the
     // swept sub-stepped segment cast catches them.
-    const hypersonic = { ...getWeapon("assault_rifle"), id: "test_railgun", bulletSpeed: 20000 };
-    const perTick = hypersonic.bulletSpeed * FIXED_DELTA;
+    const base = getWeapon(ASSAULT_RIFLE_ID);
+    const hypersonic = {
+      ...base,
+      id: "test-railgun",
+      ranged: { ...base.ranged!, bulletSpeed: 20000 },
+    };
+    const perTick = hypersonic.ranged.bulletSpeed * FIXED_DELTA;
     assert.ok(perTick > 300, "the test round must out-run a single tick");
 
     harness.addPlayer("shooter", 200, 1700);
@@ -372,5 +255,175 @@ describe("elimination", () => {
 
     assert.equal(target.health, PLAYER.MAX_HEALTH, "no damage lands before the match starts");
     assert.equal(shooter.kills, 0);
+  });
+});
+
+describe("shotgun", () => {
+  let harness: Harness;
+
+  beforeEach(() => {
+    harness = createHarness();
+  });
+
+  it("fires its configured pellet count in a single shot", () => {
+    const shooter = harness.addPlayer("shooter", 200, 1700);
+    harness.weapons.equip(shooter, harness.runtimes.get("shooter")!, SHOTGUN_ID);
+
+    const shotgun = getWeapon(SHOTGUN_ID);
+    fireAt(harness, "shooter", 0, 0);
+
+    assert.equal(
+      harness.state.projectiles.size,
+      shotgun.ranged!.pellets,
+      "one trigger pull spawns one projectile per configured pellet",
+    );
+    // A magazine is spent per shot, not per pellet.
+    assert.equal(shooter.ammo, shotgun.magazineSize - 1);
+  });
+
+  it("hits far harder up close than at range", () => {
+    const shotgun = getWeapon(SHOTGUN_ID);
+    const falloff = shotgun.ranged!.falloff!;
+
+    const pointBlank = getDamageAtDistance(shotgun, falloff.startDistance);
+    const longRange = getDamageAtDistance(shotgun, falloff.endDistance);
+
+    assert.equal(pointBlank, shotgun.damage, "full damage inside the falloff start");
+    assert.ok(longRange < pointBlank * 0.5, "damage must fall off significantly with distance");
+    assert.ok(
+      Math.abs(longRange - shotgun.damage * falloff.minMultiplier) < 0.001,
+      "damage at the far end matches the configured minimum multiplier",
+    );
+
+    // Beyond the curve it stays at the floor rather than continuing to drop.
+    assert.equal(getDamageAtDistance(shotgun, falloff.endDistance * 4), longRange);
+  });
+
+  it("applies the distance actually flown, not the base damage", () => {
+    const shooter = harness.addPlayer("shooter", 200, 1700);
+    harness.weapons.equip(shooter, harness.runtimes.get("shooter")!, SHOTGUN_ID);
+    // Far enough down the open stretch of floor for falloff to bite.
+    harness.addPlayer("target", 700, 1700);
+
+    fireAt(harness, "shooter", 0, 0);
+    harness.step(40);
+
+    assert.ok(harness.damage.length > 0, "pellets should reach the target");
+    const shotgun = getWeapon(SHOTGUN_ID);
+    for (const hit of harness.damage) {
+      assert.ok(hit.amount < shotgun.damage, "a distant pellet must be weakened by falloff");
+    }
+  });
+});
+
+describe("chainsaw", () => {
+  let harness: Harness;
+
+  beforeEach(() => {
+    harness = createHarness();
+  });
+
+  /** Equip the chainsaw and swing towards `angle`. */
+  function swing(harness: Harness, attackerId: string, angle: number, now: number): void {
+    const attacker = harness.state.players.get(attackerId)!;
+    harness.weapons.equip(attacker, harness.runtimes.get(attackerId)!, CHAINSAW_ID);
+    fireAt(harness, attackerId, angle, now);
+  }
+
+  it("damages a player within contact range without creating a projectile", () => {
+    harness.addPlayer("attacker", 400, 1700);
+    const victim = harness.addPlayer("victim", 440, 1700);
+
+    swing(harness, "attacker", 0, 0);
+
+    assert.equal(harness.state.projectiles.size, 0, "melee must never spawn a projectile");
+    assert.equal(harness.damage.length, 1);
+    assert.equal(harness.damage[0]!.victimId, "victim");
+    assert.equal(harness.damage[0]!.amount, getWeapon(CHAINSAW_ID).damage);
+    assert.ok(victim.health < PLAYER.MAX_HEALTH);
+  });
+
+  it("cannot reach a player standing beyond its range", () => {
+    harness.addPlayer("attacker", 400, 1700);
+    const victim = harness.addPlayer("victim", 400 + getWeapon(CHAINSAW_ID).range + 80, 1700);
+
+    swing(harness, "attacker", 0, 0);
+
+    assert.equal(harness.damage.length, 0, "a swing into empty air hits nothing");
+    assert.equal(victim.health, PLAYER.MAX_HEALTH);
+  });
+
+  it("cannot hit a player behind the attacker", () => {
+    harness.addPlayer("attacker", 440, 1700);
+    const behind = harness.addPlayer("victim", 400, 1700);
+
+    // Aiming right, with the victim to the left: outside the arc.
+    swing(harness, "attacker", 0, 0);
+
+    assert.equal(harness.damage.length, 0, "the swing arc must not wrap around the attacker");
+    assert.equal(behind.health, PLAYER.MAX_HEALTH);
+  });
+
+  it("cannot cut through a wall", () => {
+    // The wall at x=820 spans y 1260..1740; stand on either side of it.
+    harness.addPlayer("attacker", 800, 1700);
+    const shielded = harness.addPlayer("victim", 860, 1700);
+
+    swing(harness, "attacker", 0, 0);
+
+    assert.equal(harness.damage.length, 0, "geometry must block a melee swing");
+    assert.equal(shielded.health, PLAYER.MAX_HEALTH);
+  });
+
+  it("honours its configured attack interval", () => {
+    harness.addPlayer("attacker", 400, 1700);
+    harness.addPlayer("victim", 440, 1700);
+
+    const interval = getFireIntervalMs(getWeapon(CHAINSAW_ID));
+    assert.ok(interval > 0, "the chainsaw must have a configured attack interval");
+
+    swing(harness, "attacker", 0, 0);
+    assert.equal(harness.damage.length, 1);
+
+    // A second swing before the interval elapses is refused by the server clock.
+    fireAt(harness, "attacker", 0, interval - 1);
+    assert.equal(harness.damage.length, 1, "swinging faster than the interval must not land");
+
+    fireAt(harness, "attacker", 0, interval + 1);
+    assert.equal(harness.damage.length, 2, "the next swing lands once the interval has passed");
+  });
+
+  it("needs no ammunition and never reloads", () => {
+    const attacker = harness.addPlayer("attacker", 400, 1700);
+    harness.weapons.equip(attacker, harness.runtimes.get("attacker")!, CHAINSAW_ID);
+
+    assert.equal(attacker.ammo, 0, "a melee weapon carries no magazine");
+
+    // Swing far more times than any magazine would allow, into empty air.
+    const interval = getFireIntervalMs(getWeapon(CHAINSAW_ID)) + 1;
+    for (let swingIndex = 0; swingIndex < 20; swingIndex++) {
+      fireAt(harness, "attacker", 0, swingIndex * interval);
+    }
+
+    assert.equal(attacker.ammo, 0, "swinging never consumes ammunition");
+    assert.equal(attacker.reloading, false, "a melee weapon never enters a reload");
+  });
+
+  it("is the strongest weapon at contact range", () => {
+    const attacker = harness.addPlayer("attacker", 400, 1700);
+    const victim = harness.addPlayer("victim", 440, 1700);
+    harness.weapons.equip(attacker, harness.runtimes.get("attacker")!, CHAINSAW_ID);
+
+    const chainsaw = getWeapon(CHAINSAW_ID);
+    const rifle = getWeapon(ASSAULT_RIFLE_ID);
+    assert.ok(chainsaw.damage > rifle.damage, "a swing must out-damage a rifle round");
+
+    const swingsToKill = Math.ceil(PLAYER.MAX_HEALTH / chainsaw.damage);
+    const interval = getFireIntervalMs(chainsaw) + 1;
+    for (let swingIndex = 0; swingIndex < swingsToKill; swingIndex++) {
+      fireAt(harness, "attacker", 0, swingIndex * interval);
+    }
+
+    assert.equal(victim.alive, false, `${swingsToKill} swings should be lethal`);
   });
 });

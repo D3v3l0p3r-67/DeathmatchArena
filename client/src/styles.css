@@ -491,6 +491,58 @@ kbd {
   background: var(--warn);
 }
 
+/* A melee weapon has no magazine, so the ammo counter is replaced by a badge. */
+.weapon__melee {
+  display: none;
+  font-family: var(--mono);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  line-height: 1.1;
+  color: var(--warn);
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+}
+
+.weapon__melee.is-active {
+  display: block;
+}
+
+/* ------------------------------------------------- active power-up effects -- */
+
+.effects {
+  display: grid;
+  gap: 6px;
+  justify-items: end;
+  margin-top: 10px;
+}
+
+.effect {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(5, 7, 12, 0.6);
+  border: 1px solid rgba(56, 189, 248, 0.45);
+}
+
+.effect.is-active {
+  display: flex;
+}
+
+.effect__label {
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: #38bdf8;
+}
+
+.effect__timer {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+
 /* ------------------------------------------------------------- kill feed -- */
 
 .kill-feed {

@@ -6,7 +6,9 @@ import {
   type MatchStateValue,
   type SyncedGameState,
 } from "@deathmatch/shared";
+import { CrateState } from "./CrateState.js";
 import { PlayerState } from "./PlayerState.js";
+import { PowerUpState } from "./PowerUpState.js";
 import { ProjectileState } from "./ProjectileState.js";
 
 /**
@@ -24,6 +26,12 @@ export class GameState extends Schema implements SyncedGameState {
 
   @type({ map: PlayerState }) players = new MapSchema<PlayerState>();
   @type({ map: ProjectileState }) projectiles = new MapSchema<ProjectileState>();
+
+  /** Unopened power-up crates. What is inside each one stays server-side. */
+  @type({ map: CrateState }) crates = new MapSchema<CrateState>();
+
+  /** Power-ups revealed by broken crates, waiting to be collected. */
+  @type({ map: PowerUpState }) powerUps = new MapSchema<PowerUpState>();
 
   /** Whole seconds left in the countdown; only changes once per second. */
   @type("uint8") countdownSeconds = 0;

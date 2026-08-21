@@ -46,6 +46,9 @@ export class PlayerRuntime {
   /** Timestamp at which an in-progress reload completes; 0 when not reloading. */
   reloadEndsAt = 0;
 
+  /** Timestamp at which the active speed effect expires; 0 when none is active. */
+  speedBoostEndsAt = 0;
+
   /** Spawn point index assigned for the current match. */
   spawnIndex = -1;
 
@@ -71,6 +74,8 @@ export class PlayerRuntime {
     this.clearInputs();
     this.lastShotAt = Number.NEGATIVE_INFINITY;
     this.reloadEndsAt = 0;
+    this.speedBoostEndsAt = 0;
+    this.movement.speedMultiplier = 1;
     this.highestAcceptedSeq = 0;
     this.lastInput.seq = 0;
     this.lastInput.moveLeft = false;

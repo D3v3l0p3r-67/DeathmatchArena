@@ -6,6 +6,7 @@ import {
   validatePlayerName,
   type MatchResultMessage,
   type MatchStateValue,
+  type PowerUpCollectedPayload,
 } from "@deathmatch/shared";
 import { clientConfig } from "./config.js";
 import { NetworkManager } from "./net/NetworkManager.js";
@@ -152,7 +153,23 @@ export class App {
       onLocalDeath: () => this.handleLocalDeath(),
       onLocalRespawn: () => this.ui.setSpectating(false, "", 0),
       onSpectateTargetChanged: (name) => this.updateSpectatorBanner(name),
+      onPowerUpCollected: (payload) => this.handlePowerUpCollected(payload),
     });
+  }
+
+  /**
+   * Announce a pickup.
+   *
+   * The name comes from the server's payload rather than from a local lookup, so
+   * a power-up added through configuration is announced correctly without a
+   * client change.
+   */
+  private handlePowerUpCollected(payload: PowerUpCollectedPayload): void {
+    const mine = payload.sessionId === this.network.sessionId;
+    const who = mine
+      ? "You picked up"
+      : `${this.network.state?.players.get(payload.sessionId)?.name ?? "A player"} picked up`;
+    this.ui.showNotice({ code: "INFO", message: `${who} ${payload.name}` }, mine ? 2600 : 1800);
   }
 
   private handlePlayAgain(): void {
@@ -324,6 +341,8 @@ export class App {
       sessionId: this.network.sessionId,
       playerCount: state?.players.size ?? 0,
       projectileCount: scene?.projectileCount ?? 0,
+      crateCount: scene?.crateCount ?? 0,
+      powerUpCount: scene?.powerUpCount ?? 0,
     });
   }
 

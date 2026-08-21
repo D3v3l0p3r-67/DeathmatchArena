@@ -31,11 +31,10 @@ function applyHorizontalIntent(state: MovementState, input: InputCommand, dt: nu
 
   if (direction !== 0) {
     const acceleration = state.onGround ? PHYSICS.GROUND_ACCELERATION : PHYSICS.AIR_ACCELERATION;
-    state.velocityX = clamp(
-      state.velocityX + direction * acceleration * dt,
-      -PHYSICS.MAX_RUN_SPEED,
-      PHYSICS.MAX_RUN_SPEED,
-    );
+    // A speed power-up raises the cap, not the acceleration, so a boosted player
+    // still feels the same to steer -- they just keep gaining until a higher top speed.
+    const maxSpeed = PHYSICS.MAX_RUN_SPEED * (state.speedMultiplier || 1);
+    state.velocityX = clamp(state.velocityX + direction * acceleration * dt, -maxSpeed, maxSpeed);
     state.facing = direction;
     return;
   }
