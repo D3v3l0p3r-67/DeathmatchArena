@@ -248,6 +248,17 @@ Colyseus Cloud installs with npm's production flag on, which skips `devDependenc
 The build tooling (`esbuild`, `vite`, `typescript`) lives there, so without this the
 deploy fails during `npm run build` with `vite: not found` or `esbuild: not found`.
 
+### Applying an environment variable change
+
+Colyseus Cloud applies environment variables **on the next deployment**, and it has
+no redeploy button — the Deployments tab is history only. A running instance
+therefore keeps the values it started with until a new deployment happens, which
+is triggered by **pushing to `main`**.
+
+So after adding or changing a variable (a debug token, say), push a commit to
+`main`. The startup logs report what the new instance actually read, which is the
+quickest way to confirm the change landed.
+
 ### Serving the client
 
 With `NODE_ENV=production` the server also serves `client/dist` from the same process
