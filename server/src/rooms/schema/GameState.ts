@@ -51,4 +51,17 @@ export class GameState extends Schema implements SyncedGameState {
   /** Advertised lobby thresholds so the client never hard-codes them. */
   @type("uint8") minPlayersToStart: number = MATCH.MIN_PLAYERS_TO_START;
   @type("uint8") maxPlayers: number = MATCH.MAX_PLAYERS;
+
+  /**
+   * The playable width, narrowed by the closing walls.
+   *
+   * Starts at the arena's own edges. Clients draw the walls from these and
+   * predict movement against them, so both sides clamp to the same limits.
+   */
+  @type("float32") shrinkLeft = 0;
+  @type("float32") shrinkRight = 0;
+  @type("boolean") shrinking = false;
+
+  /** Whole seconds until the walls start moving; 0 once they have. */
+  @type("uint16") shrinkCountdownSeconds = 0;
 }

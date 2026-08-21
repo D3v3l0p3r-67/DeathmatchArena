@@ -8,6 +8,7 @@ import {
   type InputCommand,
   type MovementState,
   type SyncedPlayer,
+  type WorldBounds,
 } from "@deathmatch/shared";
 
 export interface PredictionDebugInfo {
@@ -40,6 +41,15 @@ export class PredictionController {
 
   private readonly pending: InputCommand[] = [];
 
+  /**
+   * The playable limits to predict against.
+   *
+   * Kept in step with the server's closing walls, so the client clamps exactly
+   * where the server does and a player pressed against a wall does not fight a
+   * correction every patch.
+   */
+  private bounds: WorldBounds | undefined;
+
   /** Residual visual error, decayed towards zero every frame. */
   private smoothingX = 0;
   private smoothingY = 0;
@@ -59,6 +69,11 @@ export class PredictionController {
 
   get pendingCount(): number {
     return this.pending.length;
+  }
+
+  /** Track the closing walls, so prediction clamps where the server clamps. */
+  setBounds(bounds: WorldBounds): void {
+    this.bounds = bounds;
   }
 
   /** Hard reset, used on spawn and when a new match begins. */
@@ -83,7 +98,7 @@ export class PredictionController {
   /** Apply one input locally, ahead of the server. */
   predict(input: InputCommand): void {
     if (!this.initialised) return;
-    stepPlayerMovement(this.movement, input, FIXED_DELTA, this.world);
+    stepPlayerMovement(this.movement, input, FIXED_DELTA, this.world, this.bounds);
     this.pending.push(input);
 
     if (this.pending.length > NETWORK.MAX_QUEUED_INPUTS) this.pending.shift();
@@ -116,10 +131,13 @@ export class PredictionController {
     // The speed cap is part of server truth too: replaying a boosted player with
     // the default cap would manufacture an error the server never had.
     this.movement.speedMultiplier = player.speedMultiplier || 1;
+    // The jump allowance is server truth too: replaying from a stale one would
+    // predict a mid-air jump the server never granted.
+    this.movement.jumpsRemaining = player.jumpsRemaining;
 
     // ...and replay whatever it has not seen yet.
     for (const input of this.pending) {
-      stepPlayerMovement(this.movement, input, FIXED_DELTA, this.world);
+      stepPlayerMovement(this.movement, input, FIXED_DELTA, this.world, this.bounds);
     }
 
     const errorX = previousX - this.movement.x;

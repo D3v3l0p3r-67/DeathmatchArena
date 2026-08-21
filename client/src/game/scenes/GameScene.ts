@@ -25,6 +25,7 @@ import { ArenaRenderer } from "../ArenaRenderer.js";
 import { CameraController } from "../CameraController.js";
 import { EffectsSystem } from "../EffectsSystem.js";
 import { InputController } from "../InputController.js";
+import { ShrinkWallsView } from "../ShrinkWallsView.js";
 import { CrateView } from "../entities/CrateView.js";
 import { PlayerView } from "../entities/PlayerView.js";
 import { PowerUpView } from "../entities/PowerUpView.js";
@@ -67,6 +68,7 @@ export class GameScene extends Phaser.Scene {
   private cameraController!: CameraController;
   private inputController!: InputController;
   private effects!: EffectsSystem;
+  private shrinkWalls!: ShrinkWallsView;
   private prediction!: PredictionController;
 
   private readonly playerViews = new Map<string, PlayerView>();
@@ -112,6 +114,7 @@ export class GameScene extends Phaser.Scene {
     this.cameraController = new CameraController(this, this.arena);
     this.inputController = new InputController(this);
     this.effects = new EffectsSystem(this);
+    this.shrinkWalls = new ShrinkWallsView(this, this.arena);
 
     // Start looking at the middle of the arena until we spawn.
     this.cameraController.snapTo(this.arena.width / 2, this.arena.height / 2);
@@ -270,6 +273,10 @@ export class GameScene extends Phaser.Scene {
   private onPatch(state: SyncedGameState, receivedAt: number): void {
     const localId = this.network.sessionId;
 
+    // Prediction has to clamp where the server clamps, or a player pressed
+    // against a closing wall would fight a correction on every patch.
+    this.prediction.setBounds({ left: state.shrinkLeft, right: state.shrinkRight });
+
     for (const [sessionId, player] of state.players) {
       const view = this.playerViews.get(sessionId);
       if (view) view.setName(player.name);
@@ -380,7 +387,14 @@ export class GameScene extends Phaser.Scene {
     this.renderLocalPlayer(deltaSeconds);
     this.renderRemotePlayers(now, deltaSeconds);
     this.renderProjectiles(now);
+    this.renderShrinkWalls(deltaSeconds);
     this.updateCamera(deltaSeconds);
+  }
+
+  private renderShrinkWalls(deltaSeconds: number): void {
+    const state = this.network.state;
+    if (!state) return;
+    this.shrinkWalls.update(state.shrinkLeft, state.shrinkRight, state.shrinking, deltaSeconds);
   }
 
   /** Aim from the player's shoulder towards the pointer, in world space. */

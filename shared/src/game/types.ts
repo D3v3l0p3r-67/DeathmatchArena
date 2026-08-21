@@ -1,3 +1,5 @@
+import { PHYSICS } from "./constants.js";
+
 /** Lifecycle of a single match, owned exclusively by the server. */
 export const MatchState = {
   WAITING: "WAITING",
@@ -41,6 +43,13 @@ export interface MovementState {
    * unacknowledged inputs, and prediction still reproduces the server exactly.
    */
   speedMultiplier: number;
+  /**
+   * Jumps left before touching the ground again.
+   *
+   * Refilled on landing and spent by each jump, so the mid-air jump is simply
+   * "the second one". Part of the movement state because prediction replays it.
+   */
+  jumpsRemaining: number;
 }
 
 export function createMovementState(x = 0, y = 0): MovementState {
@@ -55,6 +64,7 @@ export function createMovementState(x = 0, y = 0): MovementState {
     facing: 1,
     jumpHeld: false,
     speedMultiplier: 1,
+    jumpsRemaining: PHYSICS.MAX_JUMPS,
   };
 }
 
@@ -69,6 +79,7 @@ export function copyMovementState(source: MovementState, target: MovementState):
   target.facing = source.facing;
   target.jumpHeld = source.jumpHeld;
   target.speedMultiplier = source.speedMultiplier;
+  target.jumpsRemaining = source.jumpsRemaining;
   return target;
 }
 

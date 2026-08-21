@@ -10,6 +10,7 @@ import {
   createMovementState,
   getArena,
   stepPlayerMovement,
+  type MovementState,
 } from "@deathmatch/shared";
 
 const arena = getArena("foundry");
@@ -142,5 +143,167 @@ describe("raycasting", () => {
   it("returns null when nothing is in the way", () => {
     const hit = world.raycast(600, 1600, 700, 1600);
     assert.equal(hit, null);
+  });
+});
+
+describe("double jump", () => {
+  /** Hold or tap jump for `ticks`, returning the state afterwards. */
+  function run(state: MovementState, ticks: number, jump: boolean): void {
+    for (let i = 0; i < ticks; i++) {
+      const input = createInputCommand(i + 1);
+      input.jump = jump;
+      stepPlayerMovement(state, input, FIXED_DELTA, world);
+    }
+  }
+
+  it("gives a grounded player two jumps and no more", () => {
+    const state = createMovementState(600, 1700);
+    run(state, 30, false);
+    assert.equal(state.onGround, true, "settle on the floor first");
+    assert.equal(state.jumpsRemaining, PHYSICS.MAX_JUMPS);
+
+    // First jump, off the ground.
+    run(state, 1, true);
+    assert.ok(state.velocityY < 0, "the first jump lifts");
+    assert.equal(state.jumpsRemaining, PHYSICS.MAX_JUMPS - 1);
+
+    // Release, then press again in mid-air: the second jump.
+    run(state, 4, false);
+    const beforeAirJump = state.velocityY;
+    run(state, 1, true);
+    assert.ok(state.velocityY < beforeAirJump, "the mid-air jump lifts again");
+    assert.equal(state.jumpsRemaining, 0);
+
+    // A third press does nothing.
+    run(state, 4, false);
+    const beforeThird = state.velocityY;
+    run(state, 1, true);
+    assert.ok(state.velocityY > beforeThird, "still falling; no third jump");
+    assert.equal(state.jumpsRemaining, 0);
+  });
+
+  it("refills the allowance on landing", () => {
+    const state = createMovementState(600, 1700);
+    run(state, 30, false);
+
+    run(state, 1, true);
+    run(state, 4, false);
+    run(state, 1, true);
+    assert.equal(state.jumpsRemaining, 0, "both jumps spent");
+
+    // Fall back down and settle.
+    run(state, 120, false);
+    assert.equal(state.onGround, true);
+    assert.equal(state.jumpsRemaining, PHYSICS.MAX_JUMPS, "landing restores both");
+  });
+
+  it("gives only the air jump to a player who walked off a ledge", () => {
+    // High above the mesa, with a long drop below and nothing to land on yet.
+    const state = createMovementState(1600, 400);
+    run(state, 20, false);
+    assert.equal(state.onGround, false);
+    assert.equal(
+      state.jumpsRemaining,
+      PHYSICS.MAX_JUMPS - 1,
+      "stepping off a platform forfeits the ground jump",
+    );
+
+    run(state, 1, true);
+    assert.equal(state.jumpsRemaining, 0, "the single air jump is spent");
+  });
+
+  it("climbs higher with two jumps than with one", () => {
+    /** Peak height reached, i.e. the smallest y seen during the run. */
+    function peakOf(useSecondJump: boolean): number {
+      const state = createMovementState(600, 1700);
+      run(state, 30, false);
+
+      let peak = state.y;
+      const track = () => {
+        peak = Math.min(peak, state.y);
+      };
+
+      run(state, 1, true);
+      track();
+      // Hold the ascent, then optionally release and press again at the apex.
+      for (let i = 0; i < 20; i++) {
+        run(state, 1, true);
+        track();
+      }
+      if (useSecondJump) {
+        run(state, 1, false);
+        run(state, 1, true);
+        track();
+      }
+      for (let i = 0; i < 40; i++) {
+        run(state, 1, true);
+        track();
+      }
+      return peak;
+    }
+
+    const single = peakOf(false);
+    const double = peakOf(true);
+
+    assert.ok(double < single, `the second jump must gain height: ${double} vs ${single}`);
+  });
+
+  it("stays deterministic, so prediction still reproduces it", () => {
+    const inputs = Array.from({ length: 40 }, (_, i) => {
+      const input = createInputCommand(i + 1);
+      // Press, release, press again: a double jump inside the sequence.
+      input.jump = i === 5 || i === 12;
+      input.moveRight = i > 20;
+      return input;
+    });
+
+    const a = createMovementState(600, 1700);
+    const b = createMovementState(600, 1700);
+    for (const input of inputs) stepPlayerMovement(a, input, FIXED_DELTA, world);
+    for (const input of inputs) stepPlayerMovement(b, input, FIXED_DELTA, world);
+
+    assert.equal(a.x, b.x);
+    assert.equal(a.y, b.y);
+    assert.equal(a.jumpsRemaining, b.jumpsRemaining);
+  });
+});
+
+describe("closing walls", () => {
+  it("clamps a player to the shrinking bounds instead of the arena edges", () => {
+    const state = createMovementState(600, 1700);
+    const bounds = { left: 500, right: 2000 };
+
+    for (let i = 0; i < 60; i++) {
+      const input = createInputCommand(i + 1);
+      input.moveLeft = true;
+      stepPlayerMovement(state, input, FIXED_DELTA, world, bounds);
+    }
+
+    assert.ok(
+      state.x >= bounds.left + PLAYER_HALF_WIDTH - 0.001,
+      `a closing wall must push the player: x=${state.x}`,
+    );
+  });
+
+  it("centres a player when the gap is narrower than they are", () => {
+    const state = createMovementState(600, 1700);
+    // Degenerate on purpose: the walls have met.
+    const bounds = { left: 900, right: 900 + PLAYER_HALF_WIDTH };
+
+    const input = createInputCommand(1);
+    stepPlayerMovement(state, input, FIXED_DELTA, world, bounds);
+
+    assert.equal(state.x, (bounds.left + bounds.right) / 2);
+  });
+
+  it("uses the full arena when no bounds are given", () => {
+    const state = createMovementState(600, 1700);
+    for (let i = 0; i < 200; i++) {
+      const input = createInputCommand(i + 1);
+      input.moveLeft = true;
+      stepPlayerMovement(state, input, FIXED_DELTA, world);
+    }
+    assert.ok(state.x >= PLAYER_HALF_WIDTH, "still inside the world box");
+    assert.ok(state.x < 200, "and free to travel the whole arena");
   });
 });

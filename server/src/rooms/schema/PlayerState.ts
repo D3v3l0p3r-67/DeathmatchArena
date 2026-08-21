@@ -1,5 +1,5 @@
 import { Schema, type } from "@colyseus/schema";
-import { PLAYER, getDefaultWeaponId, type SyncedPlayer } from "@deathmatch/shared";
+import { PHYSICS, PLAYER, getDefaultWeaponId, type SyncedPlayer } from "@deathmatch/shared";
 
 /**
  * Everything about a player that clients need in order to render the match.
@@ -52,6 +52,15 @@ export class PlayerState extends Schema implements SyncedPlayer {
    * Whole seconds so this changes at most once per second instead of every patch.
    */
   @type("uint8") boostSeconds = 0;
+
+  /**
+   * Jumps left before landing.
+   *
+   * Synchronised for the same reason as position: the client replays pending
+   * inputs on top of server truth, and starting that replay with a stale jump
+   * allowance would predict a jump the server never granted.
+   */
+  @type("uint8") jumpsRemaining: number = PHYSICS.MAX_JUMPS;
 
   /**
    * Sequence number of the last input this player's state includes.

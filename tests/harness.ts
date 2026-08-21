@@ -34,6 +34,7 @@ const { ProjectileSystem } = await import("../server/src/systems/ProjectileSyste
 const { WeaponSystem } = await import("../server/src/systems/WeaponSystem.js");
 const { PowerUpSystem } = await import("../server/src/systems/PowerUpSystem.js");
 const { MatchManager } = await import("../server/src/systems/MatchManager.js");
+const { ArenaShrinkSystem } = await import("../server/src/systems/ArenaShrinkSystem.js");
 
 type RoomContext = import("../server/src/rooms/RoomContext.js").RoomContext;
 
@@ -57,6 +58,7 @@ export interface Harness {
   projectiles: InstanceType<typeof ProjectileSystem>;
   weapons: InstanceType<typeof WeaponSystem>;
   powerUps: InstanceType<typeof PowerUpSystem>;
+  arenaShrink: InstanceType<typeof ArenaShrinkSystem>;
   matchManager: InstanceType<typeof MatchManager>;
   runtimes: Map<string, InstanceType<typeof PlayerRuntime>>;
   damage: DamageRecord[];
@@ -66,6 +68,8 @@ export interface Harness {
   step(steps: number, startTime?: number): void;
   /** Advance the power-up system (crate spawning, pickups, effect expiry). */
   stepPowerUps(now: number): void;
+  /** Advance the closing walls by `dt` seconds. */
+  stepArenaShrink(dt: number, now: number): void;
   arena: ArenaDefinition;
   /** Swap the room's configuration, as a debug command would. */
   replaceConfig(config: GameConfig): void;
@@ -125,7 +129,9 @@ export function createHarness(): Harness {
   const projectiles = new ProjectileSystem(context, collision);
   const weapons = new WeaponSystem(context, projectiles, collision);
   const powerUps = new PowerUpSystem(context, weapons);
-  const matchManager = new MatchManager(context, weapons, projectiles, powerUps);
+  const arenaShrink = new ArenaShrinkSystem(context);
+  const matchManager = new MatchManager(context, weapons, projectiles, powerUps, arenaShrink);
+  arenaShrink.reset();
 
   return {
     context,
@@ -134,6 +140,7 @@ export function createHarness(): Harness {
     projectiles,
     weapons,
     powerUps,
+    arenaShrink,
     matchManager,
     runtimes,
     damage,
@@ -161,6 +168,9 @@ export function createHarness(): Harness {
     },
     stepPowerUps(now) {
       powerUps.update(now);
+    },
+    stepArenaShrink(dt, now) {
+      arenaShrink.update(dt, now);
     },
     arena,
     replaceConfig(config) {

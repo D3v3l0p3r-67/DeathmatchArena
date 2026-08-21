@@ -38,6 +38,8 @@ export interface SyncedPlayer {
    * second -- no clock synchronisation, and almost nothing on the wire.
    */
   readonly boostSeconds: number;
+  /** Jumps left before landing; 0 means the mid-air jump is spent. */
+  readonly jumpsRemaining: number;
   /** Sequence number of the last input included in this snapshot. */
   readonly lastProcessedInput: number;
   readonly connected: boolean;
@@ -100,4 +102,21 @@ export interface SyncedGameState {
   readonly matchStartedAt: number;
   readonly minPlayersToStart: number;
   readonly maxPlayers: number;
+
+  /**
+   * Current playable width, as the closing walls define it.
+   *
+   * Equal to the arena's own edges until the shrink begins. Clients need these
+   * both to draw the walls and to predict movement against the same limits the
+   * server clamps to.
+   */
+  readonly shrinkLeft: number;
+  readonly shrinkRight: number;
+  /** True once the walls have started moving. */
+  readonly shrinking: boolean;
+  /**
+   * Whole seconds until the walls start, 0 once they have.
+   * Whole seconds so it changes at most once a second instead of every patch.
+   */
+  readonly shrinkCountdownSeconds: number;
 }

@@ -348,6 +348,8 @@ export class App {
       matchState: state.matchState,
       aliveCount: state.aliveCount,
       totalPlayers: state.startingPlayerCount || state.playerCount,
+      shrinkCountdownSeconds: state.shrinkCountdownSeconds,
+      shrinking: state.shrinking,
     });
 
     const scene = this.getGameScene();

@@ -15,6 +15,9 @@ export interface HudSnapshot {
   matchState: MatchStateValue;
   aliveCount: number;
   totalPlayers: number;
+  /** Whole seconds until the arena starts closing; 0 once it has. */
+  shrinkCountdownSeconds: number;
+  shrinking: boolean;
 }
 
 /**
@@ -35,6 +38,9 @@ export class HUD {
   private readonly meleeBadge = requireElement("hud-melee");
   private readonly speedEffect = requireElement("hud-effect-speed");
   private readonly speedEffectTimer = requireElement("hud-effect-speed-timer");
+  private readonly shrinkEffect = requireElement("hud-shrink");
+  private readonly shrinkLabel = requireElement("hud-shrink-label");
+  private readonly shrinkTimer = requireElement("hud-shrink-timer");
   private readonly reload = requireElement("hud-reload");
   private readonly reloadFill = requireElement("hud-reload-fill");
   private readonly alive = requireElement("hud-alive");
@@ -87,7 +93,7 @@ export class HUD {
     }
 
     this.updateReload(player.reloading, weapon.reloadTime);
-    this.updateEffects(player);
+    this.updateEffects(player, snapshot);
 
     const inFight = snapshot.matchState === MatchState.PLAYING && player.alive;
     toggleClass(this.crosshair, "is-active", inFight);
@@ -99,10 +105,26 @@ export class HUD {
    * The countdown is server-sent in whole seconds, so the HUD neither guesses nor
    * needs a synchronised clock.
    */
-  private updateEffects(player: SyncedPlayer): void {
+  private updateEffects(player: SyncedPlayer, snapshot: HudSnapshot): void {
     const boosted = player.boostSeconds > 0;
     toggleClass(this.speedEffect, "is-active", boosted);
     if (boosted) setText(this.speedEffectTimer, `${player.boostSeconds}s`);
+
+    // The arena countdown, then the warning once the walls are moving. Both are
+    // server-sent, so the HUD neither guesses nor needs a synchronised clock.
+    const counting = snapshot.shrinkCountdownSeconds > 0;
+    const showShrink = counting || snapshot.shrinking;
+    toggleClass(this.shrinkEffect, "is-active", showShrink);
+    toggleClass(this.shrinkEffect, "is-closing", snapshot.shrinking);
+
+    if (!showShrink) return;
+    if (snapshot.shrinking) {
+      setText(this.shrinkLabel, "ARENA");
+      setText(this.shrinkTimer, "CLOSING");
+    } else {
+      setText(this.shrinkLabel, "ARENA IN");
+      setText(this.shrinkTimer, formatCountdown(snapshot.shrinkCountdownSeconds));
+    }
   }
 
   /** Track reload progress locally so the server does not have to stream a timer. */
@@ -151,4 +173,12 @@ export class HUD {
       this.hitmarkerTimer = 0;
     }
   }
+}
+
+/** m:ss for anything over a minute, plain seconds below it. */
+function formatCountdown(totalSeconds: number): string {
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }

@@ -85,6 +85,15 @@ export const PHYSICS = {
   JUMP_VELOCITY: -780,
   /** Releasing jump early cuts upward velocity to this fraction (variable jump height). */
   JUMP_CUT_MULTIPLIER: 0.45,
+  /**
+   * Total jumps available between touching the ground: 1 is a plain jump, 2 adds
+   * the mid-air jump. Lives here rather than in the tunable game config because
+   * client prediction and server simulation must agree on it exactly -- a value
+   * one side could change independently would desynchronise them.
+   */
+  MAX_JUMPS: 2,
+  /** Mid-air jumps are slightly weaker than the one off the ground. */
+  AIR_JUMP_MULTIPLIER: 0.92,
   /** Jump still allowed shortly after walking off a ledge. */
   COYOTE_TIME: 0.09,
   /** Jump pressed slightly before landing is remembered. */

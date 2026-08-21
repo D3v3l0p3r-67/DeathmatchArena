@@ -44,7 +44,7 @@ Useful server endpoints in development:
 ### Other commands
 
 ```bash
-npm test           # 72 tests: physics, combat, power-ups, debug access, protocol and a real networked match
+npm test           # 87 tests: physics, combat, power-ups, debug access, protocol and a real networked match
 npm run typecheck  # tsc --noEmit across all three packages
 npm run build      # bundles the server and builds the client
 npm start          # runs the built server
@@ -57,7 +57,7 @@ npm start          # runs the built server
 ```
 A / Left Arrow      move left
 D / Right Arrow     move right
-Space / W / Up      jump
+Space / W / Up      jump (press again in mid-air for a second jump)
 Mouse               aim
 Left Mouse          fire (hold — the rifle is automatic)
 R                   reload
@@ -87,7 +87,7 @@ and is imported by both sides — nothing in `client/` or `server/` redefines it
 | `config/defaults.ts` | The values the game ships with — data, no logic |
 | `config/registry.ts` | The accessors gameplay reads, and the hook for loading config from elsewhere |
 | `game/constants.ts` | Tick rates, network tuning, match rules, player physics |
-| `game/physics.ts` | The movement step, used by both server simulation and client prediction |
+| `game/physics.ts` | The movement step (including the double jump), shared by server simulation and client prediction |
 | `game/arena.ts` | Arena geometry, player spawn points and power-up spawn points |
 | `game/weapons.ts` | Weapon behaviour derived from weapon data (fire interval, damage falloff, melee arc) |
 | `game/powerups.ts` | Power-up behaviour derived from power-up data (health restore, weighted picks) |
@@ -109,6 +109,7 @@ and is imported by both sides — nothing in `client/` or `server/` redefines it
 | `systems/CollisionSystem.ts` | Segment-vs-world and segment-vs-player tests |
 | `systems/MatchManager.ts` | Match lifecycle, spawning, damage resolution, eliminations, winner |
 | `systems/PowerUpSystem.ts` | Crate spawning and destruction, revealed pickups, active effects |
+| `systems/ArenaShrinkSystem.ts` | The closing walls, and the damage they do |
 | `debug/DebugAuthorizationService.ts` | Who may use debug tooling; the only place that decides |
 | `debug/DebugRegistry.ts` | The debug command catalogue and the room's tunable values |
 | `debug/DebugCommandService.ts` | Authorization gate, argument validation and dispatch |
@@ -169,6 +170,24 @@ multiples of a fixed 1/60 s step, carrying the remainder in an accumulator.
 ```
 WAITING -> COUNTDOWN -> PLAYING -> FINISHED -> WAITING
 ```
+
+### The arena closes
+
+A match cannot run forever. After a configured time the arena's left and right
+edges start advancing towards each other, squeezing the survivors together until
+someone wins.
+
+The walls are authoritative and solid: the server owns their positions, and the
+shared movement step clamps players to them, so a player is physically pushed
+ahead of a wall rather than asked to move. Anyone the walls are pressing against
+also takes damage -- without that, a player wedged between a closing wall and
+solid geometry would simply stop, and the match could stall in exactly the
+situation the shrink exists to end.
+
+Everything about it is configurable (`arenaShrink`): whether it happens at all,
+how long the match runs first, how fast the walls travel, how narrow the gap gets
+before they stop, and how hard they hurt. The HUD counts down to it and then
+warns while it is happening, both driven by whole seconds the server sends.
 
 Two players are enough to start (configurable via `MIN_PLAYERS`); ten is the maximum.
 When a match starts the room locks itself, so Colyseus routes new arrivals into a fresh
@@ -467,7 +486,9 @@ npm test
 ```
 
 - **`tests/physics.test.ts`** — arena integrity (spawns are free, grounded and enclosed),
-  movement, jump height, wall collision, and determinism of the shared step.
+  movement, jump height, the double jump (two jumps and no more, refilled on landing,
+  only one after walking off a ledge), the closing walls' clamp, wall collision, and
+  determinism of the shared step.
 - **`tests/combat.test.ts`** — projectile collision, tunnelling at high bullet speeds,
   friendly-fire-with-self, weapon validation, the elimination path, shotgun pellets
   and falloff, and chainsaw contact rules (range, arc, walls, attack interval).
@@ -475,7 +496,8 @@ npm test
   no catalogue, a hand-crafted command from an unauthorized session changes nothing,
   arguments are clamped, unknown config paths are refused, and a room override never
   reaches the server configuration.
-- **`tests/powerups.test.ts`** — the crate pipeline end to end: spawn points, weighted
+- **`tests/powerups.test.ts`** — the closing arena (timing, symmetry, minimum width,
+  crush damage, disabling it) and the crate pipeline end to end: spawn points, weighted
   contents, crate damage and destruction, revealed pickups, collection, and every
   power-up effect including expiry. Also asserts a crate never exposes its contents.
 - **`tests/protocol.test.ts`** — input codec round-trips, malformed payload rejection,

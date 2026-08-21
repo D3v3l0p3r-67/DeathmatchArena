@@ -11,19 +11,15 @@ import { clientConfig } from "./config.js";
  */
 
 function preventBrowserInterference(): void {
-  // Space and the arrow keys scroll the page unless we claim them.
-  window.addEventListener(
-    "keydown",
-    (event) => {
-      const isTypingInInput = event.target instanceof HTMLInputElement;
-      if (isTypingInInput) return;
-
-      if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.code)) {
-        event.preventDefault();
-      }
-    },
-    { passive: false },
-  );
+  // Space and the arrow keys scroll the page, but claiming them here would break
+  // the game: Phaser's keyboard manager ignores any event whose default has
+  // already been prevented, so a listener like this one running first silently
+  // swallowed every Space and arrow press. `InputController` calls Phaser's own
+  // `addCapture` for exactly these keys instead, which stops the scrolling from
+  // inside Phaser's handler -- after the key state has been recorded.
+  //
+  // It also only applies once a match is joined, so typing a name with a space
+  // in it still works on the menu.
 
   // Dragging to aim must not start a text selection or a native drag.
   document.addEventListener("dragstart", (event) => event.preventDefault());
