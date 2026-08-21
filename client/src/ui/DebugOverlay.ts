@@ -11,11 +11,13 @@ export interface DebugSnapshot {
   sessionId: string;
   playerCount: number;
   projectileCount: number;
+  crateCount: number;
+  powerUpCount: number;
 }
 
 /**
  * Development overlay: FPS, ping, local coordinates, prediction error, pending
- * inputs, room and session ids, and connected player counts.
+ * inputs, room and session ids, and live entity counts.
  *
  * Off by default in production builds. Toggle at runtime with F3, force it on with
  * `?debug=1`, or set `VITE_DEBUG=true` at build time.
@@ -32,6 +34,8 @@ export class DebugOverlay {
     session: requireElement("debug-session"),
     players: requireElement("debug-players"),
     projectiles: requireElement("debug-projectiles"),
+    crates: requireElement("debug-crates"),
+    powerUps: requireElement("debug-powerups"),
   };
 
   private visible = false;
@@ -67,5 +71,7 @@ export class DebugOverlay {
     setText(this.fields.session, snapshot.sessionId || "-");
     setText(this.fields.players, String(snapshot.playerCount));
     setText(this.fields.projectiles, String(snapshot.projectileCount));
+    setText(this.fields.crates, String(snapshot.crateCount));
+    setText(this.fields.powerUps, String(snapshot.powerUpCount));
   }
 }

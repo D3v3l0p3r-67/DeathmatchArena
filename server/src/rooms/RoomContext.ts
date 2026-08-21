@@ -33,4 +33,13 @@ export interface RoomContext {
    * Routed to the `MatchManager`, because a lethal hit drives the match lifecycle.
    */
   applyDamage(victimId: string, attackerId: string, amount: number, x: number, y: number, weaponId: string): void;
+
+  /**
+   * Damage a power-up crate. Routed to the `PowerUpSystem`, which owns crate
+   * health and decides what a broken crate reveals.
+   *
+   * Like `applyDamage`, this is only ever called from a hit the server computed
+   * itself -- a client never names a crate it claims to have hit.
+   */
+  damageCrate(crateId: string, amount: number, attackerId: string, now: number): void;
 }

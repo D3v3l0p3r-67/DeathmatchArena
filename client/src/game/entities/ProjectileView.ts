@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { getWeapon, type SyncedProjectile } from "@deathmatch/shared";
+import { getProjectileStyle, getWeapon, type SyncedProjectile } from "@deathmatch/shared";
 import { TextureKeys } from "../TextureFactory.js";
 
 /** Never extrapolate a bullet further than this; a wrong guess looks worse than a pause. */
@@ -27,7 +27,7 @@ export class ProjectileView {
     readonly projectile: SyncedProjectile,
     now: number,
   ) {
-    const style = getWeapon(projectile.weaponId).projectileStyle;
+    const style = getProjectileStyle(getWeapon(projectile.weaponId));
 
     this.serverX = projectile.x;
     this.serverY = projectile.y;

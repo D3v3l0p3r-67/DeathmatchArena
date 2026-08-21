@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { getWeapon } from "@deathmatch/shared";
+import { getProjectileStyle, getWeapon } from "@deathmatch/shared";
 import { TextureKeys } from "./TextureFactory.js";
 
 /**
@@ -13,7 +13,7 @@ export class EffectsSystem {
   constructor(private readonly scene: Phaser.Scene) {}
 
   muzzleFlash(x: number, y: number, angle: number, weaponId: string): void {
-    const style = getWeapon(weaponId).projectileStyle;
+    const style = getProjectileStyle(getWeapon(weaponId));
 
     const flash = this.scene.add
       .image(x, y, TextureKeys.MuzzleFlash)
@@ -29,6 +29,38 @@ export class EffectsSystem {
       scaleX: { from: 0.85, to: 1.25 },
       duration: 70,
       onComplete: () => flash.destroy(),
+    });
+  }
+
+  /**
+   * A melee swing arc, sized from the weapon's configured reach.
+   *
+   * `connected` comes from the server, which already decided what the swing hit;
+   * this only makes the outcome visible.
+   */
+  meleeSwing(x: number, y: number, angle: number, weaponId: string, connected: boolean): void {
+    const weapon = getWeapon(weaponId);
+    // The texture is drawn at a 96px radius, so scale it to the configured range.
+    const scale = Math.max(0.2, (weapon.range * 1.6) / 96);
+
+    const arc = this.scene.add
+      .image(x, y, TextureKeys.MeleeArc)
+      .setOrigin(0, 0.5)
+      .setRotation(angle)
+      .setScale(scale)
+      .setTint(connected ? 0xff6b6b : 0xdfe7f5)
+      .setAlpha(connected ? 0.75 : 0.4)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setDepth(17);
+
+    this.scene.tweens.add({
+      targets: arc,
+      alpha: 0,
+      scaleX: scale * 1.15,
+      scaleY: scale * 1.15,
+      duration: 130,
+      ease: "Quad.easeOut",
+      onComplete: () => arc.destroy(),
     });
   }
 

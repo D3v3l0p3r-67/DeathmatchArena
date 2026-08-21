@@ -6,6 +6,7 @@ import {
   clamp,
   createMovementState,
   findFreeSpawnPosition,
+  getDefaultWeaponId,
   type DamagePayload,
   type KillPayload,
   type MatchResultMessage,
@@ -15,6 +16,7 @@ import { serverConfig } from "../config.js";
 import type { PlayerRuntime } from "../rooms/PlayerRuntime.js";
 import type { RoomContext } from "../rooms/RoomContext.js";
 import type { PlayerState } from "../rooms/schema/PlayerState.js";
+import type { PowerUpSystem } from "./PowerUpSystem.js";
 import type { ProjectileSystem } from "./ProjectileSystem.js";
 import type { WeaponSystem } from "./WeaponSystem.js";
 
@@ -36,6 +38,7 @@ export class MatchManager {
     private readonly context: RoomContext,
     private readonly weapons: WeaponSystem,
     private readonly projectiles: ProjectileSystem,
+    private readonly powerUps: PowerUpSystem,
   ) {}
 
   update(now: number): void {
@@ -122,6 +125,8 @@ export class MatchManager {
     state.winnerName = "";
     this.matchDeadline = now + MATCH.MAX_MATCH_DURATION_MS;
 
+    this.powerUps.onMatchStarted(now);
+
     this.refreshCounters();
     this.context.logger.info("Match started", { players: participants.length, arena: state.arenaId });
   }
@@ -155,6 +160,7 @@ export class MatchManager {
     state.matchState = MatchState.FINISHED;
     this.phaseEndsAt = now + serverConfig.match.resultsMs;
     this.projectiles.clear();
+    this.powerUps.clear();
 
     const standings = this.buildStandings();
     const payload: MatchResultMessage = {
@@ -177,6 +183,7 @@ export class MatchManager {
     const state = this.context.state;
 
     this.projectiles.clear();
+    this.powerUps.clear();
     this.requeueRequests.clear();
 
     for (const player of state.players.values()) {
@@ -190,6 +197,9 @@ export class MatchManager {
       player.ammo = 0;
       player.reloading = false;
       player.lastProcessedInput = 0;
+      // Power-up weapons are earned per match, never carried into the next one.
+      player.weaponId = getDefaultWeaponId();
+      if (runtime) this.powerUps.clearSpeedBoost(player, runtime);
       runtime?.resetForMatch(now);
     }
 
@@ -234,7 +244,8 @@ export class MatchManager {
     player.placement = 0;
     player.lastProcessedInput = 0;
 
-    this.weapons.equip(player, runtime, player.weaponId);
+    // Everyone starts a match on the default weapon; the rest is earned from crates.
+    this.weapons.equip(player, runtime, getDefaultWeaponId());
   }
 
   /**
@@ -296,6 +307,7 @@ export class MatchManager {
 
     const runtime = this.context.runtimes.get(victim.sessionId);
     runtime?.clearInputs();
+    if (runtime) this.powerUps.clearSpeedBoost(victim, runtime);
     this.projectiles.destroyOwnedBy(victim.sessionId);
 
     if (killer && killer.sessionId !== victim.sessionId) {

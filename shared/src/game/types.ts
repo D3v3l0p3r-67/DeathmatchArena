@@ -33,6 +33,14 @@ export interface MovementState {
   facing: number;
   /** True while the player holds jump; used for variable jump height. */
   jumpHeld: boolean;
+  /**
+   * Multiplier on the horizontal speed cap, driven by power-up effects.
+   *
+   * It lives here rather than being looked up during the step so the movement
+   * integrator stays pure: the client copies the server's value before replaying
+   * unacknowledged inputs, and prediction still reproduces the server exactly.
+   */
+  speedMultiplier: number;
 }
 
 export function createMovementState(x = 0, y = 0): MovementState {
@@ -46,6 +54,7 @@ export function createMovementState(x = 0, y = 0): MovementState {
     jumpBufferTimer: 0,
     facing: 1,
     jumpHeld: false,
+    speedMultiplier: 1,
   };
 }
 
@@ -59,6 +68,7 @@ export function copyMovementState(source: MovementState, target: MovementState):
   target.jumpBufferTimer = source.jumpBufferTimer;
   target.facing = source.facing;
   target.jumpHeld = source.jumpHeld;
+  target.speedMultiplier = source.speedMultiplier;
   return target;
 }
 

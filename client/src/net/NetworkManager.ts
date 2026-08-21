@@ -4,16 +4,21 @@ import {
   NETWORK,
   ServerMessage,
   encodeInputBatch,
+  type CrateDestroyedPayload,
   type DamagePayload,
   type InputCommand,
+  type MeleeSwingPayload,
   type KillPayload,
   type MatchResultMessage,
   type MatchStateValue,
   type NoticePayload,
   type PingPayload,
   type PongPayload,
+  type PowerUpCollectedPayload,
+  type SyncedCrate,
   type SyncedGameState,
   type SyncedPlayer,
+  type SyncedPowerUp,
   type SyncedProjectile,
   type WelcomePayload,
 } from "@deathmatch/shared";
@@ -30,12 +35,19 @@ export interface NetworkEvents {
   playerRemoved: { sessionId: string };
   projectileAdded: { projectile: SyncedProjectile };
   projectileRemoved: { projectile: SyncedProjectile };
+  crateAdded: { crate: SyncedCrate };
+  crateRemoved: { crate: SyncedCrate };
+  powerUpAdded: { powerUp: SyncedPowerUp };
+  powerUpRemoved: { powerUp: SyncedPowerUp };
   matchStateChanged: { matchState: MatchStateValue };
   countdownChanged: { seconds: number };
   kill: KillPayload;
   damage: DamagePayload;
   matchResult: MatchResultMessage;
   notice: NoticePayload;
+  powerUpCollected: PowerUpCollectedPayload;
+  crateDestroyed: CrateDestroyedPayload;
+  meleeSwing: MeleeSwingPayload;
   disconnected: { code: number; reason: string };
   error: { message: string };
 }
@@ -225,6 +237,20 @@ export class NetworkManager {
       this.events.emit("projectileRemoved", { projectile });
     });
 
+    $(room.state).crates.onAdd((crate: SyncedCrate) => {
+      this.events.emit("crateAdded", { crate });
+    });
+    $(room.state).crates.onRemove((crate: SyncedCrate) => {
+      this.events.emit("crateRemoved", { crate });
+    });
+
+    $(room.state).powerUps.onAdd((powerUp: SyncedPowerUp) => {
+      this.events.emit("powerUpAdded", { powerUp });
+    });
+    $(room.state).powerUps.onRemove((powerUp: SyncedPowerUp) => {
+      this.events.emit("powerUpRemoved", { powerUp });
+    });
+
     $(room.state).listen("matchState", (matchState: MatchStateValue) => {
       this.events.emit("matchStateChanged", { matchState });
     });
@@ -244,6 +270,15 @@ export class NetworkManager {
       this.events.emit("matchResult", payload),
     );
     room.onMessage(ServerMessage.NOTICE, (payload: NoticePayload) => this.events.emit("notice", payload));
+    room.onMessage(ServerMessage.POWERUP_COLLECTED, (payload: PowerUpCollectedPayload) =>
+      this.events.emit("powerUpCollected", payload),
+    );
+    room.onMessage(ServerMessage.CRATE_DESTROYED, (payload: CrateDestroyedPayload) =>
+      this.events.emit("crateDestroyed", payload),
+    );
+    room.onMessage(ServerMessage.MELEE_SWING, (payload: MeleeSwingPayload) =>
+      this.events.emit("meleeSwing", payload),
+    );
     room.onMessage(ServerMessage.PONG, (payload: PongPayload) => this.handlePong(payload));
 
     room.onLeave((code, reason) => {
@@ -298,6 +333,14 @@ type StateCallbackProxy = (state: SyncedGameState) => {
   projectiles: {
     onAdd(callback: (projectile: SyncedProjectile, id: string) => void): void;
     onRemove(callback: (projectile: SyncedProjectile, id: string) => void): void;
+  };
+  crates: {
+    onAdd(callback: (crate: SyncedCrate, id: string) => void): void;
+    onRemove(callback: (crate: SyncedCrate, id: string) => void): void;
+  };
+  powerUps: {
+    onAdd(callback: (powerUp: SyncedPowerUp, id: string) => void): void;
+    onRemove(callback: (powerUp: SyncedPowerUp, id: string) => void): void;
   };
   listen<K extends keyof SyncedGameState>(
     field: K,

@@ -76,6 +76,7 @@ export class PredictionController {
     this.movement.coyoteTimer = 0;
     this.movement.jumpBufferTimer = 0;
     this.movement.jumpHeld = false;
+    this.movement.speedMultiplier = player.speedMultiplier || 1;
     this.initialised = true;
   }
 
@@ -112,6 +113,9 @@ export class PredictionController {
     this.movement.velocityX = player.velocityX;
     this.movement.velocityY = player.velocityY;
     this.movement.onGround = player.onGround;
+    // The speed cap is part of server truth too: replaying a boosted player with
+    // the default cap would manufacture an error the server never had.
+    this.movement.speedMultiplier = player.speedMultiplier || 1;
 
     // ...and replay whatever it has not seen yet.
     for (const input of this.pending) {

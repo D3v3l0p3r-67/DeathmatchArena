@@ -1,37 +1,45 @@
 import {
-  DEFAULT_WEAPON_ID,
   PLAYER,
+  ServerMessage,
+  getDefaultWeaponId,
   getFireIntervalMs,
+  getMeleeArcRadians,
   getWeapon,
+  isMelee,
+  usesAmmo,
   type InputCommand,
+  type MeleeSwingPayload,
   type WeaponDefinition,
 } from "@deathmatch/shared";
 import type { PlayerRuntime } from "../rooms/PlayerRuntime.js";
 import type { RoomContext } from "../rooms/RoomContext.js";
 import type { PlayerState } from "../rooms/schema/PlayerState.js";
+import type { CollisionSystem } from "./CollisionSystem.js";
 import type { ProjectileSystem } from "./ProjectileSystem.js";
 
 /**
- * Weapon handling: ammunition, fire-rate cooldowns, reloads and shot spawning.
+ * Weapon handling: ammunition, cooldowns, reloads, shot spawning and melee contact.
  *
  * Everything a client could lie about is decided here:
  *   - is the player alive?
  *   - has the fire-rate cooldown elapsed?
  *   - is there ammunition in the magazine?
  *   - is a reload in progress?
+ *   - for melee: is anyone actually within reach?
  *
- * The client's `fire` bit is a *request*. This system decides whether it happens.
- * Behaviour is entirely driven by the weapon definition, so adding a weapon means
- * adding data to `shared/game/weapons.ts` -- no changes here.
+ * The client's `fire` bit is a *request*. This system decides what happens, and
+ * behaviour comes entirely from the weapon definition -- so adding a weapon is a
+ * config change, not a change here.
  */
 export class WeaponSystem {
   constructor(
     private readonly context: RoomContext,
     private readonly projectiles: ProjectileSystem,
+    private readonly collision: CollisionSystem,
   ) {}
 
-  /** Give a player a weapon and fill the magazine. Used at spawn (and later, pickups). */
-  equip(player: PlayerState, runtime: PlayerRuntime, weaponId: string = DEFAULT_WEAPON_ID): void {
+  /** Give a player a weapon and fill the magazine. Used at spawn and on pickup. */
+  equip(player: PlayerState, runtime: PlayerRuntime, weaponId: string = getDefaultWeaponId()): void {
     const weapon = getWeapon(weaponId);
     player.weaponId = weapon.id;
     player.ammo = weapon.magazineSize;
@@ -54,7 +62,7 @@ export class WeaponSystem {
     if (!player.alive) return;
 
     // Reload on a fresh key press only, so holding R does not restart the reload.
-    if (input.reload && !runtime.lastInput.reload) {
+    if (input.reload && !runtime.lastInput.reload && usesAmmo(weapon)) {
       this.tryStartReload(player, runtime, weapon, now);
     }
 
@@ -62,7 +70,11 @@ export class WeaponSystem {
     // Semi-automatic weapons require a fresh trigger pull.
     if (!weapon.automatic && runtime.lastInput.fire) return;
 
-    this.tryFire(player, runtime, weapon, input.aimAngle, now);
+    if (isMelee(weapon)) {
+      this.tryMelee(player, runtime, weapon, input.aimAngle, now);
+    } else {
+      this.tryFire(player, runtime, weapon, input.aimAngle, now);
+    }
   }
 
   /** Finish a reload whose deadline has passed. */
@@ -87,12 +99,17 @@ export class WeaponSystem {
     now: number,
   ): boolean {
     if (player.reloading) return false;
+    if (!usesAmmo(weapon)) return false;
     if (player.ammo >= weapon.magazineSize) return false;
 
     player.reloading = true;
     runtime.reloadEndsAt = now + weapon.reloadTime;
     return true;
   }
+
+  // -------------------------------------------------------------------------
+  // Ranged
+  // -------------------------------------------------------------------------
 
   private tryFire(
     player: PlayerState,
@@ -103,7 +120,8 @@ export class WeaponSystem {
   ): boolean {
     if (player.reloading) return false;
 
-    if (player.ammo <= 0) {
+    const ammoLimited = usesAmmo(weapon);
+    if (ammoLimited && player.ammo <= 0) {
       // Empty magazine: start reloading instead of firing.
       this.tryStartReload(player, runtime, weapon, now);
       return false;
@@ -113,15 +131,90 @@ export class WeaponSystem {
     if (now - runtime.lastShotAt < getFireIntervalMs(weapon)) return false;
 
     runtime.lastShotAt = now;
-    player.ammo -= 1;
+    if (ammoLimited) player.ammo -= 1;
 
     const origin = getMuzzlePosition(player, aimAngle);
-    for (let pellet = 0; pellet < weapon.pellets; pellet++) {
-      const deviation = (this.context.random() * 2 - 1) * weapon.spread;
+    const pellets = Math.max(1, weapon.ranged?.pellets ?? 1);
+    const spread = weapon.ranged?.spread ?? 0;
+
+    // A shotgun is simply a weapon whose definition asks for several pellets --
+    // there is no shotgun-specific branch anywhere in this system.
+    for (let pellet = 0; pellet < pellets; pellet++) {
+      const deviation = (this.context.random() * 2 - 1) * spread;
       this.projectiles.spawn(player.sessionId, weapon, origin.x, origin.y, aimAngle + deviation, now);
     }
 
-    if (player.ammo === 0) this.tryStartReload(player, runtime, weapon, now);
+    if (ammoLimited && player.ammo === 0) this.tryStartReload(player, runtime, weapon, now);
+    return true;
+  }
+
+  // -------------------------------------------------------------------------
+  // Melee
+  // -------------------------------------------------------------------------
+
+  /**
+   * Resolve a melee swing.
+   *
+   * No projectile is created: the server tests, from its own positions, whether
+   * anything is inside the weapon's arc and within its contact range. The client
+   * only ever said "I swung" -- it cannot name a victim, and a swing into empty
+   * air simply hits nothing.
+   */
+  private tryMelee(
+    player: PlayerState,
+    runtime: PlayerRuntime,
+    weapon: WeaponDefinition,
+    aimAngle: number,
+    now: number,
+  ): boolean {
+    if (now - runtime.lastShotAt < getFireIntervalMs(weapon)) return false;
+    runtime.lastShotAt = now;
+
+    const origin = { x: player.x, y: player.y + PLAYER.AIM_ORIGIN_Y };
+    const halfArc = getMeleeArcRadians(weapon) / 2;
+
+    const targets = this.collision.findMeleeTargets(
+      origin.x,
+      origin.y,
+      aimAngle,
+      weapon.range,
+      halfArc,
+      this.context.state.players.values(),
+      player.sessionId,
+    );
+
+    for (const target of targets) {
+      this.context.applyDamage(
+        target.sessionId,
+        player.sessionId,
+        weapon.damage,
+        target.x,
+        target.y,
+        weapon.id,
+      );
+    }
+
+    // Melee opens crates too, otherwise a chainsaw player could never take one.
+    const crates = this.collision.findMeleeCrates(
+      origin.x,
+      origin.y,
+      aimAngle,
+      weapon.range,
+      halfArc,
+      this.context.state.crates.values(),
+    );
+    for (const crate of crates) {
+      this.context.damageCrate(crate.id, weapon.damage, player.sessionId, now);
+    }
+
+    const payload: MeleeSwingPayload = {
+      sessionId: player.sessionId,
+      weaponId: weapon.id,
+      aimAngle,
+      connected: targets.length > 0 || crates.length > 0,
+    };
+    this.context.broadcast(ServerMessage.MELEE_SWING, payload);
+
     return true;
   }
 }
