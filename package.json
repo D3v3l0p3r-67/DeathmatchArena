@@ -16,7 +16,7 @@
     "build": "npm run build:server && npm run build:client",
     "build:server": "npm run build --workspace @deathmatch/server",
     "build:client": "npm run build --workspace @deathmatch/client",
-    "start": "npm run start --workspace @deathmatch/server",
+    "start": "node server/build/index.js",
     "typecheck": "tsc --noEmit -p tsconfig.json && npm run typecheck --workspaces --if-present",
     "clean": "rm -rf node_modules */node_modules server/build client/dist",
     "test": "tsx --test tests/**/*.test.ts"
