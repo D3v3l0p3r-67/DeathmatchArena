@@ -16,11 +16,12 @@ export interface DebugSnapshot {
 }
 
 /**
- * Development overlay: FPS, ping, local coordinates, prediction error, pending
+ * Diagnostic overlay: FPS, ping, local coordinates, prediction error, pending
  * inputs, room and session ids, and live entity counts.
  *
- * Off by default in production builds. Toggle at runtime with F3, force it on with
- * `?debug=1`, or set `VITE_DEBUG=true` at build time.
+ * Gated on the server's debug grant, not on the build or the environment: F3
+ * does nothing until the server has authorized this session. That keeps every
+ * piece of debug tooling behind one decision, made in one place.
  */
 export class DebugOverlay {
   private readonly root = query('[data-layer="debug"]');
@@ -39,13 +40,16 @@ export class DebugOverlay {
   };
 
   private visible = false;
+  /** Set from the server's verdict; nothing local may turn this on. */
+  private granted = false;
 
-  constructor(initiallyVisible: boolean) {
-    this.setVisible(initiallyVisible);
+  constructor() {
+    this.setVisible(false);
 
     window.addEventListener("keydown", (event) => {
       if (event.code !== "F3") return;
       event.preventDefault();
+      if (!this.granted) return;
       this.setVisible(!this.visible);
     });
   }
@@ -53,6 +57,12 @@ export class DebugOverlay {
   setVisible(visible: boolean): void {
     this.visible = visible;
     toggleClass(this.root, "is-active", visible);
+  }
+
+  /** Apply the server's debug grant. Losing it hides the overlay immediately. */
+  setGranted(granted: boolean): void {
+    this.granted = granted;
+    if (!granted) this.setVisible(false);
   }
 
   get isVisible(): boolean {

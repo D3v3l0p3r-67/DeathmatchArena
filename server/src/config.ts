@@ -14,6 +14,14 @@ function readNumber(name: string, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+/** Comma-separated list, trimmed, with empties dropped. */
+function readList(name: string): string[] {
+  return (process.env[name] ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
 function readBoolean(name: string, fallback: boolean): boolean {
   const raw = process.env[name];
   if (raw === undefined || raw.trim() === "") return fallback;
@@ -44,6 +52,25 @@ export const serverConfig = {
 
   /** Verbose per-room gameplay logging. */
   verboseLogging: readBoolean("VERBOSE_LOGGING", !isProduction),
+
+  /**
+   * Debug authorization.
+   *
+   * Deliberately NOT derived from `NODE_ENV`: debug tooling has to be usable in
+   * production, so access is an explicit grant rather than a property of the
+   * environment. With nothing configured, nobody gets access anywhere.
+   */
+  debug: {
+    /** Shared secrets. A client presenting one of these is granted access. */
+    tokens: readList("DEBUG_TOKENS"),
+    /**
+     * Display names granted without a token. Weak: players pick their own name,
+     * so treat this as a local-testing convenience, not a credential.
+     */
+    playerNames: readList("DEBUG_PLAYERS"),
+    /** Grant everyone. Never implied by the environment; must be set on purpose. */
+    allowAll: readBoolean("DEBUG_ALLOW_ALL", false),
+  },
 
   match: {
     minPlayersToStart: readNumber("MIN_PLAYERS", MATCH.MIN_PLAYERS_TO_START),

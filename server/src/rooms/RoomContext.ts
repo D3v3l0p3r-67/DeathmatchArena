@@ -1,4 +1,4 @@
-import type { ArenaDefinition, CollisionWorld } from "@deathmatch/shared";
+import type { ArenaDefinition, CollisionWorld, GameConfig, GameConfigView } from "@deathmatch/shared";
 import type { Logger } from "../utils/logger.js";
 import type { GameState } from "./schema/GameState.js";
 import type { PlayerRuntime } from "./PlayerRuntime.js";
@@ -15,6 +15,22 @@ export interface RoomContext {
   readonly world: CollisionWorld;
   readonly logger: Logger;
   readonly runtimes: Map<string, PlayerRuntime>;
+  readonly roomId: string;
+
+  /**
+   * This room's configuration.
+   *
+   * Deliberately per-room rather than the process-wide registry: debug tooling
+   * may retune a running match, and that must not reach any other room. Systems
+   * read weapons, power-ups and spawn settings from here.
+   *
+   * Reassigned as a whole when configuration changes, so a system never observes
+   * a half-updated config.
+   */
+  readonly config: GameConfigView;
+
+  /** The server's unmodified configuration, for comparison and for resetting. */
+  readonly baselineConfig: GameConfig;
 
   /** Authoritative wall clock in milliseconds. */
   now(): number;

@@ -4,9 +4,6 @@ import {
   PowerUpType,
   ServerMessage,
   applyHealthRestore,
-  getCrateConfig,
-  getPowerUpSpawnConfig,
-  pickWeightedPowerUp,
   type CrateDestroyedPayload,
   type PowerUpCollectedPayload,
   type PowerUpDefinition,
@@ -118,7 +115,7 @@ export class PowerUpSystem {
   /** Called when a match starts: clear anything stale and arm the spawn timer. */
   onMatchStarted(now: number): void {
     this.clear();
-    this.nextSpawnAt = now + getPowerUpSpawnConfig().firstSpawnDelayMs;
+    this.nextSpawnAt = now + this.context.config.getPowerUpSpawnConfig().firstSpawnDelayMs;
   }
 
   /** Called when a match ends: nothing should linger into the lobby. */
@@ -193,7 +190,7 @@ export class PowerUpSystem {
   // -------------------------------------------------------------------------
 
   private maybeSpawnCrate(now: number): void {
-    const config = getPowerUpSpawnConfig();
+    const config = this.context.config.getPowerUpSpawnConfig();
     if (config.intervalMs <= 0) return;
     if (now < this.nextSpawnAt) return;
 
@@ -206,7 +203,7 @@ export class PowerUpSystem {
     const spawnIndex = this.pickFreeSpawnIndex();
     if (spawnIndex === -1) return;
 
-    const contents = pickWeightedPowerUp(this.context.random);
+    const contents = this.context.config.pickWeightedPowerUp(this.context.random);
     if (!contents) return;
 
     this.spawnCrate(spawnIndex, contents, now);
@@ -226,7 +223,7 @@ export class PowerUpSystem {
 
   private spawnCrate(spawnIndex: number, contents: PowerUpDefinition, now: number): void {
     const point: SpawnPoint = this.context.arena.powerUpSpawnPoints[spawnIndex]!;
-    const config = getCrateConfig();
+    const config = this.context.config.getCrateConfig();
 
     const state = new CrateState();
     state.id = `c${this.nextEntityId++}`;
@@ -247,6 +244,26 @@ export class PowerUpSystem {
     this.context.state.crates.set(state.id, state);
 
     this.context.logger.debug("Crate spawned", { crate: state.id, contents: contents.id });
+  }
+
+  /**
+   * Force a crate to appear, optionally with chosen contents.
+   *
+   * Used only by authorized debug tooling. It goes through the same spawn path as
+   * the timer, so a debug crate is indistinguishable from a natural one, and it
+   * still refuses to occupy a spawn point that is already taken.
+   *
+   * Returns the name of the power-up inside, or null when nowhere is free.
+   */
+  debugSpawnCrate(contents: PowerUpDefinition | null, now: number): string | null {
+    const spawnIndex = this.pickFreeSpawnIndex();
+    if (spawnIndex === -1) return null;
+
+    const chosen = contents ?? this.context.config.pickWeightedPowerUp(this.context.random);
+    if (!chosen) return null;
+
+    this.spawnCrate(spawnIndex, chosen, now);
+    return chosen.name;
   }
 
   // -------------------------------------------------------------------------
@@ -295,7 +312,7 @@ export class PowerUpSystem {
     spawnIndex: number,
     now: number,
   ): void {
-    const config = getPowerUpSpawnConfig();
+    const config = this.context.config.getPowerUpSpawnConfig();
 
     const state = new PowerUpState();
     state.id = `u${this.nextEntityId++}`;
@@ -322,7 +339,7 @@ export class PowerUpSystem {
   private collectPickups(now: number): void {
     if (this.pickups.size === 0) return;
 
-    const radius = getPowerUpSpawnConfig().pickupRadius;
+    const radius = this.context.config.getPowerUpSpawnConfig().pickupRadius;
     const radiusSquared = radius * radius;
 
     for (const pickup of Array.from(this.pickups.values())) {

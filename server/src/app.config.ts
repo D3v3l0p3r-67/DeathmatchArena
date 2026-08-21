@@ -105,5 +105,19 @@ export default config({
       env: serverConfig.nodeEnv,
       port: serverConfig.port,
     });
+
+    // Debug access is an explicit grant, never a property of the environment.
+    // Say plainly what the running server will accept.
+    const { tokens, playerNames, allowAll } = serverConfig.debug;
+    if (allowAll) {
+      logger.warn("DEBUG_ALLOW_ALL is on: every player can use debug tooling");
+    } else if (tokens.length === 0 && playerNames.length === 0) {
+      logger.info("Debug tooling is unreachable: no DEBUG_TOKENS or DEBUG_PLAYERS configured");
+    } else {
+      logger.info("Debug tooling reachable by grant", {
+        tokens: tokens.length,
+        whitelistedNames: playerNames.length,
+      });
+    }
   },
 });

@@ -1,5 +1,15 @@
 import type { KillEvent, MatchResultPayload } from "../game/types.js";
 
+export type {
+  DebugAuthRequest,
+  DebugCommandRequest,
+  DebugCommandResult,
+  DebugCommandSpec,
+  DebugConfigEntry,
+  DebugParamSpec,
+  DebugStatePayload,
+} from "../debug/types.js";
+
 /** Messages a client is allowed to send. Anything else is ignored by the server. */
 export const ClientMessage = {
   /** Batched input commands (see `encodeInput`). The only gameplay message. */
@@ -8,6 +18,16 @@ export const ClientMessage = {
   PING: "ping",
   /** Player pressed "play again" from the results screen. */
   REQUEUE: "requeue",
+  /**
+   * Request debug access. The server decides; a client saying "I am an admin"
+   * proves nothing.
+   */
+  DEBUG_AUTH: "debugAuth",
+  /**
+   * Run a debug command. Refused outright unless the sending session already
+   * holds a server-side grant.
+   */
+  DEBUG_COMMAND: "debugCommand",
 } as const;
 
 export type ClientMessageType = (typeof ClientMessage)[keyof typeof ClientMessage];
@@ -31,6 +51,13 @@ export const ServerMessage = {
   CRATE_DESTROYED: "crateDestroyed",
   /** A melee weapon was swung; purely so clients can animate it. */
   MELEE_SWING: "meleeSwing",
+  /**
+   * Debug authorization result plus, when granted, the command catalogue and the
+   * room's tunable values. Unauthorized sessions receive only a refusal.
+   */
+  DEBUG_STATE: "debugState",
+  /** Outcome of one debug command. */
+  DEBUG_RESULT: "debugResult",
 } as const;
 
 export type ServerMessageType = (typeof ServerMessage)[keyof typeof ServerMessage];

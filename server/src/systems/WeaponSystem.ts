@@ -1,10 +1,8 @@
 import {
   PLAYER,
   ServerMessage,
-  getDefaultWeaponId,
   getFireIntervalMs,
   getMeleeArcRadians,
-  getWeapon,
   isMelee,
   usesAmmo,
   type InputCommand,
@@ -39,8 +37,8 @@ export class WeaponSystem {
   ) {}
 
   /** Give a player a weapon and fill the magazine. Used at spawn and on pickup. */
-  equip(player: PlayerState, runtime: PlayerRuntime, weaponId: string = getDefaultWeaponId()): void {
-    const weapon = getWeapon(weaponId);
+  equip(player: PlayerState, runtime: PlayerRuntime, weaponId?: string): void {
+    const weapon = this.context.config.getWeapon(weaponId ?? this.context.config.getDefaultWeaponId());
     player.weaponId = weapon.id;
     player.ammo = weapon.magazineSize;
     player.reloading = false;
@@ -55,7 +53,7 @@ export class WeaponSystem {
    * Called from the movement loop so shots line up exactly with the tick that produced them.
    */
   processInput(player: PlayerState, runtime: PlayerRuntime, input: InputCommand, now: number): void {
-    const weapon = getWeapon(player.weaponId);
+    const weapon = this.context.config.getWeapon(player.weaponId);
 
     this.updateReload(player, runtime, weapon, now);
 

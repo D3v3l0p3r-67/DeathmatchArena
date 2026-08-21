@@ -12,13 +12,17 @@ import {
   createRandom,
   decodeInputBatch,
   generateFallbackName,
+  createGameConfigView,
   getArena,
   getCollisionWorld,
+  getGameConfig,
   isFiniteNumber,
   makeNameUnique,
   validatePlayerName,
   type ArenaDefinition,
   type CollisionWorld,
+  type GameConfig,
+  type GameConfigView,
   type JoinOptions,
   type NoticePayload,
   type PingPayload,
@@ -26,6 +30,12 @@ import {
   type WelcomePayload,
 } from "@deathmatch/shared";
 import { serverConfig } from "../config.js";
+import {
+  ConfiguredDebugPolicy,
+  DebugAuthorizationService,
+} from "../debug/DebugAuthorizationService.js";
+import { DebugCommandService } from "../debug/DebugCommandService.js";
+import { DebugRegistry, type DebugCommandContext } from "../debug/DebugRegistry.js";
 import { createLogger, type Logger } from "../utils/logger.js";
 import { CollisionSystem } from "../systems/CollisionSystem.js";
 import { MatchManager } from "../systems/MatchManager.js";
@@ -71,6 +81,18 @@ export class BattleRoom extends Room<{ state: GameState }> {
   private readonly runtimes = new Map<string, PlayerRuntime>();
   private readonly clientsBySession = new Map<string, Client>();
 
+  /**
+   * This room's configuration, and the server values it started from.
+   *
+   * Held per room so debug tooling can retune one match without touching any
+   * other room or the process-wide configuration.
+   */
+  private configView!: GameConfigView;
+  private baselineConfig!: GameConfig;
+
+  private debugAuthorization!: DebugAuthorizationService;
+  private debugCommands!: DebugCommandService;
+
   private accumulatorMs = 0;
   private random!: () => number;
 
@@ -89,6 +111,9 @@ export class BattleRoom extends Room<{ state: GameState }> {
     this.state.minPlayersToStart = serverConfig.match.minPlayersToStart;
     this.state.maxPlayers = serverConfig.match.maxPlayers;
 
+    this.baselineConfig = getGameConfig();
+    this.configView = createGameConfigView(this.baselineConfig);
+
     this.context = this.createContext();
     this.collisionSystem = new CollisionSystem(this.world);
     this.projectileSystem = new ProjectileSystem(this.context, this.collisionSystem);
@@ -100,6 +125,18 @@ export class BattleRoom extends Room<{ state: GameState }> {
       this.weaponSystem,
       this.projectileSystem,
       this.powerUpSystem,
+    );
+
+    this.debugAuthorization = new DebugAuthorizationService(
+      new ConfiguredDebugPolicy(serverConfig.debug),
+      this.logger,
+    );
+    this.debugCommands = new DebugCommandService(
+      this.context,
+      this.debugAuthorization,
+      new DebugRegistry(),
+      (callerId) => this.createDebugContext(callerId),
+      () => this.baselineConfig,
     );
 
     // Simulate at 60Hz, but only broadcast deltas at 20Hz: physics stays crisp
@@ -289,6 +326,32 @@ export class BattleRoom extends Room<{ state: GameState }> {
       this.matchManager.requestRequeue(client.sessionId, now);
     });
 
+    /**
+     * Debug access request. Authorization is decided entirely server-side --
+     * this handler only forwards the attempt.
+     */
+    this.onMessage(ClientMessage.DEBUG_AUTH, (client, payload) => {
+      const runtime = this.runtimes.get(client.sessionId);
+      const now = Date.now();
+      if (runtime && !runtime.rateLimiters.allow("debug", now)) return;
+
+      const player = this.state.players.get(client.sessionId);
+      this.debugCommands.handleAuthRequest(client.sessionId, player?.name ?? "", payload);
+    });
+
+    /**
+     * Debug command. `DebugCommandService` refuses this outright unless the
+     * session already holds a grant, so hand-crafting this message achieves
+     * nothing.
+     */
+    this.onMessage(ClientMessage.DEBUG_COMMAND, (client, payload) => {
+      const runtime = this.runtimes.get(client.sessionId);
+      const now = Date.now();
+      if (runtime && !runtime.rateLimiters.allow("debug", now)) return;
+
+      this.debugCommands.handleCommand(client.sessionId, payload);
+    });
+
     // Anything not explicitly handled above is ignored rather than trusted.
     this.onMessage("*", (client, type) => {
       this.logger.debug("Ignoring unknown message", { sessionId: client.sessionId, type });
@@ -305,12 +368,22 @@ export class BattleRoom extends Room<{ state: GameState }> {
   // ---------------------------------------------------------------------------
 
   private createContext(): RoomContext {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const self = this;
     return {
       state: this.state,
       arena: this.arena,
       world: this.world,
       logger: this.logger,
       runtimes: this.runtimes,
+      roomId: this.roomId,
+      // Getters, because debug tooling swaps the room's configuration wholesale.
+      get config() {
+        return self.configView;
+      },
+      get baselineConfig() {
+        return self.baselineConfig;
+      },
       now: () => Date.now(),
       random: () => this.random(),
       broadcast: (type, payload, options) => {
@@ -333,6 +406,23 @@ export class BattleRoom extends Room<{ state: GameState }> {
     };
   }
 
+  /** Assemble what a debug command is allowed to reach. */
+  private createDebugContext(callerId: string): DebugCommandContext {
+    return {
+      room: this.context,
+      weapons: this.weaponSystem,
+      powerUps: this.powerUpSystem,
+      matchManager: this.matchManager,
+      config: this.configView,
+      replaceConfig: (config) => {
+        // Room-scoped by construction: only this room's view is replaced.
+        this.configView = createGameConfigView(config);
+        this.logger.info("Room configuration overridden by debug command");
+      },
+      callerId,
+    };
+  }
+
   private sendTo(sessionId: string, type: string, payload: unknown): void {
     this.clientsBySession.get(sessionId)?.send(type, payload);
   }
@@ -348,6 +438,8 @@ export class BattleRoom extends Room<{ state: GameState }> {
     this.runtimes.delete(sessionId);
     this.clientsBySession.delete(sessionId);
     this.matchManager.onPlayerRemoved(sessionId);
+    // A grant belongs to a session, so it dies with it.
+    this.debugAuthorization.revoke(sessionId);
   }
 }
 

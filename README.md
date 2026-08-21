@@ -44,7 +44,7 @@ Useful server endpoints in development:
 ### Other commands
 
 ```bash
-npm test           # 61 tests: physics, combat, power-ups, protocol, and a real networked match
+npm test           # 72 tests: physics, combat, power-ups, debug access, protocol and a real networked match
 npm run typecheck  # tsc --noEmit across all three packages
 npm run build      # bundles the server and builds the client
 npm start          # runs the built server
@@ -109,6 +109,9 @@ and is imported by both sides — nothing in `client/` or `server/` redefines it
 | `systems/CollisionSystem.ts` | Segment-vs-world and segment-vs-player tests |
 | `systems/MatchManager.ts` | Match lifecycle, spawning, damage resolution, eliminations, winner |
 | `systems/PowerUpSystem.ts` | Crate spawning and destruction, revealed pickups, active effects |
+| `debug/DebugAuthorizationService.ts` | Who may use debug tooling; the only place that decides |
+| `debug/DebugRegistry.ts` | The debug command catalogue and the room's tunable values |
+| `debug/DebugCommandService.ts` | Authorization gate, argument validation and dispatch |
 
 Systems depend on a small `RoomContext` interface rather than on `BattleRoom`, which
 keeps them unit-testable and free of circular imports.
@@ -124,7 +127,7 @@ keeps them unit-testable and free of circular imports.
 | `net/SnapshotBuffer.ts` | Snapshot history and interpolation for remote entities |
 | `game/CameraController.ts` | Smooth follow, world clamping, screenshake |
 | `game/InputController.ts` | The only place that knows about key bindings |
-| `ui/*` | HUD, kill feed, debug overlay and screen management (plain DOM) |
+| `ui/*` | HUD, kill feed, debug overlay, debug console and screen management (plain DOM) |
 
 ---
 
@@ -197,8 +200,10 @@ off by default in production.
 
 ```
 VITE_SERVER_URL=ws://localhost:2567   # unset -> derived from the page origin
-VITE_DEBUG=false                      # or press F3 / append ?debug=1
 ```
+
+There is deliberately no client-side debug flag: debug tooling is unlocked by a
+server grant (see [Debugging](#debugging)), never by the build.
 
 Gameplay tuning (speeds, gravity, weapon stats, arena layout) lives in `shared/`, not
 in environment variables, because the client and server must agree on it exactly.
@@ -365,10 +370,79 @@ renaming a weapon in the HUD never breaks a reference to it.
 
 ## Debugging
 
-Press **F3** (or append `?debug=1`) for an overlay showing FPS, ping, the local
-player's world coordinates, current prediction error, pending unacknowledged inputs,
-the room id, the session id, and the connected player and projectile counts. It is off
-by default in production builds.
+Debug tooling is gated by **server-side authorization**, not by the build or the
+environment. That is deliberate: it has to be usable on the production server, so
+access is a grant rather than a property of where the code is running.
+
+```
+Production + authorized session -> debug allowed
+Production + ordinary player    -> debug denied
+Development + no grant          -> debug denied
+```
+
+### Getting access
+
+Configure who may be granted access on the server:
+
+```
+DEBUG_TOKENS=some-long-secret       # a client presenting this is granted access
+DEBUG_PLAYERS=Overlord              # display names granted without a token
+DEBUG_ALLOW_ALL=false               # grant everyone; only for a private server
+```
+
+With none of these set, nobody has debug access anywhere. The server logs which
+of them is active at boot.
+
+A client offers a token by opening the game with `?debugToken=some-long-secret`;
+it is remembered afterwards so a reload does not need it again. Sending it is
+only a *request* -- the server evaluates it and replies either way.
+
+> `DEBUG_PLAYERS` is weak by construction: players choose their own names, so
+> anyone who types a listed name is granted access. Use `DEBUG_TOKENS` on any
+> server the public can reach.
+
+### What a grant unlocks
+
+| Key | Opens |
+| --- | --- |
+| **Shift + D** | The debug console: commands and this room's tuning values |
+| **F3** | The diagnostic overlay: FPS, ping, coordinates, prediction error, entity counts |
+
+Both do nothing at all without a grant.
+
+The console can grant weapons and power-ups, set health, eliminate a player,
+spawn or clear crates, and retune any of the room's parameters. Its contents --
+the command catalogue, the forms, the current values -- are all sent by the server
+and only to authorized sessions, so the client ships no catalogue of its own and
+an unauthorized one cannot even enumerate what exists.
+
+### How it is enforced
+
+Three services, each with one job:
+
+| Service | Responsibility |
+| --- | --- |
+| `DebugAuthorizationService` | Answers `canUseDebug(sessionId)`. The only thing that decides. |
+| `DebugRegistry` | Describes commands and tunables, and holds their handlers. |
+| `DebugCommandService` | The entry point. Checks authorization, validates arguments, dispatches. |
+
+Every debug entry point asks `canUseDebug` before doing anything else, so a
+client that hand-crafts `debugCommand` messages gets the same refusal as one that
+never asked -- hiding the console is a convenience for the player, never a
+control. Arguments are coerced against each command's own spec, so out-of-range
+values are clamped and undeclared keys are dropped before a handler runs.
+
+Authorization policy sits behind a `DebugAuthorizationPolicy` interface. Swapping
+the interim token/whitelist mechanism for the planned account system means
+implementing that one interface; nothing else changes.
+
+### Runtime overrides are room-scoped
+
+Each room holds its own `GameConfigView`. A parameter changed through the console
+replaces **that room's** configuration and nothing else: other matches are
+unaffected, and the server's own configuration is never written to. Overrides are
+never persisted, and **Reset parameters** hands the room back to the server's
+values. The console marks anything diverging from the baseline with a `*`.
 
 The server logs room lifecycle events, joins, leaves and match transitions; set
 `VERBOSE_LOGGING=false` to quieten it.
@@ -386,6 +460,10 @@ npm test
 - **`tests/combat.test.ts`** — projectile collision, tunnelling at high bullet speeds,
   friendly-fire-with-self, weapon validation, the elimination path, shotgun pellets
   and falloff, and chainsaw contact rules (range, arc, walls, attack interval).
+- **`tests/debug.test.ts`** — debug authorization over a real socket: a refusal leaks
+  no catalogue, a hand-crafted command from an unauthorized session changes nothing,
+  arguments are clamped, unknown config paths are refused, and a room override never
+  reaches the server configuration.
 - **`tests/powerups.test.ts`** — the crate pipeline end to end: spawn points, weighted
   contents, crate damage and destruction, revealed pickups, collection, and every
   power-up effect including expiry. Also asserts a crate never exposes its contents.

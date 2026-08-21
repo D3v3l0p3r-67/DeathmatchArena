@@ -179,6 +179,38 @@
         <div class="debug__row"><span>Power-ups</span><b id="debug-powerups">-</b></div>
         <div class="debug__hint">F3 toggles this overlay</div>
       </div>
+
+      <!--
+        The debug console. Rendered empty and inert: its contents arrive from the
+        server only for sessions it has authorized, and every command is checked
+        again server-side.
+      -->
+      <div class="debug-console" data-layer="debug-console">
+        <header class="debug-console__header">
+          <h2>Debug console</h2>
+          <div class="debug-console__meta">
+            <span data-debug-status>-</span>
+            <span class="debug-console__room">room <b data-debug-room>-</b></span>
+          </div>
+          <button type="button" class="debug-console__close" data-debug-close aria-label="Close">x</button>
+        </header>
+
+        <div class="debug-console__body">
+          <div class="debug-console__panel">
+            <h3 class="debug-console__panel-title">Commands</h3>
+            <div data-debug-commands></div>
+          </div>
+          <div class="debug-console__panel">
+            <h3 class="debug-console__panel-title">Room parameters</h3>
+            <p class="debug-console__note">
+              Applies to this room only and is never saved to the server configuration.
+            </p>
+            <div class="debug-console__config" data-debug-config></div>
+          </div>
+        </div>
+
+        <div class="debug-console__log" data-debug-log></div>
+      </div>
     </div>
 
     <script type="module" src="/src/main.ts"></script>

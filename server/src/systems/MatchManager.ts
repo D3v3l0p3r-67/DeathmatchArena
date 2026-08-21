@@ -6,7 +6,6 @@ import {
   clamp,
   createMovementState,
   findFreeSpawnPosition,
-  getDefaultWeaponId,
   type DamagePayload,
   type KillPayload,
   type MatchResultMessage,
@@ -198,7 +197,7 @@ export class MatchManager {
       player.reloading = false;
       player.lastProcessedInput = 0;
       // Power-up weapons are earned per match, never carried into the next one.
-      player.weaponId = getDefaultWeaponId();
+      player.weaponId = this.context.config.getDefaultWeaponId();
       if (runtime) this.powerUps.clearSpeedBoost(player, runtime);
       runtime?.resetForMatch(now);
     }
@@ -245,7 +244,7 @@ export class MatchManager {
     player.lastProcessedInput = 0;
 
     // Everyone starts a match on the default weapon; the rest is earned from crates.
-    this.weapons.equip(player, runtime, getDefaultWeaponId());
+    this.weapons.equip(player, runtime, this.context.config.getDefaultWeaponId());
   }
 
   /**
