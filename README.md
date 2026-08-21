@@ -44,7 +44,7 @@ Useful server endpoints in development:
 ### Other commands
 
 ```bash
-npm test           # 104 tests: physics, combat, grenades, power-ups, debug access, protocol and a real networked match
+npm test           # 113 tests: physics, combat, grenades, power-ups, presentation, debug access, protocol and a real networked match
 npm run typecheck  # tsc --noEmit across all three packages
 npm run build      # bundles the server and builds the client
 npm start          # runs the built server
@@ -63,6 +63,7 @@ Left Mouse          fire (hold — the rifle is automatic)
 Right Mouse         hold to charge a grenade throw, release to throw
 R                   reload
 Left / Right Arrow  switch spectated player (while dead)
+O                   open settings (audio and effects)
 F3                  toggle the debug overlay
 ```
 
@@ -130,7 +131,11 @@ keeps them unit-testable and free of circular imports.
 | `net/SnapshotBuffer.ts` | Snapshot history and interpolation for remote entities |
 | `game/CameraController.ts` | Smooth follow, world clamping, screenshake |
 | `game/InputController.ts` | The only place that knows about key bindings |
-| `ui/*` | HUD, kill feed, debug overlay, debug console and screen management (plain DOM) |
+| `audio/sounds.ts` | The sound catalogue — every sound as synthesis parameters, no files |
+| `audio/AudioEngine.ts` | Runtime synthesis, mixer channels, positional falloff and panning |
+| `audio/SoundController.ts` | The one place that maps game events to sounds |
+| `game/fx/effects.ts` | The effect catalogue — bursts and camera shakes as data |
+| `ui/*` | HUD, kill feed, settings, debug overlay, debug console and screen management (plain DOM) |
 
 ---
 
@@ -429,6 +434,57 @@ renaming a weapon in the HUD never breaks a reference to it.
 
 ---
 
+## Sound and effects
+
+### Sound is synthesised, not loaded
+
+There are no audio files in this repository. Every sound is built at runtime from
+oscillators and filtered noise described in `client/src/audio/sounds.ts`, so the
+game ships nothing to download and nothing to license — and retuning a gunshot is
+editing numbers rather than opening an audio editor.
+
+A sound is a stack of layers. Each layer is a tone (with an optional pitch sweep)
+or filtered noise, shaped by an attack/decay envelope; layering a swept tone under
+noise is what turns a beep into a gunshot or an explosion. Two details do most of
+the work: **pitch jitter**, without which a rifle firing ten times a second sounds
+like a machine rather than a gun, and **per-sound throttling**, without which a
+shotgun's nine pellets land nine impacts in the same millisecond and are heard as
+one distorted clack.
+
+Sounds in the world are positional: they fade with distance from the camera and
+pan towards the side they happened on, which is most of what makes a firefight
+readable when you cannot see the shooter. Sounds *about you* — being hit, your own
+pickup, a kill you scored — play unpositioned at full volume, so they cut through.
+
+`SoundController` is the only place that maps events to sounds. Some of it needs
+no messages at all: jumps, landings, reloads and a ticking fuse are simply visible
+in the synchronised state, so they become audible without costing bandwidth.
+
+### Effects are data too
+
+`client/src/game/fx/effects.ts` holds every burst and camera shake as numbers
+rather than constants inline, so the game's feel is tunable in one file. Bursts
+carry particle counts, speed and lifetime ranges, gravity and an optional cone;
+shakes carry a duration and an intensity.
+
+Beyond the existing muzzle flashes and impacts, there are landing puffs, a ring
+under the mid-air jump, sparks where a grenade bounces, debris when a crate
+breaks, a burst tinted with a power-up's own colour when it is collected, and a
+blast drawn at the radius the server actually used.
+
+### What a player can change
+
+Press **O** (or *Settings* on the menu) for master and per-channel volumes, mute,
+particle density, screen shake and damage numbers. All of it is stored in the
+player's own browser and none of it reaches the server — volumes and particle
+counts are presentation, and presentation is the client's.
+
+Turning particles or shake to zero is a supported setting, not a broken one: the
+game still plays every flash and flourish, just without the debris or the camera
+movement.
+
+---
+
 ## Debugging
 
 Debug tooling is gated by **server-side authorization**, not by the build or the
@@ -534,6 +590,10 @@ npm test
 - **`tests/grenades.test.ts`** — the loadout, charge-to-speed curve (including an
   absurd hold being clamped), flight under gravity, bouncing off geometry, the fuse,
   and a blast that falls off with distance and catches the thrower too.
+- **`tests/presentation.test.ts`** — the sound and effect catalogues: every id has a
+  definition, every sound routes to a real channel and renders (no sub-audible tones,
+  no zero-length layers), burst-prone sounds are throttled, and no camera shake is
+  set hard enough to be unplayable.
 - **`tests/protocol.test.ts`** — input codec round-trips, malformed payload rejection,
   name validation, rate limiting.
 - **`tests/match.test.ts`** — end-to-end against a real Colyseus server over a real

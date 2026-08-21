@@ -1222,3 +1222,145 @@ kbd {
 .debug-console__log-line.is-error {
   color: var(--danger);
 }
+
+/* -------------------------------------------------------------- settings -- */
+
+.settings {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 55;
+  display: none;
+  width: min(460px, 92vw);
+  max-height: 84vh;
+  transform: translate(-50%, -50%);
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--text);
+  background: rgba(8, 11, 18, 0.97);
+  border: 1px solid rgba(120, 160, 220, 0.35);
+  border-radius: 12px;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.6);
+  pointer-events: auto;
+}
+
+.settings.is-active {
+  display: flex;
+}
+
+.settings__header {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  background: rgba(20, 28, 44, 0.9);
+  border-bottom: 1px solid rgba(120, 160, 220, 0.25);
+}
+
+.settings__header h2 {
+  flex: 1;
+  margin: 0;
+  font-size: 14px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.settings__close {
+  padding: 2px 10px;
+  font-size: 14px;
+  color: var(--text-dim);
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid rgba(120, 160, 220, 0.3);
+  border-radius: 6px;
+}
+
+.settings__close:hover {
+  color: var(--text);
+}
+
+.settings__body {
+  flex: 1;
+  padding: 6px 16px 12px;
+  overflow-y: auto;
+}
+
+.settings__group {
+  margin-top: 14px;
+}
+
+.settings__group h3 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #7f9dc4;
+}
+
+.setting {
+  display: grid;
+  grid-template-columns: 110px 1fr 46px;
+  gap: 10px;
+  align-items: center;
+  padding: 5px 0;
+}
+
+.setting--toggle {
+  grid-template-columns: 110px 1fr;
+}
+
+.setting__label {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.setting__value {
+  font-family: var(--mono);
+  font-size: 12px;
+  text-align: right;
+  color: var(--text);
+}
+
+.setting input[type="range"] {
+  width: 100%;
+  accent-color: #37d0ff;
+}
+
+.setting input[type="checkbox"] {
+  justify-self: start;
+  width: 16px;
+  height: 16px;
+  accent-color: #37d0ff;
+}
+
+/* Muting greys the mixer without hiding it, so the sliders keep their meaning. */
+.settings.is-muted .settings__group:first-child .setting:not(.setting--toggle) {
+  opacity: 0.4;
+}
+
+.settings__hint {
+  margin: 0;
+  padding: 8px 16px;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: rgba(0, 0, 0, 0.4);
+  border-top: 1px solid rgba(120, 160, 220, 0.2);
+}
+
+/* A discreet way in from the menu. */
+.menu__settings {
+  margin-top: 14px;
+  padding: 6px 14px;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid rgba(120, 160, 220, 0.3);
+  border-radius: 8px;
+}
+
+.menu__settings:hover {
+  color: var(--text);
+  border-color: rgba(120, 160, 220, 0.6);
+}

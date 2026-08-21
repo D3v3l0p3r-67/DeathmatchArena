@@ -43,6 +43,20 @@ export class GrenadeView {
     this.container = scene.add.container(grenade.x, grenade.y, [this.glow, this.body]).setDepth(9);
   }
 
+  /**
+   * Whether this snapshot shows a bounce since the last one.
+   *
+   * A sign flip on either axis means the server reflected it off something,
+   * which is the only signal needed -- no extra message has to cross the wire.
+   */
+  detectBounce(grenade: SyncedGrenade): boolean {
+    const flippedX = Math.sign(grenade.velocityX) !== Math.sign(this.velocityX);
+    const flippedY = Math.sign(grenade.velocityY) !== Math.sign(this.velocityY);
+    // A meaningful reversal only; near-zero drift flips sign constantly.
+    const fast = Math.hypot(this.velocityX, this.velocityY) > 60;
+    return fast && (flippedX || flippedY);
+  }
+
   /** Adopt a fresh authoritative position. */
   syncFromServer(grenade: SyncedGrenade, now: number): void {
     this.serverX = grenade.x;
