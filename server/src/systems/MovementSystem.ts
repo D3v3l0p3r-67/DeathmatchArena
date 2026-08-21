@@ -6,6 +6,7 @@ import {
   stepPlayerMovement,
   type CollisionWorld,
   type InputCommand,
+  type WorldBounds,
 } from "@deathmatch/shared";
 import type { PlayerRuntime } from "../rooms/PlayerRuntime.js";
 import type { RoomContext } from "../rooms/RoomContext.js";
@@ -30,6 +31,8 @@ export class MovementSystem {
     private readonly context: RoomContext,
     private readonly world: CollisionWorld,
     private readonly weapons: WeaponSystem,
+    /** The playable limits, which the closing walls narrow over a match. */
+    private readonly getBounds: () => WorldBounds,
   ) {}
 
   /**
@@ -67,19 +70,24 @@ export class MovementSystem {
         continue;
       }
 
-      this.simulatePlayer(player, runtime, now);
+      this.simulatePlayer(player, runtime, now, this.getBounds());
       this.writeBack(player, runtime);
     }
   }
 
-  private simulatePlayer(player: PlayerState, runtime: PlayerRuntime, now: number): void {
+  private simulatePlayer(
+    player: PlayerState,
+    runtime: PlayerRuntime,
+    now: number,
+    bounds: WorldBounds,
+  ): void {
     while (runtime.inputQueue.length > 0 && runtime.inputBudget >= 1) {
       const input = runtime.inputQueue.shift()!;
       runtime.inputBudget -= 1;
 
       // Movement and weapons advance together so a shot is fired from the exact
       // position the player occupied on that tick.
-      stepPlayerMovement(runtime.movement, input, FIXED_DELTA, this.world);
+      stepPlayerMovement(runtime.movement, input, FIXED_DELTA, this.world, bounds);
       player.aimAngle = input.aimAngle;
       this.weapons.processInput(player, runtime, input, now);
 
@@ -99,6 +107,7 @@ export class MovementSystem {
     player.velocityY = movement.velocityY;
     player.onGround = movement.onGround;
     player.facing = movement.facing;
+    player.jumpsRemaining = movement.jumpsRemaining;
   }
 }
 

@@ -137,6 +137,18 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
     lifetimeMs: 45000,
   },
 
+  arenaShrink: {
+    enabled: true,
+    // Long enough for a normal match to resolve on its own, short enough that a
+    // stalemate does not outlast anyone's patience.
+    startAfterMs: 120000,
+    // 3200px wide, so each wall has ~1500px to travel: a slow, visible squeeze
+    // rather than a sudden crush.
+    speedPerSecond: 26,
+    minWidth: 420,
+    crushDamagePerSecond: 22,
+  },
+
   powerUpSpawning: {
     intervalMs: 15000,
     maxActiveCrates: 4,

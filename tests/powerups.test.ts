@@ -13,6 +13,8 @@ import { beforeEach, describe, it } from "node:test";
 import {
   CHAINSAW_ID,
   DEFAULT_GAME_CONFIG,
+  FIXED_DELTA,
+  MatchState,
   PLAYER,
   PowerUpType,
   SHOTGUN_ID,
@@ -381,5 +383,135 @@ describe("power-up effects", () => {
 
     assert.equal(player.speedMultiplier, 1, "a boost must not survive its owner");
     assert.equal(player.boostSeconds, 0);
+  });
+});
+
+describe("closing arena", () => {
+  let harness: Harness;
+
+  beforeEach(() => {
+    clock.now = 0;
+    harness = createHarness();
+    // The shrink derives its deadline from the match clock, so a started match
+    // needs a start time -- 1 rather than 0, since 0 means "no match".
+    harness.state.matchStartedAt = 1;
+  });
+
+  /** Advance the walls by `seconds`, in fixed ticks, starting at `startAt`. */
+  function shrinkFor(harness: Harness, seconds: number, startAt: number): void {
+    const ticks = Math.round(seconds / FIXED_DELTA);
+    for (let i = 0; i < ticks; i++) {
+      clock.now = startAt + i * FIXED_DELTA * 1000;
+      harness.stepArenaShrink(FIXED_DELTA, clock.now);
+    }
+  }
+
+  it("leaves the arena at full width until the configured time", () => {
+    const config = getGameConfig().arenaShrink;
+    harness.arenaShrink.onMatchStarted();
+
+    assert.equal(harness.state.shrinkLeft, 0);
+    assert.equal(harness.state.shrinkRight, harness.arena.width);
+    assert.equal(harness.state.shrinking, false);
+    assert.ok(harness.state.shrinkCountdownSeconds > 0, "the HUD gets a countdown");
+
+    // One tick short of the deadline changes nothing.
+    clock.now = config.startAfterMs - 100;
+    harness.stepArenaShrink(FIXED_DELTA, clock.now);
+
+    assert.equal(harness.state.shrinking, false);
+    assert.equal(harness.state.shrinkLeft, 0);
+    assert.equal(harness.state.shrinkRight, harness.arena.width);
+  });
+
+  it("closes both walls symmetrically once it starts", () => {
+    const config = getGameConfig().arenaShrink;
+    harness.arenaShrink.onMatchStarted();
+
+    shrinkFor(harness, 4, config.startAfterMs);
+
+    assert.equal(harness.state.shrinking, true);
+    assert.equal(harness.state.shrinkCountdownSeconds, 0);
+
+    const left = harness.state.shrinkLeft;
+    const right = harness.state.shrinkRight;
+    assert.ok(left > 0, "the left wall advanced");
+    assert.ok(right < harness.arena.width, "the right wall advanced");
+
+    // Symmetric, so the safe zone stays centred on the arena.
+    const leftTravel = left;
+    const rightTravel = harness.arena.width - right;
+    assert.ok(Math.abs(leftTravel - rightTravel) < 0.001, "both walls move at the same rate");
+    assert.ok(leftTravel > config.speedPerSecond * 3, "roughly the configured speed");
+  });
+
+  it("stops at the configured minimum width", () => {
+    const config = getGameConfig().arenaShrink;
+    harness.arenaShrink.onMatchStarted();
+
+    // Far longer than it could ever need.
+    shrinkFor(harness, 400, config.startAfterMs);
+
+    const width = harness.state.shrinkRight - harness.state.shrinkLeft;
+    assert.ok(
+      Math.abs(width - config.minWidth) < 1,
+      `the walls must stop at the minimum width, got ${width}`,
+    );
+  });
+
+  it("damages a player the walls are pressing against", () => {
+    const config = getGameConfig().arenaShrink;
+    harness.arenaShrink.onMatchStarted();
+
+    // Against the left edge, where the wall will reach them.
+    const squeezed = harness.addPlayer("squeezed", 30, 1700);
+    const safe = harness.addPlayer("safe", harness.arena.width / 2, 1700);
+
+    shrinkFor(harness, 6, config.startAfterMs);
+
+    assert.ok(squeezed.health < PLAYER.MAX_HEALTH, "the wall hurts whoever it catches");
+    assert.equal(safe.health, PLAYER.MAX_HEALTH, "and leaves the middle alone");
+  });
+
+  it("does nothing while the match is not running", () => {
+    const config = getGameConfig().arenaShrink;
+    harness.arenaShrink.onMatchStarted();
+    harness.state.matchState = MatchState.FINISHED;
+
+    shrinkFor(harness, 10, config.startAfterMs);
+
+    assert.equal(harness.state.shrinking, false);
+    assert.equal(harness.state.shrinkLeft, 0);
+  });
+
+  it("can be switched off through configuration", () => {
+    const config = cloneDefaultConfig();
+    config.arenaShrink = { ...config.arenaShrink, enabled: false };
+    loadGameConfig(config);
+
+    try {
+      const disabled = createHarness();
+      disabled.arenaShrink.onMatchStarted();
+      shrinkFor(disabled, 20, config.arenaShrink.startAfterMs);
+
+      assert.equal(disabled.state.shrinking, false);
+      assert.equal(disabled.state.shrinkLeft, 0);
+      assert.equal(disabled.state.shrinkRight, disabled.arena.width);
+    } finally {
+      resetGameConfig();
+    }
+  });
+
+  it("puts the walls back when a match ends", () => {
+    const config = getGameConfig().arenaShrink;
+    harness.arenaShrink.onMatchStarted();
+    shrinkFor(harness, 5, config.startAfterMs);
+    assert.ok(harness.state.shrinkLeft > 0);
+
+    harness.arenaShrink.reset();
+
+    assert.equal(harness.state.shrinkLeft, 0);
+    assert.equal(harness.state.shrinkRight, harness.arena.width);
+    assert.equal(harness.state.shrinking, false);
   });
 });

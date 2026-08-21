@@ -15,6 +15,7 @@ import { serverConfig } from "../config.js";
 import type { PlayerRuntime } from "../rooms/PlayerRuntime.js";
 import type { RoomContext } from "../rooms/RoomContext.js";
 import type { PlayerState } from "../rooms/schema/PlayerState.js";
+import type { ArenaShrinkSystem } from "./ArenaShrinkSystem.js";
 import type { PowerUpSystem } from "./PowerUpSystem.js";
 import type { ProjectileSystem } from "./ProjectileSystem.js";
 import type { WeaponSystem } from "./WeaponSystem.js";
@@ -38,6 +39,7 @@ export class MatchManager {
     private readonly weapons: WeaponSystem,
     private readonly projectiles: ProjectileSystem,
     private readonly powerUps: PowerUpSystem,
+    private readonly arenaShrink: ArenaShrinkSystem,
   ) {}
 
   update(now: number): void {
@@ -125,6 +127,7 @@ export class MatchManager {
     this.matchDeadline = now + MATCH.MAX_MATCH_DURATION_MS;
 
     this.powerUps.onMatchStarted(now);
+    this.arenaShrink.onMatchStarted();
 
     this.refreshCounters();
     this.context.logger.info("Match started", { players: participants.length, arena: state.arenaId });
@@ -160,6 +163,7 @@ export class MatchManager {
     this.phaseEndsAt = now + serverConfig.match.resultsMs;
     this.projectiles.clear();
     this.powerUps.clear();
+    this.arenaShrink.reset();
 
     const standings = this.buildStandings();
     const payload: MatchResultMessage = {
@@ -183,6 +187,7 @@ export class MatchManager {
 
     this.projectiles.clear();
     this.powerUps.clear();
+    this.arenaShrink.reset();
     this.requeueRequests.clear();
 
     for (const player of state.players.values()) {

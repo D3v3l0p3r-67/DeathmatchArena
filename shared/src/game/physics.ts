@@ -19,11 +19,25 @@ export function stepPlayerMovement(
   input: InputCommand,
   dt: number,
   world: CollisionWorld,
+  bounds?: WorldBounds,
 ): void {
   applyHorizontalIntent(state, input, dt);
   applyJump(state, input, dt);
   applyGravity(state, dt);
-  integrateAndCollide(state, dt, world);
+  integrateAndCollide(state, dt, world, bounds);
+}
+
+/**
+ * The horizontal limits a player may occupy.
+ *
+ * Normally the arena's own edges, but the closing walls of a shrinking arena
+ * narrow them over time. Passed in rather than read from anywhere global so the
+ * step stays pure: the server supplies its authoritative values and the client
+ * supplies the ones it was told, and replaying inputs reproduces the same result.
+ */
+export interface WorldBounds {
+  left: number;
+  right: number;
 }
 
 function applyHorizontalIntent(state: MovementState, input: InputCommand, dt: number): void {
@@ -48,19 +62,38 @@ function applyHorizontalIntent(state: MovementState, input: InputCommand, dt: nu
 }
 
 function applyJump(state: MovementState, input: InputCommand, dt: number): void {
+  const pressed = input.jump && !state.jumpHeld;
+
+  // Landing refills the whole allowance, so the mid-air jump comes back.
+  if (state.onGround) state.jumpsRemaining = PHYSICS.MAX_JUMPS;
+
   // Buffered jump: a press slightly before landing still triggers on touchdown.
-  state.jumpBufferTimer = input.jump && !state.jumpHeld
+  state.jumpBufferTimer = pressed
     ? PHYSICS.JUMP_BUFFER_TIME
     : Math.max(0, state.jumpBufferTimer - dt);
 
   // Coyote time: a jump shortly after walking off a ledge still counts.
   state.coyoteTimer = state.onGround ? PHYSICS.COYOTE_TIME : Math.max(0, state.coyoteTimer - dt);
 
+  // Walking off a ledge without jumping forfeits the ground jump once coyote
+  // time lapses -- otherwise stepping off a platform would grant two air jumps.
+  if (!state.onGround && state.coyoteTimer <= 0 && state.jumpsRemaining >= PHYSICS.MAX_JUMPS) {
+    state.jumpsRemaining = PHYSICS.MAX_JUMPS - 1;
+  }
+
   if (state.jumpBufferTimer > 0 && state.coyoteTimer > 0) {
+    // Jump from the ground (or within coyote time).
     state.velocityY = PHYSICS.JUMP_VELOCITY;
     state.jumpBufferTimer = 0;
     state.coyoteTimer = 0;
     state.onGround = false;
+    state.jumpsRemaining = Math.max(0, state.jumpsRemaining - 1);
+  } else if (pressed && !state.onGround && state.jumpsRemaining > 0) {
+    // Mid-air jump. Velocity is *replaced* rather than added to, so it lifts you
+    // just as reliably while falling fast as it does at the top of an arc.
+    state.velocityY = PHYSICS.JUMP_VELOCITY * PHYSICS.AIR_JUMP_MULTIPLIER;
+    state.jumpBufferTimer = 0;
+    state.jumpsRemaining -= 1;
   }
 
   // Variable jump height: releasing the button early cuts the ascent short.
@@ -79,7 +112,12 @@ function applyGravity(state: MovementState, dt: number): void {
  * Move on one axis at a time and push out of anything we ended up inside.
  * Separating the axes is what makes sliding along walls and floors behave.
  */
-function integrateAndCollide(state: MovementState, dt: number, world: CollisionWorld): void {
+function integrateAndCollide(
+  state: MovementState,
+  dt: number,
+  world: CollisionWorld,
+  bounds?: WorldBounds,
+): void {
   const epsilon = PHYSICS.COLLISION_EPSILON;
 
   // ---- Horizontal ----
@@ -122,9 +160,17 @@ function integrateAndCollide(state: MovementState, dt: number, world: CollisionW
     }
   }
 
-  // Final safety clamp to the world box. The arena shell normally handles this,
-  // but a clamp guarantees no entity can ever escape the map.
-  state.x = clamp(state.x, PLAYER_HALF_WIDTH, world.arena.width - PLAYER_HALF_WIDTH);
+  // Final clamp to the playable box. Normally the arena shell already handles
+  // this; once the arena starts shrinking, these are the closing walls, and the
+  // clamp is what physically pushes a player ahead of them.
+  const left = bounds ? bounds.left : 0;
+  const right = bounds ? bounds.right : world.arena.width;
+  const minX = left + PLAYER_HALF_WIDTH;
+  const maxX = right - PLAYER_HALF_WIDTH;
+
+  // A gap narrower than the player would make min > max; centring is the only
+  // sane answer, and the crush damage resolves it from there.
+  state.x = minX <= maxX ? clamp(state.x, minX, maxX) : (left + right) / 2;
   state.y = clamp(state.y, PLAYER_HALF_HEIGHT, world.arena.height - PLAYER_HALF_HEIGHT);
 }
 

@@ -536,6 +536,29 @@ kbd {
   color: #38bdf8;
 }
 
+/* The closing walls are a threat, not a buff -- colour it accordingly. */
+.effect--shrink {
+  border-color: rgba(255, 77, 94, 0.55);
+}
+
+.effect--shrink .effect__label {
+  color: var(--danger);
+}
+
+.effect--shrink.is-closing {
+  animation: shrink-pulse 1s ease-in-out infinite;
+}
+
+@keyframes shrink-pulse {
+  0%,
+  100% {
+    border-color: rgba(255, 77, 94, 0.55);
+  }
+  50% {
+    border-color: rgba(255, 77, 94, 1);
+  }
+}
+
 .effect__timer {
   font-family: var(--mono);
   font-size: 13px;

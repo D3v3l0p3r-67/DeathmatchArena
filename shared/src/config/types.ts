@@ -181,6 +181,30 @@ export interface PowerUpSpawnConfig {
 }
 
 /**
+ * The closing walls that end a stalling match.
+ *
+ * After `startAfterMs` of play the arena's left and right edges advance towards
+ * each other, squeezing the survivors together until someone wins.
+ */
+export interface ArenaShrinkConfig {
+  enabled: boolean;
+  /** Play time before the walls start moving, in ms. */
+  startAfterMs: number;
+  /** How fast each wall advances, in px per second. Both sides move at once. */
+  speedPerSecond: number;
+  /** The walls stop once the gap between them reaches this width, in px. */
+  minWidth: number;
+  /**
+   * Damage per second to a player the walls are pressing against.
+   *
+   * Without it a player wedged between a closing wall and solid geometry would
+   * simply stop, and the match could stall exactly where the shrink was meant to
+   * end it.
+   */
+  crushDamagePerSecond: number;
+}
+
+/**
  * The complete tunable game configuration.
  *
  * Power-up spawn *points* are deliberately not here: they are part of a map's
@@ -193,4 +217,5 @@ export interface GameConfig {
   powerUps: PowerUpDefinition[];
   crate: CrateConfig;
   powerUpSpawning: PowerUpSpawnConfig;
+  arenaShrink: ArenaShrinkConfig;
 }

@@ -17,6 +17,7 @@
  */
 import { DEFAULT_GAME_CONFIG } from "./defaults.js";
 import type {
+  ArenaShrinkConfig,
   CrateConfig,
   GameConfig,
   PowerUpDefinition,
@@ -128,6 +129,10 @@ export class GameConfigView {
   getPowerUpSpawnConfig(): PowerUpSpawnConfig {
     return this.config.powerUpSpawning;
   }
+
+  getArenaShrinkConfig(): ArenaShrinkConfig {
+    return this.config.arenaShrink;
+  }
 }
 
 /** Build an independent view over a deep copy of `config`. */
@@ -209,4 +214,8 @@ export function getCrateConfig(): CrateConfig {
 
 export function getPowerUpSpawnConfig(): PowerUpSpawnConfig {
   return current.getPowerUpSpawnConfig();
+}
+
+export function getArenaShrinkConfig(): ArenaShrinkConfig {
+  return current.getArenaShrinkConfig();
 }

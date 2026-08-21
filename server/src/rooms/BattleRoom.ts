@@ -37,6 +37,7 @@ import {
 import { DebugCommandService } from "../debug/DebugCommandService.js";
 import { DebugRegistry, type DebugCommandContext } from "../debug/DebugRegistry.js";
 import { createLogger, type Logger } from "../utils/logger.js";
+import { ArenaShrinkSystem } from "../systems/ArenaShrinkSystem.js";
 import { CollisionSystem } from "../systems/CollisionSystem.js";
 import { MatchManager } from "../systems/MatchManager.js";
 import { MovementSystem } from "../systems/MovementSystem.js";
@@ -75,6 +76,7 @@ export class BattleRoom extends Room<{ state: GameState }> {
   private projectileSystem!: ProjectileSystem;
   private weaponSystem!: WeaponSystem;
   private powerUpSystem!: PowerUpSystem;
+  private arenaShrinkSystem!: ArenaShrinkSystem;
   private movementSystem!: MovementSystem;
   private matchManager!: MatchManager;
 
@@ -119,13 +121,24 @@ export class BattleRoom extends Room<{ state: GameState }> {
     this.projectileSystem = new ProjectileSystem(this.context, this.collisionSystem);
     this.weaponSystem = new WeaponSystem(this.context, this.projectileSystem, this.collisionSystem);
     this.powerUpSystem = new PowerUpSystem(this.context, this.weaponSystem);
-    this.movementSystem = new MovementSystem(this.context, this.world, this.weaponSystem);
+    this.arenaShrinkSystem = new ArenaShrinkSystem(this.context);
+    this.movementSystem = new MovementSystem(
+      this.context,
+      this.world,
+      this.weaponSystem,
+      () => this.arenaShrinkSystem.bounds,
+    );
     this.matchManager = new MatchManager(
       this.context,
       this.weaponSystem,
       this.projectileSystem,
       this.powerUpSystem,
+      this.arenaShrinkSystem,
     );
+
+    // The walls start at the arena's own edges, so clients have sane limits
+    // before a match ever begins.
+    this.arenaShrinkSystem.reset();
 
     this.debugAuthorization = new DebugAuthorizationService(
       new ConfiguredDebugPolicy(serverConfig.debug),
@@ -283,6 +296,7 @@ export class BattleRoom extends Room<{ state: GameState }> {
       this.movementSystem.update(FIXED_DELTA, now);
       this.projectileSystem.update(FIXED_DELTA, now);
       this.powerUpSystem.update(now);
+      this.arenaShrinkSystem.update(FIXED_DELTA, now);
       this.matchManager.update(now);
     }
 
@@ -438,6 +452,7 @@ export class BattleRoom extends Room<{ state: GameState }> {
     this.runtimes.delete(sessionId);
     this.clientsBySession.delete(sessionId);
     this.matchManager.onPlayerRemoved(sessionId);
+    this.arenaShrinkSystem.onPlayerRemoved(sessionId);
     // A grant belongs to a session, so it dies with it.
     this.debugAuthorization.revoke(sessionId);
   }
