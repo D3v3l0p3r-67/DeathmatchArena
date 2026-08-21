@@ -6,6 +6,10 @@ import {
   encodeInputBatch,
   type CrateDestroyedPayload,
   type DamagePayload,
+  type DebugAuthRequest,
+  type DebugCommandRequest,
+  type DebugCommandResult,
+  type DebugStatePayload,
   type InputCommand,
   type MeleeSwingPayload,
   type KillPayload,
@@ -46,6 +50,9 @@ export interface NetworkEvents {
   matchResult: MatchResultMessage;
   notice: NoticePayload;
   powerUpCollected: PowerUpCollectedPayload;
+  /** Server's verdict on debug access, plus the catalogue when granted. */
+  debugState: DebugStatePayload;
+  debugResult: DebugCommandResult;
   crateDestroyed: CrateDestroyedPayload;
   meleeSwing: MeleeSwingPayload;
   disconnected: { code: number; reason: string };
@@ -134,6 +141,10 @@ export class NetworkManager {
 
     this.startPingLoop();
     this.events.emit("connected", welcome);
+
+    // Always ask; the server decides. Asking without a token is normal and is
+    // simply refused, which is what keeps the console shut for ordinary players.
+    this.requestDebugAccess(clientConfig.debugToken);
     return welcome;
   }
 
@@ -218,6 +229,28 @@ export class NetworkManager {
     this.room?.send(ClientMessage.REQUEUE, {} as never);
   }
 
+  /**
+   * Ask the server for debug access.
+   *
+   * Sending this is not a claim to anything: the server evaluates the token
+   * against its own configuration and replies with a `debugState` either way.
+   */
+  requestDebugAccess(token: string): void {
+    const request: DebugAuthRequest = token ? { token } : {};
+    this.room?.send(ClientMessage.DEBUG_AUTH, request as never);
+  }
+
+  /**
+   * Ask the server to run a debug command.
+   *
+   * Refused server-side unless this session already holds a grant, so there is
+   * nothing to gain by calling it from the console of a browser.
+   */
+  sendDebugCommand(commandId: string, params: Record<string, unknown> = {}): void {
+    const request: DebugCommandRequest = { commandId, params };
+    this.room?.send(ClientMessage.DEBUG_COMMAND, request as never);
+  }
+
   // ---------------------------------------------------------------------------
 
   private attachRoomHandlers(room: GameRoom): void {
@@ -278,6 +311,12 @@ export class NetworkManager {
     );
     room.onMessage(ServerMessage.MELEE_SWING, (payload: MeleeSwingPayload) =>
       this.events.emit("meleeSwing", payload),
+    );
+    room.onMessage(ServerMessage.DEBUG_STATE, (payload: DebugStatePayload) =>
+      this.events.emit("debugState", payload),
+    );
+    room.onMessage(ServerMessage.DEBUG_RESULT, (payload: DebugCommandResult) =>
+      this.events.emit("debugResult", payload),
     );
     room.onMessage(ServerMessage.PONG, (payload: PongPayload) => this.handlePong(payload));
 

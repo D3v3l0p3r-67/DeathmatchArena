@@ -25,6 +25,9 @@ export * from "./game/powerups.js";
 export * from "./game/CollisionWorld.js";
 export * from "./game/physics.js";
 
+// Debug protocol (authorization is enforced server-side)
+export * from "./debug/types.js";
+
 // Networking contract
 export * from "./net/messages.js";
 export * from "./net/stateContract.js";

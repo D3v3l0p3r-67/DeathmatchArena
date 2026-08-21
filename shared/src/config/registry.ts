@@ -1,13 +1,19 @@
 /**
- * The single point through which gameplay reads configuration.
+ * Access to game configuration.
  *
- * Systems call these accessors instead of importing `defaults.ts`, which is what
- * keeps the door open for an administration interface: `loadGameConfig()` can be
- * handed a config fetched from a database or an HTTP API at boot, and every
- * system picks it up without a change.
+ * Two layers, for two different needs:
  *
- * Lookups are indexed on load rather than scanned per call, because some of them
- * (weapon lookups in particular) run on every simulation tick.
+ *   - `GameConfigView` is an *indexed, immutable* read model over one
+ *     `GameConfig`. A room holds its own view, which is what lets debug tooling
+ *     retune a single match without touching anything else on the server.
+ *   - The module-level functions delegate to a process-wide default view. The
+ *     client and any code that only ever needs the shipped values use those.
+ *
+ * `loadGameConfig()` replaces the process default — the seam an administration
+ * interface will use to feed values in from a database or an API at boot.
+ *
+ * Lookups are indexed on construction rather than scanned per call, because some
+ * of them (weapon lookups in particular) run on every simulation tick.
  */
 import { DEFAULT_GAME_CONFIG } from "./defaults.js";
 import type {
@@ -18,137 +24,189 @@ import type {
   WeaponDefinition,
 } from "./types.js";
 
-interface ConfigIndex {
-  config: GameConfig;
-  weaponsById: Map<string, WeaponDefinition>;
-  powerUpsById: Map<string, PowerUpDefinition>;
+/**
+ * An indexed read model over one configuration.
+ *
+ * Treat instances as immutable: to change values, build a new view from a new
+ * `GameConfig` (see `withOverrides`). That keeps a room's configuration a single
+ * atomic swap rather than a set of fields other code might observe mid-update.
+ */
+export class GameConfigView {
+  private readonly weaponsById: Map<string, WeaponDefinition>;
+  private readonly powerUpsById: Map<string, PowerUpDefinition>;
   /** Enabled power-ups with a positive weight, i.e. everything a crate may contain. */
-  spawnable: PowerUpDefinition[];
-  totalSpawnWeight: number;
-  defaultWeapon: WeaponDefinition;
-}
+  private readonly spawnable: PowerUpDefinition[];
+  private readonly totalSpawnWeight: number;
+  private readonly defaultWeapon: WeaponDefinition;
 
-function index(config: GameConfig): ConfigIndex {
-  const weaponsById = new Map(config.weapons.map((weapon) => [weapon.id, weapon]));
-  const powerUpsById = new Map(config.powerUps.map((powerUp) => [powerUp.id, powerUp]));
+  constructor(readonly config: GameConfig) {
+    this.weaponsById = new Map(config.weapons.map((weapon) => [weapon.id, weapon]));
+    this.powerUpsById = new Map(config.powerUps.map((powerUp) => [powerUp.id, powerUp]));
 
-  const spawnable = config.powerUps.filter((powerUp) => {
-    if (!powerUp.enabled || powerUp.spawnWeight <= 0) return false;
-    // A weapon power-up granting a disabled or unknown weapon must not spawn,
-    // otherwise disabling a weapon would leave dead crates behind.
-    if (powerUp.type === "weapon") {
-      const weapon = weaponsById.get(powerUp.weaponId);
-      return weapon !== undefined && weapon.enabled;
+    this.spawnable = config.powerUps.filter((powerUp) => {
+      if (!powerUp.enabled || powerUp.spawnWeight <= 0) return false;
+      // A weapon power-up granting a disabled or unknown weapon must not spawn,
+      // otherwise disabling a weapon would leave dead crates behind.
+      if (powerUp.type === "weapon") {
+        const weapon = this.weaponsById.get(powerUp.weaponId);
+        return weapon !== undefined && weapon.enabled;
+      }
+      return true;
+    });
+
+    this.totalSpawnWeight = this.spawnable.reduce((sum, powerUp) => sum + powerUp.spawnWeight, 0);
+
+    const fallback =
+      this.weaponsById.get(config.defaultWeaponId) ??
+      config.weapons.find((weapon) => weapon.enabled) ??
+      config.weapons[0];
+    if (!fallback) throw new Error("Game config contains no weapons");
+    this.defaultWeapon = fallback;
+  }
+
+  // -- Weapons --------------------------------------------------------------
+
+  getDefaultWeaponId(): string {
+    return this.defaultWeapon.id;
+  }
+
+  /**
+   * Look up a weapon, falling back to the default.
+   *
+   * Never returns undefined: an unknown or disabled id means a player ends up
+   * with the standard weapon rather than an unusable one.
+   */
+  getWeapon(weaponId: string): WeaponDefinition {
+    const weapon = this.weaponsById.get(weaponId);
+    return weapon && weapon.enabled ? weapon : this.defaultWeapon;
+  }
+
+  listWeapons(): readonly WeaponDefinition[] {
+    return this.config.weapons;
+  }
+
+  // -- Power-ups ------------------------------------------------------------
+
+  getPowerUp(powerUpId: string): PowerUpDefinition | null {
+    return this.powerUpsById.get(powerUpId) ?? null;
+  }
+
+  listPowerUps(): readonly PowerUpDefinition[] {
+    return this.config.powerUps;
+  }
+
+  /** Power-ups a crate may currently contain. */
+  listSpawnablePowerUps(): readonly PowerUpDefinition[] {
+    return this.spawnable;
+  }
+
+  /**
+   * Weighted random pick of a crate's contents.
+   *
+   * `random` must return [0, 1) — the room passes its own seeded generator so the
+   * choice is reproducible and never depends on `Math.random` inside a system.
+   * Returns null when nothing is currently spawnable (everything disabled).
+   */
+  pickWeightedPowerUp(random: () => number): PowerUpDefinition | null {
+    if (this.spawnable.length === 0 || this.totalSpawnWeight <= 0) return null;
+
+    let ticket = random() * this.totalSpawnWeight;
+    for (const powerUp of this.spawnable) {
+      ticket -= powerUp.spawnWeight;
+      if (ticket < 0) return powerUp;
     }
-    return true;
-  });
+    // Floating-point drift only; the last candidate is the correct answer.
+    return this.spawnable[this.spawnable.length - 1]!;
+  }
 
-  const defaultWeapon =
-    weaponsById.get(config.defaultWeaponId) ??
-    config.weapons.find((weapon) => weapon.enabled) ??
-    config.weapons[0];
+  // -- Crates and spawning --------------------------------------------------
 
-  if (!defaultWeapon) throw new Error("Game config contains no weapons");
+  getCrateConfig(): CrateConfig {
+    return this.config.crate;
+  }
 
-  return {
-    config,
-    weaponsById,
-    powerUpsById,
-    spawnable,
-    totalSpawnWeight: spawnable.reduce((sum, powerUp) => sum + powerUp.spawnWeight, 0),
-    defaultWeapon,
-  };
+  getPowerUpSpawnConfig(): PowerUpSpawnConfig {
+    return this.config.powerUpSpawning;
+  }
 }
 
-let current: ConfigIndex = index(DEFAULT_GAME_CONFIG);
+/** Build an independent view over a deep copy of `config`. */
+export function createGameConfigView(config: GameConfig): GameConfigView {
+  return new GameConfigView(cloneConfig(config));
+}
 
 /**
- * Replace the active configuration.
+ * Deep copy of a configuration.
+ *
+ * Used whenever a view is created so that two views can never share a nested
+ * object — a room-scoped override must not leak into the process default.
+ */
+export function cloneConfig(config: GameConfig): GameConfig {
+  return structuredClone(config);
+}
+
+// ---------------------------------------------------------------------------
+// Process-wide default
+// ---------------------------------------------------------------------------
+
+let current = createGameConfigView(DEFAULT_GAME_CONFIG);
+
+/**
+ * Replace the process-wide configuration.
  *
  * Intended for a future admin interface (and used by tests to exercise specific
- * tunings). Re-indexes eagerly so callers never pay for the change.
+ * tunings). Rooms created afterwards start from the new values.
  */
 export function loadGameConfig(config: GameConfig): void {
-  current = index(config);
+  current = createGameConfigView(config);
 }
 
 /** Restore the values the game ships with. */
 export function resetGameConfig(): void {
-  current = index(DEFAULT_GAME_CONFIG);
+  current = createGameConfigView(DEFAULT_GAME_CONFIG);
+}
+
+/** The process-wide view. Rooms hold their own; prefer that where one exists. */
+export function getGameConfigView(): GameConfigView {
+  return current;
 }
 
 export function getGameConfig(): GameConfig {
   return current.config;
 }
 
-// ---------------------------------------------------------------------------
-// Weapons
-// ---------------------------------------------------------------------------
-
 export function getDefaultWeaponId(): string {
-  return current.defaultWeapon.id;
+  return current.getDefaultWeaponId();
 }
 
-/**
- * Look up a weapon, falling back to the default.
- *
- * Never returns undefined: an unknown or disabled id means a player ends up with
- * the standard weapon rather than an unusable one.
- */
 export function getWeapon(weaponId: string): WeaponDefinition {
-  const weapon = current.weaponsById.get(weaponId);
-  return weapon && weapon.enabled ? weapon : current.defaultWeapon;
+  return current.getWeapon(weaponId);
 }
 
 export function listWeapons(): readonly WeaponDefinition[] {
-  return current.config.weapons;
+  return current.listWeapons();
 }
 
-// ---------------------------------------------------------------------------
-// Power-ups
-// ---------------------------------------------------------------------------
-
 export function getPowerUp(powerUpId: string): PowerUpDefinition | null {
-  return current.powerUpsById.get(powerUpId) ?? null;
+  return current.getPowerUp(powerUpId);
 }
 
 export function listPowerUps(): readonly PowerUpDefinition[] {
-  return current.config.powerUps;
+  return current.listPowerUps();
 }
 
-/** Power-ups a crate may currently contain. */
 export function listSpawnablePowerUps(): readonly PowerUpDefinition[] {
-  return current.spawnable;
+  return current.listSpawnablePowerUps();
 }
 
-/**
- * Weighted random pick of a crate's contents.
- *
- * `random` must return [0, 1) — the room passes its own seeded generator so the
- * choice is reproducible and never depends on `Math.random` inside a system.
- * Returns null when nothing is currently spawnable (everything disabled).
- */
 export function pickWeightedPowerUp(random: () => number): PowerUpDefinition | null {
-  const { spawnable, totalSpawnWeight } = current;
-  if (spawnable.length === 0 || totalSpawnWeight <= 0) return null;
-
-  let ticket = random() * totalSpawnWeight;
-  for (const powerUp of spawnable) {
-    ticket -= powerUp.spawnWeight;
-    if (ticket < 0) return powerUp;
-  }
-  // Floating-point drift only; the last candidate is the correct answer.
-  return spawnable[spawnable.length - 1]!;
+  return current.pickWeightedPowerUp(random);
 }
-
-// ---------------------------------------------------------------------------
-// Crates and spawning
-// ---------------------------------------------------------------------------
 
 export function getCrateConfig(): CrateConfig {
-  return current.config.crate;
+  return current.getCrateConfig();
 }
 
 export function getPowerUpSpawnConfig(): PowerUpSpawnConfig {
-  return current.config.powerUpSpawning;
+  return current.getPowerUpSpawnConfig();
 }

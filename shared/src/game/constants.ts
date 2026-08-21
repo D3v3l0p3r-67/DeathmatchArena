@@ -110,6 +110,11 @@ export const RATE_LIMITS = {
   input: { maxEvents: 90, windowMs: 1000 },
   ping: { maxEvents: 10, windowMs: 1000 },
   chatOrMisc: { maxEvents: 10, windowMs: 1000 },
+  /**
+   * Debug traffic. Deliberately tight: an authorized console is driven by hand,
+   * and a tight budget also bounds how fast an unauthorized client can probe.
+   */
+  debug: { maxEvents: 12, windowMs: 1000 },
 } as const;
 
 export const PROJECTILE = {

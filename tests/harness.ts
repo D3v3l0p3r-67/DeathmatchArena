@@ -17,9 +17,13 @@ import {
   FIXED_DELTA,
   MatchState,
   PLAYER,
+  createGameConfigView,
   createInputCommand,
   getArena,
+  getGameConfig,
   type ArenaDefinition,
+  type GameConfig,
+  type GameConfigView,
 } from "@deathmatch/shared";
 
 const { PlayerState } = await import("../server/src/rooms/schema/PlayerState.js");
@@ -63,6 +67,8 @@ export interface Harness {
   /** Advance the power-up system (crate spawning, pickups, effect expiry). */
   stepPowerUps(now: number): void;
   arena: ArenaDefinition;
+  /** Swap the room's configuration, as a debug command would. */
+  replaceConfig(config: GameConfig): void;
 }
 
 const arena: ArenaDefinition = getArena("foundry");
@@ -74,6 +80,9 @@ export const clock = { now: 0 };
 export function createHarness(): Harness {
   const state = new GameState();
   state.matchState = MatchState.PLAYING;
+
+  const baseline = getGameConfig();
+  let configView: GameConfigView = createGameConfigView(baseline);
   const runtimes = new Map<string, InstanceType<typeof PlayerRuntime>>();
   const damage: DamageRecord[] = [];
   const broadcasts: BroadcastRecord[] = [];
@@ -84,6 +93,15 @@ export function createHarness(): Harness {
     world,
     logger: { debug() {}, info() {}, warn() {}, error() {}, child: () => context.logger },
     runtimes,
+    roomId: "test-room",
+    // Room-scoped, exactly as in a real room: a test may retune its own config
+    // without leaking into the process-wide values.
+    get config() {
+      return configView;
+    },
+    get baselineConfig() {
+      return baseline;
+    },
     now: () => clock.now,
     // Fixed 0.5 keeps weapon spread at exactly zero deviation, so aim is exact.
     random: () => 0.5,
@@ -145,6 +163,9 @@ export function createHarness(): Harness {
       powerUps.update(now);
     },
     arena,
+    replaceConfig(config) {
+      configView = createGameConfigView(config);
+    },
   };
 }
 

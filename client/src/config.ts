@@ -21,17 +21,47 @@ function resolveServerUrl(): string {
   return deriveEndpointFromLocation();
 }
 
-function resolveDebugEnabled(): boolean {
+/**
+ * The debug token this client will offer the server.
+ *
+ * Supplied once via `?debugToken=...` and then remembered, so a reload does not
+ * mean pasting it again. It is only ever a *request*: the server decides whether
+ * it earns anything, and this value grants nothing on its own.
+ */
+function resolveDebugToken(): string {
   const params = new URLSearchParams(window.location.search);
-  if (params.has("debug")) return params.get("debug") !== "0";
-  return import.meta.env.VITE_DEBUG === "true";
+  const supplied = params.get("debugToken");
+
+  if (supplied !== null) {
+    const token = supplied.trim();
+    try {
+      if (token) window.localStorage.setItem(DEBUG_TOKEN_KEY, token);
+      else window.localStorage.removeItem(DEBUG_TOKEN_KEY);
+    } catch {
+      // Private browsing or blocked storage: the token still works this session.
+    }
+    return token;
+  }
+
+  try {
+    return window.localStorage.getItem(DEBUG_TOKEN_KEY) ?? "";
+  } catch {
+    return "";
+  }
 }
+
+const DEBUG_TOKEN_KEY = "deathmatch-arena:debug-token";
 
 export const clientConfig = {
   serverUrl: resolveServerUrl(),
   roomName: "battle",
-  /** Debug overlay starts visible; F3 toggles it at runtime either way. */
-  debugEnabled: resolveDebugEnabled(),
+  /**
+   * Offered to the server when asking for debug access.
+   *
+   * Note what is absent: any local "debug enabled" flag. Debug tooling is gated
+   * by a server-side grant, never by the build or the environment.
+   */
+  debugToken: resolveDebugToken(),
   /** Key that remembers the player's display name between sessions. */
   nameStorageKey: "deathmatch-arena:name",
 } as const;

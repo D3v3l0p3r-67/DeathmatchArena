@@ -892,3 +892,251 @@ kbd {
     font-size: 12px;
   }
 }
+
+/* --------------------------------------------------------- debug console -- */
+/* Hidden by default and only ever opened for a session the server authorized.
+   The gate that matters is on the server; this is presentation. */
+
+.debug-console {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 60;
+  display: none;
+  width: min(920px, 92vw);
+  max-height: 82vh;
+  transform: translate(-50%, -50%);
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--text);
+  background: rgba(8, 11, 18, 0.97);
+  border: 1px solid rgba(120, 160, 220, 0.35);
+  border-radius: 12px;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.6);
+  pointer-events: auto;
+}
+
+.debug-console.is-active {
+  display: flex;
+}
+
+.debug-console__header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  background: rgba(20, 28, 44, 0.9);
+  border-bottom: 1px solid rgba(120, 160, 220, 0.25);
+}
+
+.debug-console__header h2 {
+  margin: 0;
+  font-size: 14px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.debug-console__meta {
+  display: flex;
+  flex: 1;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.debug-console__room b {
+  font-family: var(--mono);
+  color: var(--text);
+}
+
+.debug-console__close {
+  padding: 2px 10px;
+  font-size: 14px;
+  color: var(--text-dim);
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid rgba(120, 160, 220, 0.3);
+  border-radius: 6px;
+}
+
+.debug-console__close:hover {
+  color: var(--text);
+}
+
+.debug-console__body {
+  display: grid;
+  flex: 1;
+  grid-template-columns: 1.15fr 1fr;
+  gap: 0;
+  min-height: 0;
+}
+
+.debug-console__panel {
+  min-height: 0;
+  padding: 14px 16px;
+  overflow-y: auto;
+}
+
+.debug-console__panel + .debug-console__panel {
+  border-left: 1px solid rgba(120, 160, 220, 0.2);
+}
+
+.debug-console__panel-title {
+  margin: 0 0 10px;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.debug-console__note {
+  margin: -4px 0 12px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--warn);
+}
+
+.debug-console__group {
+  margin-bottom: 16px;
+}
+
+.debug-console__group h3 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #7f9dc4;
+}
+
+/* Label on its own line, inputs and the Run button sharing the next one: the
+   forms vary in width, and a side-by-side label left them ragged. */
+.debug-console__command {
+  display: grid;
+  grid-template-areas:
+    "label label"
+    "inputs run";
+  grid-template-columns: 1fr auto;
+  gap: 5px 10px;
+  align-items: end;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(120, 160, 220, 0.12);
+}
+
+.debug-console__command-label {
+  grid-area: label;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.debug-console__inputs {
+  display: flex;
+  grid-area: inputs;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.debug-console__field {
+  display: grid;
+  gap: 3px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.debug-console__field input,
+.debug-console__field select {
+  min-width: 0;
+  width: 132px;
+  padding: 4px 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  text-transform: none;
+  letter-spacing: normal;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(120, 160, 220, 0.3);
+  border-radius: 5px;
+}
+
+.debug-console__field input[type="checkbox"] {
+  min-width: 0;
+  width: 16px;
+  height: 16px;
+}
+
+.debug-console__run {
+  grid-area: run;
+  padding: 5px 14px;
+  font-size: 12px;
+  color: #06202e;
+  cursor: pointer;
+  background: #37d0ff;
+  border: 0;
+  border-radius: 6px;
+}
+
+.debug-console__run:hover {
+  background: #64dbff;
+}
+
+.debug-console__config-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(120, 160, 220, 0.1);
+}
+
+.debug-console__config-label {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* A value this room has moved away from the server's baseline. */
+.debug-console__config-row.is-overridden .debug-console__config-label {
+  color: var(--warn);
+}
+
+.debug-console__config-row.is-overridden .debug-console__config-label::after {
+  content: " *";
+}
+
+.debug-console__config-row input {
+  width: 110px;
+  padding: 3px 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(120, 160, 220, 0.3);
+  border-radius: 5px;
+}
+
+.debug-console__config-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+}
+
+.debug-console__log {
+  max-height: 118px;
+  padding: 8px 16px;
+  overflow-y: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  background: rgba(0, 0, 0, 0.45);
+  border-top: 1px solid rgba(120, 160, 220, 0.2);
+}
+
+.debug-console__log-line {
+  padding: 1px 0;
+}
+
+.debug-console__log-line.is-ok {
+  color: #9be36b;
+}
+
+.debug-console__log-line.is-error {
+  color: var(--danger);
+}

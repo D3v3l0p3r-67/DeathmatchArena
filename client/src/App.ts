@@ -12,6 +12,7 @@ import { clientConfig } from "./config.js";
 import { NetworkManager } from "./net/NetworkManager.js";
 import { BootScene, BOOT_SCENE_KEY } from "./game/scenes/BootScene.js";
 import { GameScene, GAME_SCENE_KEY } from "./game/scenes/GameScene.js";
+import { DebugConsole } from "./ui/DebugConsole.js";
 import { DebugOverlay } from "./ui/DebugOverlay.js";
 import { HUD } from "./ui/HUD.js";
 import { KillFeed } from "./ui/KillFeed.js";
@@ -35,7 +36,26 @@ export class App {
   private readonly ui: UIManager;
   private readonly hud = new HUD();
   private readonly killFeed: KillFeed;
-  private readonly debug = new DebugOverlay(clientConfig.debugEnabled);
+  private readonly debug = new DebugOverlay();
+  private readonly debugConsole = new DebugConsole({
+    runCommand: (commandId, params) => this.network.sendDebugCommand(commandId, params),
+  });
+
+  /**
+   * Shift+D opens the debug console.
+   *
+   * The listener is always attached; the console itself ignores the key until
+   * the server has granted this session access. Binding it conditionally would
+   * only move the same check somewhere less obvious.
+   */
+  private bindDebugConsoleKey(): void {
+    window.addEventListener("keydown", (event) => {
+      if (!event.shiftKey || event.code !== "KeyD") return;
+      if (event.target instanceof HTMLInputElement) return;
+      event.preventDefault();
+      this.debugConsole.toggle();
+    });
+  }
 
   private game: Phaser.Game | null = null;
   private gameScene: GameScene | null = null;
@@ -58,6 +78,7 @@ export class App {
 
     this.restoreStoredName();
     this.subscribeToNetwork();
+    this.bindDebugConsoleKey();
   }
 
   start(): void {
@@ -224,6 +245,19 @@ export class App {
     });
 
     events.on("notice", (notice) => this.ui.showNotice(notice));
+
+    // The server's verdict is the only thing that opens any debug tooling.
+    events.on("debugState", (state) => {
+      this.debug.setGranted(state.granted);
+      this.debugConsole.applyState(state);
+      if (state.granted) {
+        this.ui.showNotice(
+          { code: "INFO", message: `Debug access granted - Shift+D to open` },
+          3500,
+        );
+      }
+    });
+    events.on("debugResult", (result) => this.debugConsole.appendResult(result));
 
     events.on("disconnected", ({ code, reason }) => {
       this.getGameScene()?.teardown();
