@@ -11,6 +11,9 @@
  * config could arrive from a database or an HTTP API instead of `defaults.ts`.
  */
 
+/** Every configurable value is one of these three primitives. */
+export type ConfigValue = number | boolean | string;
+
 /**
  * How a weapon delivers damage.
  *
@@ -260,12 +263,97 @@ export interface ArenaShrinkConfig {
 }
 
 /**
+ * The player character: how it moves, how much it can take.
+ *
+ * These used to be compile-time constants, and they are the values client
+ * prediction and the server simulation must agree on *exactly*. They live here
+ * so an administrator can retune them, and the server hands its effective values
+ * to every client on join -- so both sides still step the same integrator with
+ * the same numbers, and prediction stays exact.
+ *
+ * Times are milliseconds and speeds are pixels per second throughout, because an
+ * admin form is a poor place to explain what "0.09" means.
+ */
+export interface PlayerConfig {
+  maxHealth: number;
+  /** Top horizontal running speed, px/s. Power-ups multiply this. */
+  moveSpeed: number;
+  /** How quickly the top speed is reached on the ground, px/s². */
+  groundAcceleration: number;
+  /** The same in mid-air. Lower makes air control feel floatier. */
+  airAcceleration: number;
+  /** Deceleration with no input, px/s². */
+  groundFriction: number;
+  airFriction: number;
+  /** Downward acceleration, px/s². */
+  gravity: number;
+  /** Terminal velocity, px/s. */
+  maxFallSpeed: number;
+  /**
+   * Upward launch speed of a jump, px/s.
+   *
+   * Positive here and negated by the integrator: "how hard you jump" is a
+   * friendlier thing to type into a form than a negative velocity.
+   */
+  jumpVelocity: number;
+  /** Total jumps between touching the ground. 1 is a plain jump, 2 adds the air jump. */
+  maxJumps: number;
+  /** Mid-air jumps are scaled by this, so the second one can be weaker. */
+  airJumpMultiplier: number;
+  /** Releasing jump early cuts the remaining ascent to this fraction. */
+  jumpCutMultiplier: number;
+  /** Grace period after walking off a ledge during which a jump still counts, ms. */
+  coyoteTimeMs: number;
+  /** A jump pressed this long before landing is remembered and fires on touchdown, ms. */
+  jumpBufferMs: number;
+}
+
+/** Match pacing and size. */
+export interface MatchConfig {
+  /** Players needed before the countdown begins. */
+  minPlayers: number;
+  /** Hard cap on players in one match. */
+  maxPlayers: number;
+  countdownMs: number;
+  /** How long the results screen stays up before the room recycles. */
+  resultsMs: number;
+  /** Safety valve: a match can never run longer than this. */
+  maxDurationMs: number;
+}
+
+/**
+ * Default trap behaviour.
+ *
+ * Every trap placed in an arena inherits these; a trap may override any of them
+ * individually (see `TrapDefinition`), which is how one arena ends up with
+ * faster crushers than another without needing its own copy of the whole set.
+ */
+export interface TrapConfig {
+  /** Master switch. Off means no trap in any arena ever activates. */
+  enabled: boolean;
+  /** Damage per activation, or per second for a continuously damaging trap. */
+  damage: number;
+  /** Delay between being triggered and becoming dangerous, ms. */
+  activationDelayMs: number;
+  /** How long a trap stays dangerous once active, ms. 0 means indefinitely. */
+  activeDurationMs: number;
+  /** Rest period after an activation before the trap can trigger again, ms. */
+  cooldownMs: number;
+  /** Speed of a trap that moves, px/s. */
+  moveSpeed: number;
+  /** How near a player must come to set off a proximity trap, px. */
+  triggerRadius: number;
+}
+
+/**
  * The complete tunable game configuration.
  *
  * Power-up spawn *points* are deliberately not here: they are part of a map's
  * geometry and live on the arena definition, so a new map brings its own.
  */
 export interface GameConfig {
+  player: PlayerConfig;
+  match: MatchConfig;
   weapons: WeaponDefinition[];
   /** Weapon every player starts a match with. */
   defaultWeaponId: string;
@@ -274,4 +362,5 @@ export interface GameConfig {
   powerUpSpawning: PowerUpSpawnConfig;
   arenaShrink: ArenaShrinkConfig;
   grenades: GrenadeConfig;
+  traps: TrapConfig;
 }

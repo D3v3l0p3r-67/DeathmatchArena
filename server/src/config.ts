@@ -5,7 +5,7 @@
  * moved between local development, a container and Colyseus Cloud purely through
  * environment variables.
  */
-import { MATCH } from "@deathmatch/shared";
+import type { ConfigValue } from "@deathmatch/shared";
 
 function readNumber(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -72,14 +72,56 @@ export const serverConfig = {
     allowAll: readBoolean("DEBUG_ALLOW_ALL", false),
   },
 
+  admin: {
+    /**
+     * Where arenas and configuration overrides are stored.
+     *
+     * A directory rather than a database for now, behind repository interfaces
+     * that do not care which it is. On an ephemeral host (Colyseus Cloud, a
+     * container without a volume) this directory does not survive a restart --
+     * see `persistent` below.
+     */
+    dataDir: process.env.DATA_DIR ?? "./data",
+    /**
+     * Whether changes are expected to outlive a restart.
+     *
+     * Not detected, declared: only the operator knows whether `DATA_DIR` points
+     * at a mounted volume. The admin interface shows this so nobody spends an
+     * afternoon building an arena that a redeploy will quietly discard.
+     */
+    persistent: readBoolean("DATA_PERSISTENT", false),
+  },
+
   match: {
-    minPlayersToStart: readNumber("MIN_PLAYERS", MATCH.MIN_PLAYERS_TO_START),
-    maxPlayers: readNumber("MAX_PLAYERS", MATCH.MAX_PLAYERS),
-    countdownMs: readNumber("COUNTDOWN_MS", MATCH.COUNTDOWN_MS),
-    resultsMs: readNumber("RESULTS_MS", MATCH.RESULTS_MS),
-    /** Arena id from `@deathmatch/shared`; makes swapping maps a config change. */
+    /** Arena id to prefer for new rooms; empty means the default. */
     arenaId: process.env.ARENA_ID ?? "",
   },
 } as const;
+
+/**
+ * Match settings an operator pinned through the environment.
+ *
+ * These seed the *defaults* an administrator then edits on top of, so the old
+ * environment variables keep working while the admin interface stays the source
+ * of truth. A value set here becomes what "reset to default" restores.
+ */
+export function readConfigSeed(): Record<string, ConfigValue> {
+  const seed: Record<string, ConfigValue> = {};
+  const map: Record<string, string> = {
+    MIN_PLAYERS: "match.minPlayers",
+    MAX_PLAYERS: "match.maxPlayers",
+    COUNTDOWN_MS: "match.countdownMs",
+    RESULTS_MS: "match.resultsMs",
+  };
+
+  for (const [variable, key] of Object.entries(map)) {
+    const raw = process.env[variable];
+    if (raw === undefined || raw.trim() === "") continue;
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed)) seed[key] = parsed;
+  }
+
+  return seed;
+}
 
 export type ServerConfig = typeof serverConfig;

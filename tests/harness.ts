@@ -16,7 +16,6 @@ import {
   CollisionWorld,
   FIXED_DELTA,
   MatchState,
-  PLAYER,
   createGameConfigView,
   createInputCommand,
   getArena,
@@ -36,6 +35,7 @@ const { PowerUpSystem } = await import("../server/src/systems/PowerUpSystem.js")
 const { MatchManager } = await import("../server/src/systems/MatchManager.js");
 const { ArenaShrinkSystem } = await import("../server/src/systems/ArenaShrinkSystem.js");
 const { GrenadeSystem } = await import("../server/src/systems/GrenadeSystem.js");
+const { TrapSystem } = await import("../server/src/systems/TrapSystem.js");
 
 type RoomContext = import("../server/src/rooms/RoomContext.js").RoomContext;
 
@@ -61,6 +61,7 @@ export interface Harness {
   powerUps: InstanceType<typeof PowerUpSystem>;
   arenaShrink: InstanceType<typeof ArenaShrinkSystem>;
   grenades: InstanceType<typeof GrenadeSystem>;
+  traps: InstanceType<typeof TrapSystem>;
   matchManager: InstanceType<typeof MatchManager>;
   runtimes: Map<string, InstanceType<typeof PlayerRuntime>>;
   damage: DamageRecord[];
@@ -74,6 +75,10 @@ export interface Harness {
   stepArenaShrink(dt: number, now: number): void;
   /** Advance grenades in flight by `dt` seconds. */
   stepGrenades(dt: number, now: number): void;
+  /** Advance the arena's traps by `dt` seconds. */
+  stepTraps(dt: number, now: number): void;
+  /** Rebuild the trap simulation from an arena, e.g. one built for a test. */
+  loadTraps(definition: ArenaDefinition): void;
   arena: ArenaDefinition;
   /** Swap the room's configuration, as a debug command would. */
   replaceConfig(config: GameConfig): void;
@@ -135,6 +140,7 @@ export function createHarness(): Harness {
   const arenaShrink = new ArenaShrinkSystem(context);
   const grenadeSystem = new GrenadeSystem(context, () => arenaShrink.bounds);
   const powerUps = new PowerUpSystem(context, weapons, grenadeSystem);
+  const trapSystem = new TrapSystem(context);
   const matchManager = new MatchManager(
     context,
     weapons,
@@ -142,6 +148,7 @@ export function createHarness(): Harness {
     powerUps,
     arenaShrink,
     grenadeSystem,
+    trapSystem,
   );
   arenaShrink.reset();
 
@@ -154,6 +161,7 @@ export function createHarness(): Harness {
     powerUps,
     arenaShrink,
     grenades: grenadeSystem,
+    traps: trapSystem,
     matchManager,
     runtimes,
     damage,
@@ -166,7 +174,7 @@ export function createHarness(): Harness {
       player.y = y;
       player.alive = true;
       player.inMatch = true;
-      player.health = PLAYER.MAX_HEALTH;
+      player.health = configView.getPlayerConfig().maxHealth;
       state.players.set(sessionId, player);
 
       const runtime = new PlayerRuntime(0);
@@ -187,6 +195,12 @@ export function createHarness(): Harness {
     },
     stepGrenades(dt, now) {
       grenadeSystem.update(dt, now);
+    },
+    stepTraps(dt, now) {
+      trapSystem.update(dt, now);
+    },
+    loadTraps(definition) {
+      trapSystem.load(definition);
     },
     arena,
     replaceConfig(config) {

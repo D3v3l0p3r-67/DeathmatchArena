@@ -1,5 +1,7 @@
 import { centeredBounds } from "../core/geometry.js";
 import { clamp } from "../core/math.js";
+import { getPlayerConfig } from "../config/registry.js";
+import type { PlayerConfig } from "../config/types.js";
 import type { CollisionWorld } from "./CollisionWorld.js";
 import { PHYSICS, PLAYER_HALF_HEIGHT, PLAYER_HALF_WIDTH } from "./constants.js";
 import type { InputCommand, MovementState } from "./types.js";
@@ -12,6 +14,12 @@ import type { InputCommand, MovementState } from "./types.js";
  * reconciliation. Because it is pure, deterministic and always advanced with the
  * same fixed `dt`, both sides agree bit-for-bit as long as they saw the same inputs.
  *
+ * The tuning now arrives as an argument rather than from a constant, because an
+ * administrator can change gravity and jump strength. That makes the agreement
+ * between client and server explicit: the server sends the room's player
+ * configuration on join, the client predicts with those exact numbers, and both
+ * sides keep stepping the same integrator.
+ *
  * Do not add randomness, wall-clock time or entity lookups here.
  */
 export function stepPlayerMovement(
@@ -20,10 +28,11 @@ export function stepPlayerMovement(
   dt: number,
   world: CollisionWorld,
   bounds?: WorldBounds,
+  player: PlayerConfig = getPlayerConfig(),
 ): void {
-  applyHorizontalIntent(state, input, dt);
-  applyJump(state, input, dt);
-  applyGravity(state, dt);
+  applyHorizontalIntent(state, input, dt, player);
+  applyJump(state, input, dt, player);
+  applyGravity(state, dt, player);
   integrateAndCollide(state, dt, world, bounds);
 }
 
@@ -40,20 +49,25 @@ export interface WorldBounds {
   right: number;
 }
 
-function applyHorizontalIntent(state: MovementState, input: InputCommand, dt: number): void {
+function applyHorizontalIntent(
+  state: MovementState,
+  input: InputCommand,
+  dt: number,
+  player: PlayerConfig,
+): void {
   const direction = (input.moveRight ? 1 : 0) - (input.moveLeft ? 1 : 0);
 
   if (direction !== 0) {
-    const acceleration = state.onGround ? PHYSICS.GROUND_ACCELERATION : PHYSICS.AIR_ACCELERATION;
+    const acceleration = state.onGround ? player.groundAcceleration : player.airAcceleration;
     // A speed power-up raises the cap, not the acceleration, so a boosted player
     // still feels the same to steer -- they just keep gaining until a higher top speed.
-    const maxSpeed = PHYSICS.MAX_RUN_SPEED * (state.speedMultiplier || 1);
+    const maxSpeed = player.moveSpeed * (state.speedMultiplier || 1);
     state.velocityX = clamp(state.velocityX + direction * acceleration * dt, -maxSpeed, maxSpeed);
     state.facing = direction;
     return;
   }
 
-  const friction = (state.onGround ? PHYSICS.GROUND_FRICTION : PHYSICS.AIR_FRICTION) * dt;
+  const friction = (state.onGround ? player.groundFriction : player.airFriction) * dt;
   if (Math.abs(state.velocityX) <= friction) {
     state.velocityX = 0;
   } else {
@@ -61,29 +75,38 @@ function applyHorizontalIntent(state: MovementState, input: InputCommand, dt: nu
   }
 }
 
-function applyJump(state: MovementState, input: InputCommand, dt: number): void {
+function applyJump(
+  state: MovementState,
+  input: InputCommand,
+  dt: number,
+  player: PlayerConfig,
+): void {
   const pressed = input.jump && !state.jumpHeld;
+  const maxJumps = Math.max(1, Math.round(player.maxJumps));
+  // Configured as "how hard you jump"; the simulation wants it as an upward
+  // (negative) velocity.
+  const jumpVelocity = -Math.abs(player.jumpVelocity);
+  const coyoteTime = player.coyoteTimeMs / 1000;
+  const jumpBufferTime = player.jumpBufferMs / 1000;
 
   // Landing refills the whole allowance, so the mid-air jump comes back.
-  if (state.onGround) state.jumpsRemaining = PHYSICS.MAX_JUMPS;
+  if (state.onGround) state.jumpsRemaining = maxJumps;
 
   // Buffered jump: a press slightly before landing still triggers on touchdown.
-  state.jumpBufferTimer = pressed
-    ? PHYSICS.JUMP_BUFFER_TIME
-    : Math.max(0, state.jumpBufferTimer - dt);
+  state.jumpBufferTimer = pressed ? jumpBufferTime : Math.max(0, state.jumpBufferTimer - dt);
 
   // Coyote time: a jump shortly after walking off a ledge still counts.
-  state.coyoteTimer = state.onGround ? PHYSICS.COYOTE_TIME : Math.max(0, state.coyoteTimer - dt);
+  state.coyoteTimer = state.onGround ? coyoteTime : Math.max(0, state.coyoteTimer - dt);
 
   // Walking off a ledge without jumping forfeits the ground jump once coyote
   // time lapses -- otherwise stepping off a platform would grant two air jumps.
-  if (!state.onGround && state.coyoteTimer <= 0 && state.jumpsRemaining >= PHYSICS.MAX_JUMPS) {
-    state.jumpsRemaining = PHYSICS.MAX_JUMPS - 1;
+  if (!state.onGround && state.coyoteTimer <= 0 && state.jumpsRemaining >= maxJumps) {
+    state.jumpsRemaining = maxJumps - 1;
   }
 
   if (state.jumpBufferTimer > 0 && state.coyoteTimer > 0) {
     // Jump from the ground (or within coyote time).
-    state.velocityY = PHYSICS.JUMP_VELOCITY;
+    state.velocityY = jumpVelocity;
     state.jumpBufferTimer = 0;
     state.coyoteTimer = 0;
     state.onGround = false;
@@ -91,21 +114,21 @@ function applyJump(state: MovementState, input: InputCommand, dt: number): void 
   } else if (pressed && !state.onGround && state.jumpsRemaining > 0) {
     // Mid-air jump. Velocity is *replaced* rather than added to, so it lifts you
     // just as reliably while falling fast as it does at the top of an arc.
-    state.velocityY = PHYSICS.JUMP_VELOCITY * PHYSICS.AIR_JUMP_MULTIPLIER;
+    state.velocityY = jumpVelocity * player.airJumpMultiplier;
     state.jumpBufferTimer = 0;
     state.jumpsRemaining -= 1;
   }
 
   // Variable jump height: releasing the button early cuts the ascent short.
   if (!input.jump && state.jumpHeld && state.velocityY < 0) {
-    state.velocityY *= PHYSICS.JUMP_CUT_MULTIPLIER;
+    state.velocityY *= player.jumpCutMultiplier;
   }
 
   state.jumpHeld = input.jump;
 }
 
-function applyGravity(state: MovementState, dt: number): void {
-  state.velocityY = Math.min(state.velocityY + PHYSICS.GRAVITY * dt, PHYSICS.MAX_FALL_SPEED);
+function applyGravity(state: MovementState, dt: number, player: PlayerConfig): void {
+  state.velocityY = Math.min(state.velocityY + player.gravity * dt, player.maxFallSpeed);
 }
 
 /**

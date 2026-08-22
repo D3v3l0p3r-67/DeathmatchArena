@@ -37,17 +37,30 @@ export interface DebugCommandSpec {
   params: DebugParamSpec[];
 }
 
-/** A single tunable value the console can display and change for this room. */
+/**
+ * A single tunable value the console can display and change for this room.
+ *
+ * A projection of the shared configuration metadata, so the console and the
+ * administration interface show the same parameters with the same limits. The
+ * grouping travels with it because there are now enough parameters that a flat
+ * list would be unusable.
+ */
 export interface DebugConfigEntry {
-  /** Dotted path into the room's `GameConfig`, e.g. `crate.health`. */
+  /** Dotted key into the room's `GameConfig`, e.g. `crate.health`. */
   path: string;
   label: string;
+  category: string;
+  subcategory: string;
   value: number | boolean | string;
-  /** True once this room's value differs from the server's baseline. */
+  /** True once this room's value differs from the server's configured value. */
   overridden: boolean;
+  /** False for values shown for reference but not changeable. */
+  editable: boolean;
   min?: number;
   max?: number;
   step?: number;
+  /** Allowed values, when the parameter is a choice rather than a number. */
+  options?: { value: string; label: string }[];
 }
 
 /**

@@ -4,6 +4,10 @@ import {
   NETWORK,
   ServerMessage,
   encodeInputBatch,
+  loadGameConfig,
+  registerArena,
+  type ArenaDefinition,
+  type ConfigChangedPayload,
   type CrateDestroyedPayload,
   type DamagePayload,
   type DebugAuthRequest,
@@ -60,6 +64,8 @@ export interface NetworkEvents {
   crateDestroyed: CrateDestroyedPayload;
   meleeSwing: MeleeSwingPayload;
   grenadeExploded: GrenadeExplodedPayload;
+  /** The room retuned its configuration; anything derived from it must refresh. */
+  configChanged: ConfigChangedPayload;
   disconnected: { code: number; reason: string };
   error: { message: string };
 }
@@ -118,8 +124,32 @@ export class NetworkManager {
     return this.room.state ?? null;
   }
 
+  /**
+   * The arena this room is playing, exactly as the server has it.
+   *
+   * Null before the handshake. Read from the welcome rather than from the
+   * client's own catalogue, because an administrator can create an arena this
+   * build has never heard of.
+   */
+  get arena(): ArenaDefinition | null {
+    return this.welcome?.arena ?? null;
+  }
+
   get isConnected(): boolean {
     return this.room !== null;
+  }
+
+  /**
+   * Take on the server's arena and configuration.
+   *
+   * Both are published into the shared registries, which is what everything else
+   * -- prediction, the HUD, the renderer -- already reads from. So one call here
+   * puts the whole client on the server's numbers, and nothing downstream has to
+   * be told about it.
+   */
+  private adoptServerWorld(arena: ArenaDefinition | undefined, config: WelcomePayload["config"] | undefined): void {
+    if (config) loadGameConfig(config);
+    if (arena) registerArena(arena);
   }
 
   /** Approximate server clock, used only for debug output and trail fading. */
@@ -171,6 +201,11 @@ export class NetworkManager {
 
       room.onMessage(ServerMessage.WELCOME, (payload: WelcomePayload) => {
         welcome = payload;
+        // Adopt the server's world before anything reads it. The arena may not
+        // exist in this build at all (an administrator created it after the
+        // client shipped), and prediction has to step the room's own physics
+        // rather than the values this bundle happens to carry.
+        this.adoptServerWorld(payload.arena, payload.config);
         settleIfReady();
       });
 
@@ -315,6 +350,20 @@ export class NetworkManager {
       this.events.emit("matchResult", payload),
     );
     room.onMessage(ServerMessage.NOTICE, (payload: NoticePayload) => this.events.emit("notice", payload));
+
+    /**
+     * The room's configuration changed under us (a debug command did it).
+     *
+     * Adopting it immediately matters more than it looks: prediction steps these
+     * numbers, so a client still using the old gravity would be corrected by the
+     * server on every single patch.
+     */
+    room.onMessage(ServerMessage.CONFIG_CHANGED, (payload: ConfigChangedPayload) => {
+      if (!payload?.config) return;
+      loadGameConfig(payload.config);
+      if (this.welcome) this.welcome = { ...this.welcome, config: payload.config };
+      this.events.emit("configChanged", payload);
+    });
     room.onMessage(ServerMessage.POWERUP_COLLECTED, (payload: PowerUpCollectedPayload) =>
       this.events.emit("powerUpCollected", payload),
     );

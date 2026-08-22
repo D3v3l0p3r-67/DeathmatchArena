@@ -1,6 +1,6 @@
 import {
   MatchState,
-  PLAYER,
+  getPlayerConfig,
   clamp,
   getWeapon,
   isMelee,
@@ -76,9 +76,10 @@ export class HUD {
 
     if (!player) return;
 
-    const health = clamp(player.health, 0, PLAYER.MAX_HEALTH);
+    const maxHealth = getPlayerConfig().maxHealth;
+    const health = clamp(player.health, 0, maxHealth);
     setText(this.health, String(Math.round(health)));
-    const ratio = health / PLAYER.MAX_HEALTH;
+    const ratio = health / maxHealth;
     this.healthFill.style.width = `${ratio * 100}%`;
     toggleClass(this.healthFill, "is-hurt", ratio <= 0.6 && ratio > 0.3);
     toggleClass(this.healthFill, "is-critical", ratio <= 0.3);

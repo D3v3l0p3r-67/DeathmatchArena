@@ -1,4 +1,13 @@
 /** Shared helpers for the integration tests. */
+import { getPlayerConfig } from "@deathmatch/shared";
+
+/**
+ * The configured maximum health.
+ *
+ * Read from the configuration rather than written down, so a rebalance moves the
+ * assertions with it instead of turning them red.
+ */
+export const MAX_HEALTH = getPlayerConfig().maxHealth;
 
 export async function waitFor(
   predicate: () => boolean,

@@ -21,6 +21,8 @@ import {
   type SyncedPlayer,
   type SyncedPowerUp,
   type SyncedProjectile,
+  type SyncedTrap,
+  TrapPhase,
 } from "@deathmatch/shared";
 import type { NetworkManager } from "../../net/NetworkManager.js";
 import { PredictionController } from "../../net/PredictionController.js";
@@ -36,6 +38,7 @@ import { GrenadeView } from "../entities/GrenadeView.js";
 import { PlayerView } from "../entities/PlayerView.js";
 import { PowerUpView } from "../entities/PowerUpView.js";
 import { ProjectileView } from "../entities/ProjectileView.js";
+import { TrapView } from "../entities/TrapView.js";
 
 export const GAME_SCENE_KEY = "GameScene";
 
@@ -81,6 +84,9 @@ export class GameScene extends Phaser.Scene {
   private readonly remoteBuffers = new Map<string, SnapshotBuffer>();
   private readonly projectileViews = new Map<string, ProjectileView>();
   private readonly crateViews = new Map<string, CrateView>();
+  private readonly trapViews = new Map<string, TrapView>();
+  /** Last seen phase per trap, so the moment one goes off can be recognised. */
+  private readonly trapPhases = new Map<string, string>();
   private readonly powerUpViews = new Map<string, PowerUpView>();
   private readonly grenadeViews = new Map<string, GrenadeView>();
 
@@ -108,7 +114,9 @@ export class GameScene extends Phaser.Scene {
     this.hooks = hooks;
 
     const state = network.state;
-    this.arena = getArena(state?.arenaId ?? "");
+    // The server sent this arena with the welcome; `getArena` is only the
+    // fallback for the impossible case of rendering before the handshake.
+    this.arena = this.network.arena ?? getArena(state?.arenaId ?? "");
     this.world = getCollisionWorld(this.arena);
     this.prediction = new PredictionController(this.world);
 
@@ -173,6 +181,59 @@ export class GameScene extends Phaser.Scene {
     for (const crate of state.crates.values()) this.addCrateView(crate);
     for (const powerUp of state.powerUps.values()) this.addPowerUpView(powerUp);
     for (const grenade of state.grenades.values()) this.addGrenadeView(grenade);
+    this.syncTraps(state);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Traps
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Keep the trap views in step with the state.
+   *
+   * Done from the patch rather than from add/remove events, because a room's
+   * traps are built once from its arena and then simply move: there is no stream
+   * of creations to subscribe to, only positions and phases that change.
+   */
+  private syncTraps(state: SyncedGameState): void {
+    for (const [id, trap] of state.traps) {
+      let view = this.trapViews.get(id);
+      if (!view) {
+        view = new TrapView(this, trap);
+        this.trapViews.set(id, view);
+      }
+      view.refresh(trap);
+      this.reactToTrapPhase(id, trap);
+    }
+
+    for (const [id, view] of this.trapViews) {
+      if (state.traps.has(id)) continue;
+      view.destroy();
+      this.trapViews.delete(id);
+      this.trapPhases.delete(id);
+    }
+  }
+
+  /** A burst and a shake the moment a trap actually goes off. */
+  private reactToTrapPhase(id: string, trap: SyncedTrap): void {
+    const previous = this.trapPhases.get(id);
+    this.trapPhases.set(id, trap.phase);
+    if (previous === trap.phase || trap.phase !== TrapPhase.ACTIVE) return;
+    // The first patch after joining is not an activation, just the current state.
+    if (previous === undefined) return;
+
+    const x = trap.x + trap.width / 2;
+    const y = trap.y + trap.height / 2;
+    this.effects.burst("trapFire", x, y);
+
+    // Shaken only for a trap you could plausibly be standing in, so a hazard
+    // cycling on the far side of the arena does not rattle the screen.
+    const centre = this.getCameraCentre();
+    if (!centre) return;
+    const distance = Math.hypot(centre.x - x, centre.y - y);
+    if (distance > 700) return;
+    const shake = this.effects.shakeFor("trapFire", 1 - distance / 700);
+    this.cameras.main.shake(shake.durationMs, shake.intensity);
   }
 
   // ---------------------------------------------------------------------------
@@ -356,6 +417,8 @@ export class GameScene extends Phaser.Scene {
     this.spawnMovementEffects(state);
 
     for (const view of this.projectileViews.values()) view.syncFromServer(receivedAt);
+
+    this.syncTraps(state);
 
     for (const [id, view] of this.crateViews) {
       const crate = state.crates.get(id);
@@ -748,6 +811,9 @@ export class GameScene extends Phaser.Scene {
     for (const view of this.projectileViews.values()) view.destroy();
     this.projectileViews.clear();
 
+    for (const view of this.trapViews.values()) view.destroy();
+    this.trapViews.clear();
+    this.trapPhases.clear();
     this.arenaRenderer?.destroy();
     this.accumulatorMs = 0;
     this.wasAlive = false;

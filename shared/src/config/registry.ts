@@ -21,8 +21,11 @@ import type {
   CrateConfig,
   GameConfig,
   GrenadeConfig,
+  MatchConfig,
+  PlayerConfig,
   PowerUpDefinition,
   PowerUpSpawnConfig,
+  TrapConfig,
   WeaponDefinition,
 } from "./types.js";
 
@@ -138,6 +141,20 @@ export class GameConfigView {
   getGrenadeConfig(): GrenadeConfig {
     return this.config.grenades;
   }
+
+  /** Movement and vitality. Client prediction reads the very same values. */
+  getPlayerConfig(): PlayerConfig {
+    return this.config.player;
+  }
+
+  getMatchConfig(): MatchConfig {
+    return this.config.match;
+  }
+
+  /** Trap defaults. An individual trap may override any of them. */
+  getTrapConfig(): TrapConfig {
+    return this.config.traps;
+  }
 }
 
 /** Build an independent view over a deep copy of `config`. */
@@ -227,4 +244,16 @@ export function getArenaShrinkConfig(): ArenaShrinkConfig {
 
 export function getGrenadeConfig(): GrenadeConfig {
   return current.getGrenadeConfig();
+}
+
+export function getPlayerConfig(): PlayerConfig {
+  return current.getPlayerConfig();
+}
+
+export function getMatchConfig(): MatchConfig {
+  return current.getMatchConfig();
+}
+
+export function getTrapConfig(): TrapConfig {
+  return current.getTrapConfig();
 }

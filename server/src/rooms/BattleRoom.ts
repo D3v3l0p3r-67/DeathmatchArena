@@ -7,7 +7,6 @@ import {
   MATCH,
   MatchState,
   NETWORK,
-  PLAYER,
   ServerMessage,
   createRandom,
   decodeInputBatch,
@@ -16,11 +15,12 @@ import {
   getArena,
   getCollisionWorld,
   getGameConfig,
+  CollisionWorld,
   isFiniteNumber,
   makeNameUnique,
   validatePlayerName,
   type ArenaDefinition,
-  type CollisionWorld,
+  type ConfigChangedPayload,
   type GameConfig,
   type GameConfigView,
   type JoinOptions,
@@ -38,6 +38,7 @@ import { DebugCommandService } from "../debug/DebugCommandService.js";
 import { DebugRegistry, type DebugCommandContext } from "../debug/DebugRegistry.js";
 import { createLogger, type Logger } from "../utils/logger.js";
 import { ArenaShrinkSystem } from "../systems/ArenaShrinkSystem.js";
+import { TrapSystem } from "../systems/TrapSystem.js";
 import { CollisionSystem } from "../systems/CollisionSystem.js";
 import { GrenadeSystem } from "../systems/GrenadeSystem.js";
 import { MatchManager } from "../systems/MatchManager.js";
@@ -64,7 +65,10 @@ const MAX_STEPS_PER_FRAME = 5;
  * than dropped into a game in progress.
  */
 export class BattleRoom extends Room<{ state: GameState }> {
-  override maxClients = serverConfig.match.maxPlayers;
+  // Read at construction, which is after the stored configuration has been
+  // published -- so a room created after an administrator raises the limit is
+  // actually created with the new one.
+  override maxClients = getGameConfig().match.maxPlayers;
 
   override state = new GameState();
 
@@ -78,6 +82,7 @@ export class BattleRoom extends Room<{ state: GameState }> {
   private weaponSystem!: WeaponSystem;
   private powerUpSystem!: PowerUpSystem;
   private arenaShrinkSystem!: ArenaShrinkSystem;
+  private trapSystem!: TrapSystem;
   private grenadeSystem!: GrenadeSystem;
   private movementSystem!: MovementSystem;
   private matchManager!: MatchManager;
@@ -111,18 +116,19 @@ export class BattleRoom extends Room<{ state: GameState }> {
     this.logger = createLogger(`room:${this.roomId}`);
     this.random = createRandom(hashString(this.roomId) ^ Date.now());
 
-    this.state.arenaId = this.arena.id;
-    this.state.minPlayersToStart = serverConfig.match.minPlayersToStart;
-    this.state.maxPlayers = serverConfig.match.maxPlayers;
-
     this.baselineConfig = getGameConfig();
     this.configView = createGameConfigView(this.baselineConfig);
+
+    this.state.arenaId = this.arena.id;
+    this.state.minPlayersToStart = this.configView.getMatchConfig().minPlayers;
+    this.state.maxPlayers = this.configView.getMatchConfig().maxPlayers;
 
     this.context = this.createContext();
     this.collisionSystem = new CollisionSystem(this.world);
     this.projectileSystem = new ProjectileSystem(this.context, this.collisionSystem);
     this.weaponSystem = new WeaponSystem(this.context, this.projectileSystem, this.collisionSystem);
     this.arenaShrinkSystem = new ArenaShrinkSystem(this.context);
+    this.trapSystem = new TrapSystem(this.context);
     this.grenadeSystem = new GrenadeSystem(this.context, () => this.arenaShrinkSystem.bounds);
     this.powerUpSystem = new PowerUpSystem(this.context, this.weaponSystem, this.grenadeSystem);
     this.movementSystem = new MovementSystem(
@@ -139,7 +145,12 @@ export class BattleRoom extends Room<{ state: GameState }> {
       this.powerUpSystem,
       this.arenaShrinkSystem,
       this.grenadeSystem,
+      this.trapSystem,
     );
+
+    // Build the hazards this arena defines. An arena is data, so a room simply
+    // constructs whatever it was handed rather than knowing about any trap.
+    this.trapSystem.load(this.arena);
 
     // The walls start at the arena's own edges, so clients have sane limits
     // before a match ever begins.
@@ -186,17 +197,23 @@ export class BattleRoom extends Room<{ state: GameState }> {
     player.connected = true;
     player.alive = false;
     player.inMatch = false;
-    player.health = PLAYER.MAX_HEALTH;
+    player.health = this.configView.getPlayerConfig().maxHealth;
     this.state.players.set(client.sessionId, player);
 
     if (!validation.valid) {
       this.sendNotice(client.sessionId, "NAME_REJECTED", `${validation.reason} Using "${name}".`);
     }
 
+    // The arena and the configuration travel with the welcome rather than being
+    // looked up in the client's bundle. They have to: an administrator can create
+    // an arena and retune the game after the client was built, and prediction is
+    // only exact while the client steps the same numbers the server does.
     const welcome: WelcomePayload = {
       sessionId: client.sessionId,
       roomId: this.roomId,
       arenaId: this.arena.id,
+      arena: this.arena,
+      config: this.configView.config,
       serverTime: now,
       name,
     };
@@ -302,6 +319,7 @@ export class BattleRoom extends Room<{ state: GameState }> {
       this.projectileSystem.update(FIXED_DELTA, now);
       this.powerUpSystem.update(now);
       this.arenaShrinkSystem.update(FIXED_DELTA, now);
+      this.trapSystem.update(FIXED_DELTA, now);
       this.grenadeSystem.update(FIXED_DELTA, now);
       this.matchManager.update(now);
     }
@@ -433,15 +451,33 @@ export class BattleRoom extends Room<{ state: GameState }> {
       weapons: this.weaponSystem,
       powerUps: this.powerUpSystem,
       grenades: this.grenadeSystem,
+      traps: this.trapSystem,
       matchManager: this.matchManager,
       config: this.configView,
       replaceConfig: (config) => {
-        // Room-scoped by construction: only this room's view is replaced.
+        // Room-scoped by construction: only this room's view is replaced, and
+        // nothing is written to storage -- a debug change dies with the room.
         this.configView = createGameConfigView(config);
+        // Traps read their inherited values at load, so a retuned trap default
+        // has to be rebuilt to take effect.
+        this.trapSystem.load(this.arena);
+        this.broadcastConfig();
         this.logger.info("Room configuration overridden by debug command");
       },
       callerId,
     };
+  }
+
+  /**
+   * Tell every client the room's configuration changed.
+   *
+   * Only debug commands can cause this mid-match, and clients need it because
+   * they predict movement with these numbers: a client still stepping the old
+   * gravity would fight a correction on every patch.
+   */
+  private broadcastConfig(): void {
+    const payload: ConfigChangedPayload = { config: this.configView.config };
+    this.broadcast(ServerMessage.CONFIG_CHANGED, payload);
   }
 
   private sendTo(sessionId: string, type: string, payload: unknown): void {
@@ -461,6 +497,7 @@ export class BattleRoom extends Room<{ state: GameState }> {
     this.clientsBySession.delete(sessionId);
     this.matchManager.onPlayerRemoved(sessionId);
     this.arenaShrinkSystem.onPlayerRemoved(sessionId);
+    this.trapSystem.onPlayerRemoved(sessionId);
     // A grant belongs to a session, so it dies with it.
     this.debugAuthorization.revoke(sessionId);
   }

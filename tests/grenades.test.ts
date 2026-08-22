@@ -13,7 +13,6 @@ import {
   DEFAULT_GAME_CONFIG,
   FIXED_DELTA,
   MatchState,
-  PLAYER,
   PowerUpType,
   ServerMessage,
   createInputCommand,
@@ -26,6 +25,7 @@ import {
   type InputCommand,
 } from "@deathmatch/shared";
 import { clock, createHarness, type Harness } from "./harness.js";
+import { MAX_HEALTH } from "./helpers.js";
 
 const { explosionDamageAt } = await import("../server/src/systems/GrenadeSystem.js");
 
@@ -297,9 +297,9 @@ describe("grenade explosion", () => {
       harness.stepGrenades(FIXED_DELTA, clock.now);
     }
 
-    assert.ok(thrower.health < PLAYER.MAX_HEALTH, "your own grenade hurts you");
-    assert.ok(victim.health < PLAYER.MAX_HEALTH, "and anyone nearby");
-    assert.equal(distant.health, PLAYER.MAX_HEALTH, "but nobody out of range");
+    assert.ok(thrower.health < MAX_HEALTH, "your own grenade hurts you");
+    assert.ok(victim.health < MAX_HEALTH, "and anyone nearby");
+    assert.equal(distant.health, MAX_HEALTH, "but nobody out of range");
   });
 
   it("hurts less the further away you are", () => {
@@ -342,7 +342,7 @@ describe("grenade explosion", () => {
       harness.stepGrenades(FIXED_DELTA, clock.now);
     }
 
-    assert.equal(bystander.health, PLAYER.MAX_HEALTH, "a blast after the match hurts nobody");
+    assert.equal(bystander.health, MAX_HEALTH, "a blast after the match hurts nobody");
   });
 });
 
