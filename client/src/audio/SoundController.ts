@@ -13,6 +13,8 @@ import {
   type SyncedGameState,
   type SyncedPlayer,
   type SyncedProjectile,
+  type SyncedTrap,
+  TrapPhase,
 } from "@deathmatch/shared";
 import type { NetworkManager } from "../net/NetworkManager.js";
 import type { AudioEngine } from "./AudioEngine.js";
@@ -47,6 +49,7 @@ export class SoundController {
   private previousJumps = new Map<string, number>();
   private previousReloading = false;
   private previousGrenadeSeconds = new Map<string, number>();
+  private previousTrapPhases = new Map<string, string>();
   private wasShrinking = false;
 
   constructor(
@@ -84,6 +87,7 @@ export class SoundController {
     this.previousOnGround.clear();
     this.previousJumps.clear();
     this.previousGrenadeSeconds.clear();
+    this.previousTrapPhases.clear();
     this.previousReloading = false;
     this.wasShrinking = false;
   }
@@ -188,6 +192,7 @@ export class SoundController {
 
     this.trackReload(state.players.get(localId));
     this.trackGrenadeFuses(state);
+    this.trackTraps(state);
     this.trackShrink(state);
   }
 
@@ -234,6 +239,32 @@ export class SoundController {
     for (const id of Array.from(this.previousGrenadeSeconds.keys())) {
       if (!state.grenades.has(id)) this.previousGrenadeSeconds.delete(id);
     }
+  }
+
+  /**
+   * Warn, then hurt.
+   *
+   * Both phases get a sound because both matter: the wind-up is the only fair
+   * warning a player gets, and it is often audible before the trap is on screen.
+   */
+  private trackTraps(state: SyncedGameState): void {
+    for (const [id, trap] of state.traps) {
+      const previous = this.previousTrapPhases.get(id);
+      this.previousTrapPhases.set(id, trap.phase);
+      // The first patch is the current state, not a transition.
+      if (previous === undefined || previous === trap.phase) continue;
+
+      if (trap.phase === TrapPhase.ARMING) this.playAtTrap(SoundId.TrapArm, trap, 0.9);
+      else if (trap.phase === TrapPhase.ACTIVE) this.playAtTrap(SoundId.TrapFire, trap, 1);
+    }
+
+    for (const id of Array.from(this.previousTrapPhases.keys())) {
+      if (!state.traps.has(id)) this.previousTrapPhases.delete(id);
+    }
+  }
+
+  private playAtTrap(sound: string, trap: SyncedTrap, volume: number): void {
+    this.audio.playAt(sound, trap.x + trap.width / 2, trap.y + trap.height / 2, volume);
   }
 
   private trackShrink(state: SyncedGameState): void {

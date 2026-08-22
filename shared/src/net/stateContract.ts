@@ -1,3 +1,4 @@
+import type { TrapPhaseValue } from "../game/traps.js";
 import type { MatchStateValue } from "../game/types.js";
 
 /**
@@ -102,6 +103,23 @@ export interface SyncedGrenade {
   readonly fuseSeconds: number;
 }
 
+/**
+ * A trap, as far as a client is concerned.
+ *
+ * Enough to draw it and to read the warning: where it is, how big it is, and
+ * which phase of its cycle it is in. Damage, activation and overlap are resolved
+ * entirely on the server and never appear here.
+ */
+export interface SyncedTrap {
+  readonly id: string;
+  readonly trapType: string;
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+  readonly phase: TrapPhaseValue;
+}
+
 export interface SyncedGameState {
   readonly matchState: MatchStateValue;
   readonly arenaId: string;
@@ -110,6 +128,7 @@ export interface SyncedGameState {
   readonly crates: ReadonlyMap<string, SyncedCrate>;
   readonly powerUps: ReadonlyMap<string, SyncedPowerUp>;
   readonly grenades: ReadonlyMap<string, SyncedGrenade>;
+  readonly traps: ReadonlyMap<string, SyncedTrap>;
   readonly countdownSeconds: number;
   readonly playerCount: number;
   readonly aliveCount: number;

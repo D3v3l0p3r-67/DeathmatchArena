@@ -1,8 +1,8 @@
 import { MapSchema, Schema, type } from "@colyseus/schema";
 import {
   DEFAULT_ARENA_ID,
-  MATCH,
   MatchState,
+  getMatchConfig,
   type MatchStateValue,
   type SyncedGameState,
 } from "@deathmatch/shared";
@@ -11,6 +11,7 @@ import { GrenadeState } from "./GrenadeState.js";
 import { PlayerState } from "./PlayerState.js";
 import { PowerUpState } from "./PowerUpState.js";
 import { ProjectileState } from "./ProjectileState.js";
+import { TrapState } from "./TrapState.js";
 
 /**
  * The synchronised room state.
@@ -37,6 +38,14 @@ export class GameState extends Schema implements SyncedGameState {
   /** Grenades in flight. The blast itself is resolved server-side. */
   @type({ map: GrenadeState }) grenades = new MapSchema<GrenadeState>();
 
+  /**
+   * The arena's traps.
+   *
+   * Position and phase only: activation, overlap and damage are the server's,
+   * and a client that fabricated any of this would change nothing.
+   */
+  @type({ map: TrapState }) traps = new MapSchema<TrapState>();
+
   /** Whole seconds left in the countdown; only changes once per second. */
   @type("uint8") countdownSeconds = 0;
 
@@ -53,8 +62,8 @@ export class GameState extends Schema implements SyncedGameState {
   @type("number") matchStartedAt = 0;
 
   /** Advertised lobby thresholds so the client never hard-codes them. */
-  @type("uint8") minPlayersToStart: number = MATCH.MIN_PLAYERS_TO_START;
-  @type("uint8") maxPlayers: number = MATCH.MAX_PLAYERS;
+  @type("uint8") minPlayersToStart: number = getMatchConfig().minPlayers;
+  @type("uint8") maxPlayers: number = getMatchConfig().maxPlayers;
 
   /**
    * The playable width, narrowed by the closing walls.

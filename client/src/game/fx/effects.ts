@@ -161,6 +161,18 @@ export const BURSTS = Object.freeze({
     scale: 0.8,
     gravity: 500,
   },
+  /** Thrown out when a trap fires -- spikes, flame, a crusher landing. */
+  trapFire: {
+    count: 16,
+    color: 0xff8a5b,
+    minSpeed: 80,
+    maxSpeed: 340,
+    minLife: 200,
+    maxLife: 480,
+    scale: 1.2,
+    gravity: 260,
+    additive: true,
+  },
   /** Embers drifting off a closing wall. */
   shrinkEmber: {
     count: 3,
@@ -185,6 +197,8 @@ export const SHAKES = Object.freeze({
   tookDamage: { durationMs: 120, intensity: 0.004 },
   died: { durationMs: 320, intensity: 0.008 },
   crateBreak: { durationMs: 90, intensity: 0.003 },
+  /** Scaled by how close the trap was. */
+  trapFire: { durationMs: 140, intensity: 0.005 },
   /** Scaled by how close the blast was. */
   explosionNear: { durationMs: 260, intensity: 0.016 },
   explosionFar: { durationMs: 200, intensity: 0.004 },

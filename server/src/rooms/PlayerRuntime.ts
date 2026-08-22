@@ -18,7 +18,13 @@ export type RateLimitKey = keyof typeof RATE_LIMITS;
  * observe (or spoof) the values its actions are validated against.
  */
 export class PlayerRuntime {
-  /** Authoritative movement state; mirrored into `PlayerState` after each step. */
+  /**
+   * Authoritative movement state; mirrored into `PlayerState` after each step.
+   *
+   * Starts on the process-wide jump allowance and is replaced wholesale at spawn
+   * with the room's own, so a room running a retuned configuration never
+   * simulates a player against the shipped one.
+   */
   readonly movement: MovementState = createMovementState();
 
   /** Inputs received but not yet simulated, ordered by sequence number. */

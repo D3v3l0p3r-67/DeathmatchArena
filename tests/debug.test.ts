@@ -10,6 +10,7 @@
  */
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
+import os from "node:os";
 
 // Must happen before `config.ts` is imported.
 process.env.COUNTDOWN_MS = "400";
@@ -18,6 +19,9 @@ process.env.VERBOSE_LOGGING = "false";
 process.env.MIN_PLAYERS = "2";
 process.env.DEBUG_TOKENS = "test-secret,second-secret";
 process.env.DEBUG_PLAYERS = "Overlord";
+// Store administration data somewhere disposable: these tests start a real
+// server, and a real server loads and saves arenas and configuration.
+process.env.DATA_DIR = `${os.tmpdir()}/deathmatch-test-${process.pid}-${Math.random().toString(36).slice(2)}`;
 
 import { Server } from "@colyseus/core";
 import { WebSocketTransport } from "@colyseus/ws-transport";
@@ -26,15 +30,15 @@ import {
   CHAINSAW_ID,
   ClientMessage,
   MatchState,
-  PLAYER,
   SHOTGUN_ID,
   ServerMessage,
   getGameConfig,
   type DebugCommandResult,
   type DebugStatePayload,
 } from "@deathmatch/shared";
-import { delay, randomPort, waitFor } from "./helpers.js";
+import { MAX_HEALTH, delay, randomPort, waitFor } from "./helpers.js";
 
+const { initialiseAdmin } = await import("../server/src/admin/index.js");
 const { BattleRoom } = await import("../server/src/rooms/BattleRoom.js");
 type BattleRoomType = InstanceType<typeof BattleRoom>;
 type GameRoom = Room<BattleRoomType, BattleRoomType["state"]>;
@@ -44,6 +48,10 @@ let gameServer: Server;
 let sdk: Client;
 
 before(async () => {
+  // Exactly what a real server does before it listens: load stored arenas and
+  // publish the configuration, so rooms are created from the same values.
+  await initialiseAdmin();
+
   gameServer = new Server({ transport: new WebSocketTransport({}) });
   gameServer.define("battle", BattleRoom);
   await gameServer.listen(port);
@@ -236,12 +244,12 @@ describe("debug commands", () => {
     // Health is clamped to the legal range rather than being taken at face value.
     sendCommand(admin, "set-health", { target: admin.room.sessionId, value: 99999 });
     await waitFor(
-      () => admin.room.state.players.get(admin.room.sessionId)!.health === PLAYER.MAX_HEALTH,
+      () => admin.room.state.players.get(admin.room.sessionId)!.health === MAX_HEALTH,
       "clamped health",
     );
 
     const self = admin.room.state.players.get(admin.room.sessionId)!;
-    assert.equal(self.health, PLAYER.MAX_HEALTH, "an absurd value is clamped, not applied");
+    assert.equal(self.health, MAX_HEALTH, "an absurd value is clamped, not applied");
 
     await Promise.all([admin.room.leave(true), other.room.leave(true)]);
   });

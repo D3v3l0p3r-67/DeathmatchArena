@@ -38,13 +38,15 @@ Useful server endpoints in development:
 | --- | --- |
 | `/health` | Liveness probe |
 | `/config` | Match rules (min/max players, countdown) so the client need not hard-code them |
+| `/admin` | Arena editor and game configuration (needs a `DEBUG_TOKENS` value) |
 | `/playground` | Colyseus playground |
 | `/colyseus` | Colyseus monitor dashboard |
 
 ### Other commands
 
 ```bash
-npm test           # 113 tests: physics, combat, grenades, power-ups, presentation, debug access, protocol and a real networked match
+npm test           # 202 tests: physics, combat, grenades, power-ups, traps, arenas, configuration,
+                   #            administration, presentation, debug access, protocol and a real networked match
 npm run typecheck  # tsc --noEmit across all three packages
 npm run build      # bundles the server and builds the client
 npm start          # runs the built server
@@ -85,12 +87,18 @@ and is imported by both sides — nothing in `client/` or `server/` redefines it
 
 | File | Contents |
 | --- | --- |
-| `config/types.ts` | The configuration data model: weapons, power-ups, crates, spawning |
+| `config/types.ts` | The configuration data model: player, match, weapons, power-ups, crates, traps |
 | `config/defaults.ts` | The values the game ships with — data, no logic |
 | `config/registry.ts` | The accessors gameplay reads, and the hook for loading config from elsewhere |
-| `game/constants.ts` | Tick rates, network tuning, match rules, player physics |
+| `config/schema.ts` | What every value *means*: category, label, type, range — generated from the config itself |
+| `config/validator.ts` | Validation for one change and for a whole configuration |
+| `arena/types.ts` | The arena data model: geometry, spawn points, traps |
+| `arena/traps.ts` | The trap type catalogue and the registry that holds it |
+| `arena/validator.ts` | Arena validation, with errors that block a save and warnings that do not |
+| `arena/factory.ts` | Creating, duplicating and repairing arenas |
+| `arena/defaults.ts` | The arena the game ships with, as a repository seed |
+| `game/constants.ts` | Tick rates, network tuning and the sizes that are genuinely structural |
 | `game/physics.ts` | The movement step (including the double jump), shared by server simulation and client prediction |
-| `game/arena.ts` | Arena geometry, player spawn points and power-up spawn points |
 | `game/weapons.ts` | Weapon behaviour derived from weapon data (fire interval, damage falloff, melee arc) |
 | `game/powerups.ts` | Power-up behaviour derived from power-up data (health restore, weighted picks) |
 | `game/CollisionWorld.ts` | Broadphase + raycasting against arena geometry |
@@ -113,6 +121,13 @@ and is imported by both sides — nothing in `client/` or `server/` redefines it
 | `systems/PowerUpSystem.ts` | Crate spawning and destruction, revealed pickups, active effects |
 | `systems/ArenaShrinkSystem.ts` | The closing walls, and the damage they do |
 | `systems/GrenadeSystem.ts` | Throw charging, grenade flight and bounces, fuses and blasts |
+| `systems/TrapSystem.ts` | Trap activation, motion, overlap and damage — generic, with no per-trap code |
+| `admin/AdminAuthorization.ts` | Who may administer the server; the only place that decides |
+| `admin/ArenaRepository.ts` | Where arenas are stored, behind an interface a database could implement |
+| `admin/ArenaService.ts` | Arena rules: validate, store, publish to the running server |
+| `admin/GameConfigRepository.ts` | Where configuration *overrides* are stored |
+| `admin/GameConfigService.ts` | The three configuration layers, and what reset means at each scope |
+| `admin/router.ts` | The administration API. Every route behind one authorization check |
 | `debug/DebugAuthorizationService.ts` | Who may use debug tooling; the only place that decides |
 | `debug/DebugRegistry.ts` | The debug command catalogue and the room's tunable values |
 | `debug/DebugCommandService.ts` | Authorization gate, argument validation and dispatch |
@@ -135,6 +150,11 @@ keeps them unit-testable and free of circular imports.
 | `audio/AudioEngine.ts` | Runtime synthesis, mixer channels, positional falloff and panning |
 | `audio/SoundController.ts` | The one place that maps game events to sounds |
 | `game/fx/effects.ts` | The effect catalogue — bursts and camera shakes as data |
+| `admin/AdminApp.ts` | The administration interface's shell: token, tabs, status line |
+| `admin/ArenaEditor.ts` | The visual arena editor: a canvas, a camera and a hit test |
+| `admin/ArenaInspector.ts` | Properties of the selection, generated for traps from their type metadata |
+| `admin/ConfigPanel.ts` | The game configuration editor, generated entirely from server metadata |
+| `admin/controls.ts` | One control renderer, shared by the configuration editor and the trap inspector |
 | `ui/*` | HUD, kill feed, settings, debug overlay, debug console and screen management (plain DOM) |
 
 ---
@@ -217,10 +237,23 @@ cp server/.env.example server/.env
 cp client/.env.example client/.env.local
 ```
 
-**Server** (`server/.env`) — port, CORS origins, `MIN_PLAYERS`/`MAX_PLAYERS`, countdown
-and results durations, arena id, and whether the monitor, playground and verbose
-logging are enabled. All have sensible development defaults; the tooling endpoints are
-off by default in production.
+**Server** (`server/.env`) — port, CORS origins, arena id, where administration data
+is stored, and whether the monitor, playground and verbose logging are enabled. All
+have sensible development defaults; the tooling endpoints are off by default in
+production.
+
+`MIN_PLAYERS`, `MAX_PLAYERS`, `COUNTDOWN_MS` and `RESULTS_MS` still work, but they are
+now *seeds*: they set the defaults an administrator then edits on top of, and become
+what "reset to default" restores. See [Administration](#administration).
+
+```
+DATA_DIR=./data          # where arenas and configuration overrides are stored
+DATA_PERSISTENT=false    # set true once DATA_DIR points at a mounted volume
+```
+
+`DATA_PERSISTENT` is declared, not detected — only the operator knows whether the
+directory survives a restart. The administration interface shows the answer, so
+nobody spends an afternoon building an arena that a redeploy will discard.
 
 **Client** (`client/.env.local`):
 
@@ -231,8 +264,171 @@ VITE_SERVER_URL=ws://localhost:2567   # unset -> derived from the page origin
 There is deliberately no client-side debug flag: debug tooling is unlocked by a
 server grant (see [Debugging](#debugging)), never by the build.
 
-Gameplay tuning (speeds, gravity, weapon stats, arena layout) lives in `shared/`, not
-in environment variables, because the client and server must agree on it exactly.
+Gameplay tuning (speeds, gravity, weapon stats, arena layout) is not environment
+configuration. It is administered data: the shipped values live in `shared/`, an
+administrator edits them through the interface below, and the server sends the result
+to every client on join — which is what keeps client prediction and server simulation
+stepping the same numbers.
+
+---
+
+## Administration
+
+Everything a designer would want to change — arenas, traps, weapons, movement, match
+pacing — is data an administrator edits at `/admin`, not a constant in the source.
+
+### Getting in
+
+Administration uses the same tokens as the debug console:
+
+```
+DEBUG_TOKENS=some-long-secret
+```
+
+Two things the debug policy allows are deliberately **not** honoured here:
+
+- **The player-name whitelist.** A display name is not a credential — anyone can type
+  one — and an HTTP request has no player attached to it in the first place.
+- **`DEBUG_ALLOW_ALL`.** It exists to make a match easy to poke at. It must not hand
+  the world write access to every arena and the stored game configuration.
+
+So with only `DEBUG_ALLOW_ALL` set, the debug console opens and administration stays
+shut. That asymmetry is the point.
+
+With no token configured, `/admin` says so plainly rather than pretending to be
+broken — an operator who set nothing needs to know that is why, and it reveals
+nothing an attacker could use.
+
+### Arenas
+
+An arena is data: dimensions, geometry, spawn points and traps.
+
+```ts
+{
+  id: "arena-01",              // stable and internal; fixed once created
+  name: "Factory",             // what an administrator sees; free to change
+  enabled: true,
+  width: 3200,
+  height: 1800,
+  elements: [],                // floors, platforms, walls, obstacles
+  playerSpawns: [],
+  powerUpSpawns: [],
+  traps: [],
+}
+```
+
+Geometry is **one list with a `type`**, not four parallel arrays. Floors, platforms,
+walls and obstacles collide identically and differ only in how they are drawn and how
+the editor groups them, so one list means the collision world, the renderer, the
+editor and the validator each have exactly one code path.
+
+The editor is visual: pan and zoom, click to select, drag to move, drag a handle to
+resize, arrow keys to nudge, `Ctrl`+`D` to duplicate, `Delete` to remove, and undo/redo
+throughout. Layers can be hidden while working. Validation runs against the *server*
+as you edit, not only when you save — the server is the authority either way, and
+asking it continuously means a mistake shows up while it is still fresh in mind.
+
+Errors block a save; warnings do not. The distinction matters: a spawn point buried in
+a wall is recoverable (the server nudges it clear at match start) and an arena with no
+spawn points at all is not, and an editor that refuses both equally is one people stop
+using.
+
+A saved arena reaches the running server immediately — rooms created afterwards use
+it. A match already in progress keeps the arena it started on, because changing the
+floor under a running match would desynchronise every client in it.
+
+### Traps
+
+A trap type is a **description**, not code: how its body moves, how it meters damage,
+what it looks like, and which extra parameters it takes. `TrapSystem` reads that and
+simulates it generically, so there is no `if (trap.type === "spikes")` anywhere on the
+server. Adding a hazard is a registration in the catalogue.
+
+Six ship, and between them they exercise every motion and damage mode:
+
+| Type | Motion | Damage | Typically |
+| --- | --- | --- | --- |
+| Spikes | static | once per contact | permanently dangerous |
+| Fire vent | static | per second | cycles on its own |
+| Electric zone | static | per second | cycles on its own |
+| Moving hazard | patrols its route | once per contact | permanently dangerous |
+| Crusher | drives out and withdraws | once per contact | a player comes near |
+| Falling object | drops under gravity | once per contact | a player comes near |
+
+Each placement chooses what sets it off — always, on a cycle, on proximity, or on
+contact — and may override any of damage, activation delay, active duration, cooldown,
+movement speed and trigger radius. **Leaving an override unset is meaningful**: it
+means "inherit", so retuning traps globally reaches that placement. The inspector
+shows which is which.
+
+The server is authoritative for all of it. Clients are told where a trap is, how big
+it is and which phase of its cycle it is in — enough to draw it and to read the
+warning. They never report a hit, never decide whether a trap is active, and never
+influence how much damage it does.
+
+### Game configuration
+
+The second half of the interface edits the same values the game runs on. Nothing in
+it is hard-coded: each value is described by metadata, and the interface renders
+whatever the server sends.
+
+```ts
+{
+  key: "weapons.shotgun.damage",
+  category: "Weapons",
+  subcategory: "Shotgun",
+  label: "Damage",
+  type: "number",              // number | boolean | string | select | percentage
+  defaultValue: 13,
+  min: 0, max: 500, step: 1,
+  description: "Damage per projectile that hits, before distance falloff.",
+  editable: true,
+}
+```
+
+The field list is **generated from the configuration itself**, so a weapon or power-up
+added to the catalogue becomes editable with no interface change — and only the fields
+that make sense for it appear: a chainsaw has no magazine, a rifle has no swing arc, a
+weapon without falloff has no falloff curve.
+
+Categories: Player, Match, Weapons, Grenades, Power-ups, Crates, Arena and Traps.
+
+Validation is server-side and covers ranges, whole numbers, allowed options, required
+values, and the dependencies between fields — a minimum throw power that would exceed
+the maximum, a falloff that ends before it starts, a lobby minimum above its own
+capacity. Values out of range are **refused, never clamped**, so an administrator
+finds out that a limit exists instead of silently getting a different number.
+
+Every parameter can be reset to its default, and so can a whole subcategory or
+category.
+
+### What is stored, and what that means
+
+Only the **deltas** are stored, never a whole configuration. Two reasons, and both
+matter more than they look. A stored snapshot would freeze the shipped values at the
+moment somebody first touched the interface, and every rebalance in every future
+release would silently stop reaching this server. And it makes "reset to default"
+exact: it deletes a key rather than trying to remember what the value used to be.
+
+The three layers, applied in order:
+
+1. the values the game ships with;
+2. deployment seeds from environment variables;
+3. stored administrator overrides.
+
+Both arenas and overrides sit behind repository interfaces (`ArenaRepository`,
+`GameConfigRepository`) with five methods between them. Moving from JSON files to a
+database is a new class and one line of wiring; no gameplay code moves.
+
+### Administration and the debug console
+
+They share one catalogue. The debug console's tunables *are* the administration
+fields, with the same limits and the same validator — so the two can no longer drift
+apart, and adding a weapon adds it to both at once.
+
+What differs is scope. A debug change applies to one room until it closes and is never
+stored. An administrator's change is stored and becomes what every room created
+afterwards starts from.
 
 ---
 
@@ -398,39 +594,51 @@ damage at the edge, and how many a pickup grants.
 
 Power-up spawn points live on the **arena**, not in the game config, because a
 position is only meaningful against that map's geometry — a new map brings its
-own set, and points can be added or removed freely. The server picks a free one
-at random, never stacks two crates on the same point, and keeps a point reserved
-until its revealed power-up has been collected or expired.
+own set, and points can be placed visually in the arena editor. The server picks a
+free enabled one at random, never stacks two crates on the same point, and keeps a
+point reserved until its revealed power-up has been collected or expired.
 
 ### Configuring it
 
-Every tunable value lives in `shared/src/config/`, split deliberately:
+All of it is editable at `/admin` — see [Administration](#administration). The values
+themselves live in `shared/src/config/`, split deliberately:
 
 - **`types.ts`** — the data model. Plain JSON-compatible types, so the same shape
   can come from a database or an HTTP API.
 - **`defaults.ts`** — the values the game ships with. Data only, no logic.
 - **`registry.ts`** — what gameplay actually reads, plus `loadGameConfig()`.
+- **`schema.ts`** — what each value means, so an interface can render it.
+- **`validator.ts`** — what each value may be set to.
 
-Systems go through the registry, never through `defaults.ts`. That is the seam an
-administration interface will use: hand `loadGameConfig()` a config fetched from
-anywhere at boot and every system picks it up, with no gameplay change.
+Systems go through the registry, never through `defaults.ts`, and the administration
+layer feeds `loadGameConfig()` at boot and on every save.
 
-Configurable today, without touching TypeScript logic:
+Configurable without touching TypeScript:
 
 | Area | Values |
 | --- | --- |
+| Player | max health, move speed, accelerations, frictions |
+| Jumping | gravity, jump strength, max jumps, mid-air jump strength, early-release cut, coyote time, jump buffer, fall speed |
+| Match | min/max players, countdown, result screen, maximum match length |
 | Weapons | enabled, damage, range, fire rate, magazine size, reload time, automatic |
 | Shotgun | pellet count, spread, falloff curve, bullet speed |
 | Chainsaw | damage, contact range, attack interval, arc |
-| Power-ups | enabled, spawn weight, display name, colour |
-| Health | restore fraction (percentage of maximum, not a fixed number) |
-| Speed boost | multiplier, duration |
+| Grenades | starting and maximum count, min/max throw power, charge time, gravity, bounce, friction, fuse, blast radius, damage and falloff |
+| Power-ups | enabled, spawn weight, display name, and the effect each type carries |
 | Crates | health, size, lifetime |
 | Spawning | interval, first-spawn delay, max active crates, pickup radius, revealed lifetime |
-| Spawn points | per arena, in `game/arena.ts` |
+| Closing walls | enabled, start time, wall speed, minimum width, crush damage |
+| Traps | global defaults for damage, delay, duration, cooldown, speed and trigger radius |
+| Arenas | geometry, spawn points and trap placements, per arena |
 
 Ids are stable and internal; `name` is what players see. The two are separate, so
 renaming a weapon in the HUD never breaks a reference to it.
+
+The player values are worth a note: they used to be compile-time constants, because
+client prediction and server simulation must agree on them *exactly*. They are now
+configurable, and the agreement is explicit instead of implicit — the server sends
+the room's values with the welcome message and the client predicts with those, so
+both sides still step the same integrator with the same numbers.
 
 ---
 
@@ -559,7 +767,15 @@ Each room holds its own `GameConfigView`. A parameter changed through the consol
 replaces **that room's** configuration and nothing else: other matches are
 unaffected, and the server's own configuration is never written to. Overrides are
 never persisted, and **Reset parameters** hands the room back to the server's
-values. The console marks anything diverging from the baseline with a `*`.
+values. The console marks anything diverging from that baseline with a `*`.
+
+The parameters the console offers are the same ones the administration interface
+offers, with the same limits and the same validator — both are generated from one
+description in `shared/src/config/schema.ts`. The difference is only what a change
+means: room-scoped and temporary here, stored and server-wide there. That also means
+"diverging from the baseline" is measured against what the *server is configured to
+use*, not against what the game shipped with — an administrator's saved change is the
+server's value, and must not show up in a console as a room override.
 
 The server logs room lifecycle events, joins, leaves and match transitions; set
 `VERBOSE_LOGGING=false` to quieten it.
@@ -600,6 +816,20 @@ npm test
   socket: matchmaking, the full lifecycle, server-authoritative weapons, and anti-cheat
   (malformed input is ignored; an input flood cannot move a player further than the
   budget allows).
+- **`tests/arena.test.ts`** — arena validation (bounds, duplicate ids, spawn points,
+  trap types and ranges), the error/warning split, normalisation of arbitrary JSON, and
+  the id helpers.
+- **`tests/config.test.ts`** — the configuration metadata: that the field list is
+  generated from the catalogue, that only the fields a weapon actually has appear, and
+  that ranges, whole numbers, enums, dependencies and whole-configuration invariants are
+  enforced.
+- **`tests/traps.test.ts`** — traps from the server's side: contact damage that fires
+  once and re-arms, continuous damage metered per second, the warning before the hurt,
+  the full cycle, proximity triggering, a trap that moves into someone, inheritance and
+  overrides, and every way a trap is switched off.
+- **`tests/admin.test.ts`** — the administration services: nothing reaches storage
+  unvalidated, the last playable arena cannot be deleted, a save publishes to the
+  running server, and reset works at every scope while storing only deltas.
 
 ---
 
@@ -608,13 +838,19 @@ npm test
 The seams are already in place for the obvious next features:
 
 - **More weapons** — add an entry to `shared/src/config/defaults.ts`; nothing else
-  hard-codes weapon behaviour.
+  hard-codes weapon behaviour, and it appears in the administration interface and the
+  debug console on its own.
 - **More power-ups** — another entry in the same file. A new *weapon* power-up needs
   no code at all; a genuinely new kind of effect needs one applier in `PowerUpSystem`.
-- **An admin interface** — the data model is already separate from the logic. Point
-  `loadGameConfig()` at an API or a database and the values stop being source code.
-- **More maps** — add an arena to `shared/src/game/arena.ts`, including its own
-  power-up spawn points, and select it with `ARENA_ID`.
+- **More trap types** — register a `TrapTypeDefinition` describing how it moves and
+  how it meters damage. The simulation, the validator and the editor all pick it up;
+  the server has no per-trap code to add to.
+- **A database instead of JSON files** — implement `ArenaRepository` and
+  `GameConfigRepository` and change one line of wiring. No gameplay code moves.
+- **Real accounts instead of shared tokens** — implement `AdminAuthorizationPolicy`
+  and `DebugAuthorizationPolicy` against the account system. No route and no debug
+  entry point changes.
+- **More maps** — build them at `/admin`, or seed them in `shared/src/arena/defaults.ts`.
 - **Pickups, grenades, destructibles** — new server systems driven from the room's fixed
   tick, plus schema entries for anything clients must see.
 - **Teams, modes, rankings, bots** — the room already separates match lifecycle

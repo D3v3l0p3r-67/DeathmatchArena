@@ -3,18 +3,27 @@ import { describe, it } from "node:test";
 import {
   CollisionWorld,
   FIXED_DELTA,
-  PHYSICS,
   PLAYER_HALF_HEIGHT,
   PLAYER_HALF_WIDTH,
   createInputCommand,
   createMovementState,
   getArena,
+  getPlayerConfig,
   stepPlayerMovement,
   type MovementState,
 } from "@deathmatch/shared";
 
 const arena = getArena("foundry");
 const world = new CollisionWorld(arena);
+
+/**
+ * The movement tuning under test.
+ *
+ * Read from the configuration rather than from constants, because that is where
+ * it now lives -- and because reading it the same way the simulation does is the
+ * only way these assertions stay honest after a rebalance.
+ */
+const player = getPlayerConfig();
 
 /** Run `steps` simulation ticks with a fixed input, mirroring the server loop. */
 function simulate(state: ReturnType<typeof createMovementState>, input = createInputCommand(), steps = 60) {
@@ -27,9 +36,9 @@ function simulate(state: ReturnType<typeof createMovementState>, input = createI
 
 describe("arena", () => {
   it("has spawn points that are free and grounded", () => {
-    assert.ok(arena.spawnPoints.length >= 10, "arena must provide one spawn per player");
+    assert.ok(arena.playerSpawns.length >= 10, "arena must provide one spawn per player");
 
-    for (const [index, spawn] of arena.spawnPoints.entries()) {
+    for (const [index, spawn] of arena.playerSpawns.entries()) {
       assert.ok(
         !world.isBoxBlocked(spawn.x, spawn.y, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT),
         `spawn ${index} is inside geometry`,
@@ -57,7 +66,7 @@ describe("arena", () => {
 
 describe("player movement", () => {
   it("falls, lands and stays on the ground", () => {
-    const spawn = arena.spawnPoints[1]!;
+    const spawn = arena.playerSpawns[1]!;
     const state = simulate(createMovementState(spawn.x, spawn.y - 200), createInputCommand(), 180);
 
     assert.equal(state.onGround, true);
@@ -65,7 +74,7 @@ describe("player movement", () => {
   });
 
   it("reaches roughly the analytical jump height", () => {
-    const spawn = arena.spawnPoints[1]!;
+    const spawn = arena.playerSpawns[1]!;
     const grounded = simulate(createMovementState(spawn.x, spawn.y), createInputCommand(), 60);
     const startY = grounded.y;
 
@@ -79,7 +88,7 @@ describe("player movement", () => {
       peak = Math.min(peak, grounded.y);
     }
 
-    const expected = (PHYSICS.JUMP_VELOCITY * PHYSICS.JUMP_VELOCITY) / (2 * PHYSICS.GRAVITY);
+    const expected = (player.jumpVelocity * player.jumpVelocity) / (2 * player.gravity);
     const actual = startY - peak;
     assert.ok(
       Math.abs(actual - expected) < expected * 0.15,
@@ -88,14 +97,14 @@ describe("player movement", () => {
   });
 
   it("accelerates to the run speed cap and no further", () => {
-    const spawn = arena.spawnPoints[1]!;
+    const spawn = arena.playerSpawns[1]!;
     const state = simulate(createMovementState(spawn.x, spawn.y), createInputCommand(), 30);
 
     const input = createInputCommand();
     input.moveRight = true;
     simulate(state, input, 120);
 
-    assert.ok(state.velocityX <= PHYSICS.MAX_RUN_SPEED + 1e-6, "exceeded the run speed cap");
+    assert.ok(state.velocityX <= player.moveSpeed + 1e-6, "exceeded the run speed cap");
     assert.ok(state.velocityX > 0 || state.x > spawn.x, "player did not move right");
     assert.equal(state.facing, 1);
   });
@@ -160,12 +169,12 @@ describe("double jump", () => {
     const state = createMovementState(600, 1700);
     run(state, 30, false);
     assert.equal(state.onGround, true, "settle on the floor first");
-    assert.equal(state.jumpsRemaining, PHYSICS.MAX_JUMPS);
+    assert.equal(state.jumpsRemaining, player.maxJumps);
 
     // First jump, off the ground.
     run(state, 1, true);
     assert.ok(state.velocityY < 0, "the first jump lifts");
-    assert.equal(state.jumpsRemaining, PHYSICS.MAX_JUMPS - 1);
+    assert.equal(state.jumpsRemaining, player.maxJumps - 1);
 
     // Release, then press again in mid-air: the second jump.
     run(state, 4, false);
@@ -194,7 +203,7 @@ describe("double jump", () => {
     // Fall back down and settle.
     run(state, 120, false);
     assert.equal(state.onGround, true);
-    assert.equal(state.jumpsRemaining, PHYSICS.MAX_JUMPS, "landing restores both");
+    assert.equal(state.jumpsRemaining, player.maxJumps, "landing restores both");
   });
 
   it("gives only the air jump to a player who walked off a ledge", () => {
@@ -204,7 +213,7 @@ describe("double jump", () => {
     assert.equal(state.onGround, false);
     assert.equal(
       state.jumpsRemaining,
-      PHYSICS.MAX_JUMPS - 1,
+      player.maxJumps - 1,
       "stepping off a platform forfeits the ground jump",
     );
 

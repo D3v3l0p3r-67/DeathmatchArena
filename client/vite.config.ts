@@ -1,4 +1,5 @@
 import { defineConfig } from "vite";
+import { resolve } from "node:path";
 
 export default defineConfig({
   server: {
@@ -16,6 +17,14 @@ export default defineConfig({
     sourcemap: true,
     chunkSizeWarningLimit: 1500,
     rollupOptions: {
+      // Two pages, not one app with a route: the administration interface shares
+      // the configuration and arena models with the game and nothing else -- no
+      // Phaser, no Colyseus -- and building them separately is what keeps it
+      // that way.
+      input: {
+        main: resolve(import.meta.dirname, "index.html"),
+        admin: resolve(import.meta.dirname, "admin.html"),
+      },
       output: {
         // Phaser is by far the biggest dependency; splitting it keeps the app
         // chunk small and lets the browser cache the engine across deploys.

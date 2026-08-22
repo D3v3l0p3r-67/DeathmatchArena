@@ -1,19 +1,20 @@
 import {
-  PLAYER,
-  PowerUpType,
+  ConfigRegistry,
+  applyChange,
+  readConfigValue,
+  type ConfigFieldDefinition,
   type DebugCommandSpec,
   type DebugConfigEntry,
   type DebugParamSpec,
   type GameConfig,
   type GameConfigView,
-  type PowerUpDefinition,
-  type WeaponDefinition,
 } from "@deathmatch/shared";
 import type { RoomContext } from "../rooms/RoomContext.js";
 import type { PlayerState } from "../rooms/schema/PlayerState.js";
 import type { MatchManager } from "../systems/MatchManager.js";
 import type { GrenadeSystem } from "../systems/GrenadeSystem.js";
 import type { PowerUpSystem } from "../systems/PowerUpSystem.js";
+import type { TrapSystem } from "../systems/TrapSystem.js";
 import type { WeaponSystem } from "../systems/WeaponSystem.js";
 
 /** Everything a debug command is allowed to reach. */
@@ -22,6 +23,7 @@ export interface DebugCommandContext {
   weapons: WeaponSystem;
   powerUps: PowerUpSystem;
   grenades: GrenadeSystem;
+  traps: TrapSystem;
   matchManager: MatchManager;
   /** The room's current configuration view. */
   config: GameConfigView;
@@ -55,506 +57,20 @@ export interface DebugCommand {
 // Room-scoped tunables
 // ---------------------------------------------------------------------------
 
-/** One value the console may read and change, plus how to reach it. */
-interface Tunable {
-  path: string;
-  label: string;
-  min?: number;
-  max?: number;
-  step?: number;
-  read(config: GameConfig): number | boolean | string | undefined;
-  write(config: GameConfig, value: number | boolean | string): void;
-}
-
-function weaponBy(config: GameConfig, id: string): WeaponDefinition | undefined {
-  return config.weapons.find((weapon) => weapon.id === id);
-}
-
-function powerUpBy(config: GameConfig, id: string): PowerUpDefinition | undefined {
-  return config.powerUps.find((powerUp) => powerUp.id === id);
-}
-
 /**
- * Build the tunable list from the configuration itself.
+ * The values a debug operator may change, and the limits they are held to.
  *
- * Generated rather than hand-listed, so a weapon or power-up added through
- * configuration becomes tunable with no change here. It doubles as the write
- * whitelist: a path that is not in this list cannot be set, which is what stops
- * a caller from poking at arbitrary parts of the config object.
+ * Built from the shared configuration metadata rather than a list of its own, so
+ * the debug console and the admin interface always offer exactly the same set of
+ * parameters with exactly the same ranges. Adding a weapon adds its fields to
+ * both at once, and neither can drift from the other.
+ *
+ * It is also the write whitelist: a key that is not a field cannot be written,
+ * which is what stops a caller reaching arbitrary parts of the configuration
+ * object through a crafted dotted path.
  */
-function buildTunables(config: GameConfig): Tunable[] {
-  const tunables: Tunable[] = [
-    {
-      path: "powerUpSpawning.intervalMs",
-      label: "Crate spawn interval (ms)",
-      min: 500,
-      max: 120000,
-      step: 500,
-      read: (c) => c.powerUpSpawning.intervalMs,
-      write: (c, v) => void (c.powerUpSpawning.intervalMs = Number(v)),
-    },
-    {
-      path: "powerUpSpawning.firstSpawnDelayMs",
-      label: "First crate delay (ms)",
-      min: 0,
-      max: 120000,
-      step: 500,
-      read: (c) => c.powerUpSpawning.firstSpawnDelayMs,
-      write: (c, v) => void (c.powerUpSpawning.firstSpawnDelayMs = Number(v)),
-    },
-    {
-      path: "powerUpSpawning.maxActiveCrates",
-      label: "Max active crates",
-      min: 0,
-      max: 32,
-      step: 1,
-      read: (c) => c.powerUpSpawning.maxActiveCrates,
-      write: (c, v) => void (c.powerUpSpawning.maxActiveCrates = Math.round(Number(v))),
-    },
-    {
-      path: "powerUpSpawning.pickupRadius",
-      label: "Pickup radius (px)",
-      min: 8,
-      max: 200,
-      step: 1,
-      read: (c) => c.powerUpSpawning.pickupRadius,
-      write: (c, v) => void (c.powerUpSpawning.pickupRadius = Number(v)),
-    },
-    {
-      path: "powerUpSpawning.revealedLifetimeMs",
-      label: "Revealed power-up lifetime (ms)",
-      min: 0,
-      max: 300000,
-      step: 1000,
-      read: (c) => c.powerUpSpawning.revealedLifetimeMs,
-      write: (c, v) => void (c.powerUpSpawning.revealedLifetimeMs = Number(v)),
-    },
-    {
-      path: "crate.health",
-      label: "Crate health",
-      min: 1,
-      max: 1000,
-      step: 1,
-      read: (c) => c.crate.health,
-      write: (c, v) => void (c.crate.health = Math.round(Number(v))),
-    },
-    {
-      path: "grenades.enabled",
-      label: "Grenades: enabled",
-      read: (c) => c.grenades.enabled,
-      write: (c, v) => void (c.grenades.enabled = Boolean(v)),
-    },
-    {
-      path: "grenades.startingCount",
-      label: "Grenades: starting count",
-      min: 0,
-      max: 20,
-      step: 1,
-      read: (c) => c.grenades.startingCount,
-      write: (c, v) => void (c.grenades.startingCount = Math.round(Number(v))),
-    },
-    {
-      path: "grenades.maxCount",
-      label: "Grenades: carrying limit",
-      min: 1,
-      max: 20,
-      step: 1,
-      read: (c) => c.grenades.maxCount,
-      write: (c, v) => void (c.grenades.maxCount = Math.round(Number(v))),
-    },
-    {
-      path: "grenades.minThrowSpeed",
-      label: "Grenades: min throw (px/s)",
-      min: 50,
-      max: 3000,
-      step: 10,
-      read: (c) => c.grenades.minThrowSpeed,
-      write: (c, v) => void (c.grenades.minThrowSpeed = Number(v)),
-    },
-    {
-      path: "grenades.maxThrowSpeed",
-      label: "Grenades: max throw (px/s)",
-      min: 50,
-      max: 4000,
-      step: 10,
-      read: (c) => c.grenades.maxThrowSpeed,
-      write: (c, v) => void (c.grenades.maxThrowSpeed = Number(v)),
-    },
-    {
-      path: "grenades.maxChargeMs",
-      label: "Grenades: max charge (ms)",
-      min: 50,
-      max: 10000,
-      step: 50,
-      read: (c) => c.grenades.maxChargeMs,
-      write: (c, v) => void (c.grenades.maxChargeMs = Number(v)),
-    },
-    {
-      path: "grenades.gravity",
-      label: "Grenades: gravity (px/s2)",
-      min: 0,
-      max: 8000,
-      step: 50,
-      read: (c) => c.grenades.gravity,
-      write: (c, v) => void (c.grenades.gravity = Number(v)),
-    },
-    {
-      path: "grenades.bounciness",
-      label: "Grenades: bounciness",
-      min: 0,
-      max: 1,
-      step: 0.02,
-      read: (c) => c.grenades.bounciness,
-      write: (c, v) => void (c.grenades.bounciness = Number(v)),
-    },
-    {
-      path: "grenades.friction",
-      label: "Grenades: friction",
-      min: 0,
-      max: 1,
-      step: 0.02,
-      read: (c) => c.grenades.friction,
-      write: (c, v) => void (c.grenades.friction = Number(v)),
-    },
-    {
-      path: "grenades.fuseMs",
-      label: "Grenades: fuse (ms)",
-      min: 100,
-      max: 20000,
-      step: 100,
-      read: (c) => c.grenades.fuseMs,
-      write: (c, v) => void (c.grenades.fuseMs = Number(v)),
-    },
-    {
-      path: "grenades.explosionRadius",
-      label: "Grenades: blast radius (px)",
-      min: 10,
-      max: 1200,
-      step: 5,
-      read: (c) => c.grenades.explosionRadius,
-      write: (c, v) => void (c.grenades.explosionRadius = Number(v)),
-    },
-    {
-      path: "grenades.maxDamage",
-      label: "Grenades: max damage",
-      min: 0,
-      max: 500,
-      step: 1,
-      read: (c) => c.grenades.maxDamage,
-      write: (c, v) => void (c.grenades.maxDamage = Number(v)),
-    },
-    {
-      path: "grenades.minDamageMultiplier",
-      label: "Grenades: damage at edge",
-      min: 0,
-      max: 1,
-      step: 0.02,
-      read: (c) => c.grenades.minDamageMultiplier,
-      write: (c, v) => void (c.grenades.minDamageMultiplier = Number(v)),
-    },
-    {
-      path: "arenaShrink.enabled",
-      label: "Arena shrink: enabled",
-      read: (c) => c.arenaShrink.enabled,
-      write: (c, v) => void (c.arenaShrink.enabled = Boolean(v)),
-    },
-    {
-      path: "arenaShrink.startAfterMs",
-      label: "Arena shrink: starts after (ms)",
-      min: 0,
-      max: 1800000,
-      step: 1000,
-      read: (c) => c.arenaShrink.startAfterMs,
-      write: (c, v) => void (c.arenaShrink.startAfterMs = Number(v)),
-    },
-    {
-      path: "arenaShrink.speedPerSecond",
-      label: "Arena shrink: wall speed (px/s)",
-      min: 0,
-      max: 500,
-      step: 1,
-      read: (c) => c.arenaShrink.speedPerSecond,
-      write: (c, v) => void (c.arenaShrink.speedPerSecond = Number(v)),
-    },
-    {
-      path: "arenaShrink.minWidth",
-      label: "Arena shrink: minimum width (px)",
-      min: 100,
-      max: 4000,
-      step: 10,
-      read: (c) => c.arenaShrink.minWidth,
-      write: (c, v) => void (c.arenaShrink.minWidth = Number(v)),
-    },
-    {
-      path: "arenaShrink.crushDamagePerSecond",
-      label: "Arena shrink: crush damage/s",
-      min: 0,
-      max: 200,
-      step: 1,
-      read: (c) => c.arenaShrink.crushDamagePerSecond,
-      write: (c, v) => void (c.arenaShrink.crushDamagePerSecond = Number(v)),
-    },
-    {
-      path: "crate.lifetimeMs",
-      label: "Crate lifetime (ms)",
-      min: 0,
-      max: 600000,
-      step: 1000,
-      read: (c) => c.crate.lifetimeMs,
-      write: (c, v) => void (c.crate.lifetimeMs = Number(v)),
-    },
-  ];
-
-  for (const weapon of config.weapons) {
-    const id = weapon.id;
-    const prefix = `weapons.${id}`;
-    const name = weapon.name;
-
-    tunables.push(
-      {
-        path: `${prefix}.enabled`,
-        label: `${name}: enabled`,
-        read: (c) => weaponBy(c, id)?.enabled,
-        write: (c, v) => {
-          const target = weaponBy(c, id);
-          if (target) target.enabled = Boolean(v);
-        },
-      },
-      {
-        path: `${prefix}.damage`,
-        label: `${name}: damage`,
-        min: 0,
-        max: 500,
-        step: 1,
-        read: (c) => weaponBy(c, id)?.damage,
-        write: (c, v) => {
-          const target = weaponBy(c, id);
-          if (target) target.damage = Number(v);
-        },
-      },
-      {
-        path: `${prefix}.range`,
-        label: `${name}: range (px)`,
-        min: 1,
-        max: 4000,
-        step: 1,
-        read: (c) => weaponBy(c, id)?.range,
-        write: (c, v) => {
-          const target = weaponBy(c, id);
-          if (target) target.range = Number(v);
-        },
-      },
-      {
-        path: `${prefix}.fireRate`,
-        label: `${name}: fire rate (rpm)`,
-        min: 0,
-        max: 2000,
-        step: 5,
-        read: (c) => weaponBy(c, id)?.fireRate,
-        write: (c, v) => {
-          const target = weaponBy(c, id);
-          if (target) target.fireRate = Number(v);
-        },
-      },
-      {
-        path: `${prefix}.magazineSize`,
-        label: `${name}: magazine`,
-        min: 0,
-        max: 500,
-        step: 1,
-        read: (c) => weaponBy(c, id)?.magazineSize,
-        write: (c, v) => {
-          const target = weaponBy(c, id);
-          if (target) target.magazineSize = Math.round(Number(v));
-        },
-      },
-      {
-        path: `${prefix}.reloadTime`,
-        label: `${name}: reload (ms)`,
-        min: 0,
-        max: 20000,
-        step: 100,
-        read: (c) => weaponBy(c, id)?.reloadTime,
-        write: (c, v) => {
-          const target = weaponBy(c, id);
-          if (target) target.reloadTime = Number(v);
-        },
-      },
-    );
-
-    if (weapon.ranged) {
-      tunables.push(
-        {
-          path: `${prefix}.ranged.pellets`,
-          label: `${name}: pellets`,
-          min: 1,
-          max: 64,
-          step: 1,
-          read: (c) => weaponBy(c, id)?.ranged?.pellets,
-          write: (c, v) => {
-            const target = weaponBy(c, id);
-            if (target?.ranged) target.ranged.pellets = Math.round(Number(v));
-          },
-        },
-        {
-          path: `${prefix}.ranged.spread`,
-          label: `${name}: spread (rad)`,
-          min: 0,
-          max: 1.5,
-          step: 0.005,
-          read: (c) => weaponBy(c, id)?.ranged?.spread,
-          write: (c, v) => {
-            const target = weaponBy(c, id);
-            if (target?.ranged) target.ranged.spread = Number(v);
-          },
-        },
-        {
-          path: `${prefix}.ranged.bulletSpeed`,
-          label: `${name}: bullet speed (px/s)`,
-          min: 100,
-          max: 20000,
-          step: 50,
-          read: (c) => weaponBy(c, id)?.ranged?.bulletSpeed,
-          write: (c, v) => {
-            const target = weaponBy(c, id);
-            if (target?.ranged) target.ranged.bulletSpeed = Number(v);
-          },
-        },
-      );
-    }
-
-    if (weapon.melee) {
-      tunables.push(
-        {
-          path: `${prefix}.melee.attackIntervalMs`,
-          label: `${name}: attack interval (ms)`,
-          min: 20,
-          max: 5000,
-          step: 10,
-          read: (c) => weaponBy(c, id)?.melee?.attackIntervalMs,
-          write: (c, v) => {
-            const target = weaponBy(c, id);
-            if (target?.melee) target.melee.attackIntervalMs = Number(v);
-          },
-        },
-        {
-          path: `${prefix}.melee.arcDegrees`,
-          label: `${name}: arc (degrees)`,
-          min: 5,
-          max: 360,
-          step: 5,
-          read: (c) => weaponBy(c, id)?.melee?.arcDegrees,
-          write: (c, v) => {
-            const target = weaponBy(c, id);
-            if (target?.melee) target.melee.arcDegrees = Number(v);
-          },
-        },
-      );
-    }
-  }
-
-  for (const powerUp of config.powerUps) {
-    const id = powerUp.id;
-    const prefix = `powerUps.${id}`;
-    const name = powerUp.name;
-
-    tunables.push(
-      {
-        path: `${prefix}.enabled`,
-        label: `${name}: enabled`,
-        read: (c) => powerUpBy(c, id)?.enabled,
-        write: (c, v) => {
-          const target = powerUpBy(c, id);
-          if (target) target.enabled = Boolean(v);
-        },
-      },
-      {
-        path: `${prefix}.spawnWeight`,
-        label: `${name}: spawn weight`,
-        min: 0,
-        max: 1000,
-        step: 1,
-        read: (c) => powerUpBy(c, id)?.spawnWeight,
-        write: (c, v) => {
-          const target = powerUpBy(c, id);
-          if (target) target.spawnWeight = Number(v);
-        },
-      },
-    );
-
-    if (powerUp.type === PowerUpType.HEALTH) {
-      tunables.push({
-        path: `${prefix}.restoreFraction`,
-        label: `${name}: restore fraction`,
-        min: 0,
-        max: 1,
-        step: 0.05,
-        read: (c) => {
-          const target = powerUpBy(c, id);
-          return target?.type === PowerUpType.HEALTH ? target.restoreFraction : undefined;
-        },
-        write: (c, v) => {
-          const target = powerUpBy(c, id);
-          if (target?.type === PowerUpType.HEALTH) target.restoreFraction = Number(v);
-        },
-      });
-    }
-
-    if (powerUp.type === PowerUpType.GRENADE) {
-      tunables.push({
-        path: `${prefix}.amount`,
-        label: `${name}: grenades granted`,
-        min: 1,
-        max: 20,
-        step: 1,
-        read: (c) => {
-          const target = powerUpBy(c, id);
-          return target?.type === PowerUpType.GRENADE ? target.amount : undefined;
-        },
-        write: (c, v) => {
-          const target = powerUpBy(c, id);
-          if (target?.type === PowerUpType.GRENADE) target.amount = Math.round(Number(v));
-        },
-      });
-    }
-
-    if (powerUp.type === PowerUpType.SPEED) {
-      tunables.push(
-        {
-          path: `${prefix}.speedMultiplier`,
-          label: `${name}: speed multiplier`,
-          min: 1,
-          max: 6,
-          step: 0.05,
-          read: (c) => {
-            const target = powerUpBy(c, id);
-            return target?.type === PowerUpType.SPEED ? target.speedMultiplier : undefined;
-          },
-          write: (c, v) => {
-            const target = powerUpBy(c, id);
-            if (target?.type === PowerUpType.SPEED) target.speedMultiplier = Number(v);
-          },
-        },
-        {
-          path: `${prefix}.durationMs`,
-          label: `${name}: duration (ms)`,
-          min: 0,
-          max: 300000,
-          step: 500,
-          read: (c) => {
-            const target = powerUpBy(c, id);
-            return target?.type === PowerUpType.SPEED ? target.durationMs : undefined;
-          },
-          write: (c, v) => {
-            const target = powerUpBy(c, id);
-            if (target?.type === PowerUpType.SPEED) target.durationMs = Number(v);
-          },
-        },
-      );
-    }
-  }
-
-  return tunables;
+function tunablesFor(context: DebugCommandContext): ConfigRegistry {
+  return new ConfigRegistry(context.config.config, context.room.baselineConfig);
 }
 
 // ---------------------------------------------------------------------------
@@ -596,10 +112,16 @@ export class DebugRegistry {
     const powerUps = context.config
       .listPowerUps()
       .map((powerUp) => ({ value: powerUp.id, label: powerUp.name }));
-    const tunables = buildTunables(context.config.config).map((tunable) => ({
-      value: tunable.path,
-      label: tunable.label,
-    }));
+    const tunables = tunablesFor(context)
+      .list()
+      .filter((field) => field.editable)
+      .map((field) => ({
+        value: field.key,
+        // Qualified, because two categories both have a "Damage" and a bare label
+        // in a flat dropdown would be a coin toss.
+        label: `${field.category} / ${field.subcategory} / ${field.label}`,
+      }));
+    const maxHealth = context.config.getPlayerConfig().maxHealth;
 
     return Array.from(this.commands.values()).map((command) => ({
       ...command.spec,
@@ -608,32 +130,36 @@ export class DebugRegistry {
         if (param.key === "weaponId") return { ...param, options: weapons };
         if (param.key === "powerUpId") return { ...param, options: powerUps };
         if (param.key === "path") return { ...param, options: tunables };
+        // The health limit follows the room's configuration rather than a
+        // constant, so a room with a raised maximum can actually be set to it.
+        if (param.key === "value" && command.spec.id === "set-health") {
+          return { ...param, max: maxHealth, defaultValue: maxHealth };
+        }
         return param;
       }),
     }));
   }
 
-  /** Current values of every room-scoped tunable, flagged where overridden. */
+  /**
+   * Current values of every room-scoped tunable, flagged where overridden.
+   *
+   * "Overridden" here means *this room* differs from what the server is
+   * configured to use -- not from what the game ships with. An administrator's
+   * saved change is the server's value, so it must not show up in a debug console
+   * as a room override.
+   */
   describeConfig(context: DebugCommandContext, baseline: GameConfig): DebugConfigEntry[] {
     const config = context.config.config;
 
-    return buildTunables(config).flatMap((tunable) => {
-      const value = tunable.read(config);
-      if (value === undefined) return [];
+    return tunablesFor(context)
+      .list()
+      .flatMap((field) => {
+        const value = readConfigValue(config, field.key);
+        if (value === undefined) return [];
 
-      const baseValue = tunable.read(baseline);
-      return [
-        {
-          path: tunable.path,
-          label: tunable.label,
-          value,
-          overridden: baseValue !== undefined && baseValue !== value,
-          min: tunable.min,
-          max: tunable.max,
-          step: tunable.step,
-        },
-      ];
-    });
+        const serverValue = readConfigValue(baseline, field.key);
+        return [describeField(field, value, serverValue !== undefined && serverValue !== value)];
+      });
   }
 
   private targetOptions(context: DebugCommandContext): { value: string; label: string }[] {
@@ -750,19 +276,13 @@ export class DebugRegistry {
           category: "Player",
           params: [
             targetParam,
-            {
-              key: "value",
-              label: "Health",
-              type: "number",
-              min: 1,
-              max: PLAYER.MAX_HEALTH,
-              step: 1,
-              defaultValue: PLAYER.MAX_HEALTH,
-            },
+            // The range is filled in per room by `describeCommands`, because the
+            // maximum is configurable.
+            { key: "value", label: "Health", type: "number", min: 1, step: 1 },
           ],
         },
         run: (context, args) => {
-          const value = clampNumber(Number(args.value), 1, PLAYER.MAX_HEALTH);
+          const value = clampNumber(Number(args.value), 1, context.config.getPlayerConfig().maxHealth);
           const targets = resolveTargets(context, args.target);
           if (targets.length === 0) return { ok: false, message: "No matching player" };
 
@@ -841,18 +361,30 @@ export class DebugRegistry {
           category: "Configuration",
           params: [
             { key: "path", label: "Parameter", type: "select", options: [] },
-            { key: "value", label: "Value", type: "number", step: 1 },
+            // Carried as text and coerced by the validator, so one command can
+            // set a number, a switch or a choice without three variants of it.
+            { key: "value", label: "Value", type: "string" },
           ],
         },
         run: (context, args) => {
-          const path = String(args.path ?? "");
-          const next = applyTunable(context.config.config, path, args.value);
-          if (!next) return { ok: false, message: `Unknown parameter "${path}"` };
+          const key = String(args.path ?? "");
+          const registry = tunablesFor(context);
+          const field = registry.get(key);
+          if (!field) return { ok: false, message: `Unknown parameter "${key}"` };
 
-          context.replaceConfig(next.config);
+          // The same validator the admin interface uses, so a debug operator is
+          // held to exactly the same ranges and dependencies -- one path in,
+          // one set of rules.
+          const outcome = applyChange(registry, context.config.config, key, args.value);
+          if (!outcome.ok) {
+            return { ok: false, message: outcome.issues[0]?.message ?? "Rejected" };
+          }
+
+          context.replaceConfig(outcome.config);
+          const applied = readConfigValue(outcome.config, key);
           return {
             ok: true,
-            message: `${next.label} = ${next.value} (this room only)`,
+            message: `${field.label} = ${String(applied)} (this room only)`,
             refreshState: true,
           };
         },
@@ -879,34 +411,25 @@ export class DebugRegistry {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Apply one tunable to a copy of the config.
- *
- * Returns null when the path is not a known tunable — the write whitelist. The
- * original config is never mutated: a room's configuration is swapped whole.
- */
-function applyTunable(
-  config: GameConfig,
-  path: string,
-  rawValue: unknown,
-): { config: GameConfig; label: string; value: number | boolean | string } | null {
-  const next = structuredClone(config);
-  const tunable = buildTunables(next).find((candidate) => candidate.path === path);
-  if (!tunable) return null;
-
-  const currentValue = tunable.read(next);
-  let value: number | boolean | string;
-
-  if (typeof currentValue === "boolean") {
-    value = rawValue === true || rawValue === "true" || rawValue === 1;
-  } else {
-    const numeric = Number(rawValue);
-    if (!Number.isFinite(numeric)) return null;
-    value = clampNumber(numeric, tunable.min ?? -Infinity, tunable.max ?? Infinity);
-  }
-
-  tunable.write(next, value);
-  return { config: next, label: tunable.label, value };
+/** Turn a configuration field into the entry the console renders. */
+function describeField(
+  field: ConfigFieldDefinition,
+  value: DebugConfigEntry["value"],
+  overridden: boolean,
+): DebugConfigEntry {
+  return {
+    path: field.key,
+    label: field.label,
+    category: field.category,
+    subcategory: field.subcategory,
+    value,
+    overridden,
+    editable: field.editable,
+    min: field.min,
+    max: field.max,
+    step: field.step,
+    options: field.options,
+  };
 }
 
 function resolveTargets(context: DebugCommandContext, rawTarget: unknown): PlayerState[] {

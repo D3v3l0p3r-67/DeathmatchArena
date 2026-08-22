@@ -1,0 +1,602 @@
+/**
+ * The configuration *metadata* model.
+ *
+ * `types.ts` says what the configuration is; this file says what each value
+ * means, what it may be set to, and where it belongs in an editing interface.
+ *
+ * Everything an admin form needs is described as data:
+ *
+ *   { key: "weapons.shotgun.damage", category: "Weapons", subcategory: "Shotgun",
+ *     label: "Damage", type: "number", min: 0, max: 500, step: 1, ... }
+ *
+ * so the interface renders whatever the server sends rather than shipping its own
+ * hard-coded list of inputs. Adding a weapon adds its fields automatically,
+ * because the descriptor list is *generated from the configuration itself* --
+ * see `buildConfigFields`.
+ *
+ * The same metadata backs the in-game debug console, so an admin and a debug
+ * operator are always looking at the same set of values with the same limits.
+ */
+import {
+  PowerUpType,
+  WeaponType,
+  type ConfigValue,
+  type GameConfig,
+  type PowerUpDefinition,
+  type WeaponDefinition,
+} from "./types.js";
+
+/**
+ * The control an editor should render.
+ *
+ * `percentage` is a number stored as 0..1 and shown as 0..100% -- a distinct type
+ * rather than a formatting hint, because "50" and "0.5" being the same value is
+ * exactly the confusion this is meant to prevent.
+ */
+export const ConfigFieldType = {
+  NUMBER: "number",
+  BOOLEAN: "boolean",
+  STRING: "string",
+  SELECT: "select",
+  PERCENTAGE: "percentage",
+} as const;
+
+export type ConfigFieldTypeValue = (typeof ConfigFieldType)[keyof typeof ConfigFieldType];
+
+export interface ConfigFieldOption {
+  value: string;
+  label: string;
+}
+
+/**
+ * One configurable value, fully described.
+ *
+ * Plain JSON: it travels to the admin interface over HTTP and to the debug
+ * console over the game socket, and neither end needs to know anything about the
+ * shape of `GameConfig` to render it.
+ */
+export interface ConfigFieldDefinition {
+  /** Dotted path into the configuration, e.g. `weapons.shotgun.damage`. */
+  key: string;
+  category: string;
+  subcategory: string;
+  label: string;
+  type: ConfigFieldTypeValue;
+  /** The value this field resets to. */
+  defaultValue: ConfigValue;
+  min?: number;
+  max?: number;
+  step?: number;
+  /** Allowed values for a `select`. Anything else is rejected. */
+  options?: ConfigFieldOption[];
+  description: string;
+  /**
+   * False for values that are shown but must not be changed -- an id an arena or
+   * a power-up refers to, for instance. The server enforces this; the interface
+   * only greys the control out.
+   */
+  editable: boolean;
+  /** Whole numbers only. */
+  integer?: boolean;
+  /** Strings and selects that may not be left empty. */
+  required?: boolean;
+  /** Key of a field this value may not exceed (e.g. a minimum against its maximum). */
+  mustNotExceed?: string;
+  /** Key of a field this value must be at least as large as. */
+  mustBeAtLeast?: string;
+}
+
+/** A field description before its default has been read from the baseline. */
+type FieldDescriptor = Omit<ConfigFieldDefinition, "defaultValue">;
+
+// ---------------------------------------------------------------------------
+// Path access
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve a dotted key to the object holding the value and the property name.
+ *
+ * Two kinds of segment, which is what lets one resolver serve both
+ * `player.moveSpeed` and `weapons.shotgun.damage`: a plain property, or -- when
+ * the current node is an array -- the `id` of one of its entries.
+ *
+ * Returns null for anything that does not resolve, so a malformed key is a miss
+ * rather than a crash or an accidental write to a neighbouring property.
+ */
+function resolvePath(
+  config: GameConfig,
+  key: string,
+): { holder: Record<string, unknown>; property: string } | null {
+  const segments = key.split(".");
+  if (segments.length < 2) return null;
+
+  let node: unknown = config;
+  for (let i = 0; i < segments.length - 1; i++) {
+    const segment = segments[i]!;
+    if (Array.isArray(node)) {
+      node = node.find((entry) => isRecord(entry) && entry.id === segment);
+    } else if (isRecord(node)) {
+      node = node[segment];
+    } else {
+      return null;
+    }
+    if (node === undefined || node === null) return null;
+  }
+
+  if (!isRecord(node) || Array.isArray(node)) return null;
+  return { holder: node, property: segments[segments.length - 1]! };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+/** Read one configured value by key, or undefined when the key does not resolve. */
+export function readConfigValue(config: GameConfig, key: string): ConfigValue | undefined {
+  const target = resolvePath(config, key);
+  if (!target) return undefined;
+  const value = target.holder[target.property];
+  return typeof value === "number" || typeof value === "boolean" || typeof value === "string"
+    ? value
+    : undefined;
+}
+
+/**
+ * Write one configured value by key.
+ *
+ * Deliberately unvalidated and deliberately not exported for general use: every
+ * caller goes through `GameConfigValidator` first, and the field list is the
+ * whitelist of keys that may be written at all.
+ */
+function writeConfigValue(config: GameConfig, key: string, value: ConfigValue): boolean {
+  const target = resolvePath(config, key);
+  if (!target) return false;
+  target.holder[target.property] = value;
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Field descriptors
+// ---------------------------------------------------------------------------
+
+const CATEGORY = {
+  PLAYER: "Player",
+  WEAPONS: "Weapons",
+  GRENADES: "Grenades",
+  POWERUPS: "Power-ups",
+  CRATES: "Crates",
+  MATCH: "Match",
+  ARENA: "Arena",
+  TRAPS: "Traps",
+} as const;
+
+interface NumberOptions {
+  min?: number;
+  max?: number;
+  step?: number;
+  integer?: boolean;
+  mustNotExceed?: string;
+  mustBeAtLeast?: string;
+}
+
+function number(
+  key: string,
+  category: string,
+  subcategory: string,
+  label: string,
+  description: string,
+  options: NumberOptions = {},
+): FieldDescriptor {
+  return {
+    key,
+    category,
+    subcategory,
+    label,
+    type: ConfigFieldType.NUMBER,
+    description,
+    editable: true,
+    ...options,
+  };
+}
+
+/** A 0..1 value shown as a percentage. */
+function percentage(
+  key: string,
+  category: string,
+  subcategory: string,
+  label: string,
+  description: string,
+  max = 1,
+): FieldDescriptor {
+  return {
+    key,
+    category,
+    subcategory,
+    label,
+    type: ConfigFieldType.PERCENTAGE,
+    description,
+    editable: true,
+    min: 0,
+    max,
+    step: 0.01,
+  };
+}
+
+function boolean(
+  key: string,
+  category: string,
+  subcategory: string,
+  label: string,
+  description: string,
+): FieldDescriptor {
+  return {
+    key,
+    category,
+    subcategory,
+    label,
+    type: ConfigFieldType.BOOLEAN,
+    description,
+    editable: true,
+  };
+}
+
+function text(
+  key: string,
+  category: string,
+  subcategory: string,
+  label: string,
+  description: string,
+  editable = true,
+): FieldDescriptor {
+  return {
+    key,
+    category,
+    subcategory,
+    label,
+    type: ConfigFieldType.STRING,
+    description,
+    editable,
+    required: true,
+  };
+}
+
+function select(
+  key: string,
+  category: string,
+  subcategory: string,
+  label: string,
+  description: string,
+  options: ConfigFieldOption[],
+): FieldDescriptor {
+  return {
+    key,
+    category,
+    subcategory,
+    label,
+    type: ConfigFieldType.SELECT,
+    description,
+    editable: true,
+    required: true,
+    options,
+  };
+}
+
+// -- Player -----------------------------------------------------------------
+
+function playerFields(): FieldDescriptor[] {
+  const { PLAYER } = CATEGORY;
+  return [
+    number("player.maxHealth", PLAYER, "Vitality", "Maximum health", "Health a player spawns with and can be healed up to.", { min: 1, max: 1000, step: 1, integer: true }),
+
+    number("player.moveSpeed", PLAYER, "Movement", "Movement speed", "Top running speed in pixels per second. Speed power-ups multiply this.", { min: 20, max: 2000, step: 10 }),
+    number("player.groundAcceleration", PLAYER, "Movement", "Ground acceleration", "How quickly top speed is reached while standing on something, px/s².", { min: 100, max: 20000, step: 100 }),
+    number("player.airAcceleration", PLAYER, "Movement", "Air acceleration", "The same while airborne. Lower makes mid-air steering feel heavier.", { min: 0, max: 20000, step: 100 }),
+    number("player.groundFriction", PLAYER, "Movement", "Ground friction", "Deceleration with no input on the ground, px/s².", { min: 0, max: 20000, step: 100 }),
+    number("player.airFriction", PLAYER, "Movement", "Air friction", "Deceleration with no input in the air. Keep it low so jumps carry momentum.", { min: 0, max: 20000, step: 20 }),
+
+    number("player.gravity", PLAYER, "Jumping", "Gravity", "Downward acceleration, px/s². Raising it makes everything snappier and shortens every jump.", { min: 100, max: 12000, step: 50 }),
+    number("player.maxFallSpeed", PLAYER, "Jumping", "Maximum fall speed", "Terminal velocity, px/s.", { min: 100, max: 6000, step: 50 }),
+    number("player.jumpVelocity", PLAYER, "Jumping", "Jump strength", "Upward launch speed of a jump, px/s. Jump height follows from this and gravity.", { min: 100, max: 3000, step: 10 }),
+    number("player.maxJumps", PLAYER, "Jumping", "Maximum jumps", "Jumps available between touching the ground. 1 is a plain jump, 2 adds the mid-air jump.", { min: 1, max: 5, step: 1, integer: true }),
+    percentage("player.airJumpMultiplier", PLAYER, "Jumping", "Mid-air jump strength", "Mid-air jumps use this fraction of the full jump strength.", 2),
+    percentage("player.jumpCutMultiplier", PLAYER, "Jumping", "Early-release cut", "Releasing jump early keeps this fraction of the remaining ascent."),
+    number("player.coyoteTimeMs", PLAYER, "Jumping", "Coyote time (ms)", "Grace period after walking off a ledge during which a jump still counts.", { min: 0, max: 500, step: 5 }),
+    number("player.jumpBufferMs", PLAYER, "Jumping", "Jump buffer (ms)", "A jump pressed this long before landing is remembered and fires on touchdown.", { min: 0, max: 500, step: 5 }),
+  ];
+}
+
+// -- Weapons ----------------------------------------------------------------
+
+/**
+ * Fields for one weapon.
+ *
+ * Generated from the weapon itself, so a weapon added to the catalogue is
+ * editable with no change here. `type` decides which of the two optional blocks
+ * contributes fields -- a chainsaw has no magazine and a rifle has no swing arc.
+ */
+function weaponFields(weapon: WeaponDefinition): FieldDescriptor[] {
+  const { WEAPONS } = CATEGORY;
+  const group = weapon.name || weapon.id;
+  const prefix = `weapons.${weapon.id}`;
+
+  const fields: FieldDescriptor[] = [
+    text(`${prefix}.name`, WEAPONS, group, "Display name", "Shown in the HUD and the kill feed. Safe to change at any time."),
+    boolean(`${prefix}.enabled`, WEAPONS, group, "Enabled", "A disabled weapon can neither be equipped nor spawned, but stays in the catalogue."),
+    number(`${prefix}.damage`, WEAPONS, group, "Damage", weapon.type === WeaponType.RANGED ? "Damage per projectile that hits, before distance falloff." : "Damage per contact.", { min: 0, max: 500, step: 1 }),
+    number(`${prefix}.range`, WEAPONS, group, weapon.type === WeaponType.RANGED ? "Range (px)" : "Contact range (px)", weapon.type === WeaponType.RANGED ? "How far a projectile travels before expiring." : "How close a target must be to be hit.", { min: 1, max: 4000, step: 1 }),
+  ];
+
+  if (weapon.type === WeaponType.RANGED) {
+    fields.push(
+      number(`${prefix}.fireRate`, WEAPONS, group, "Fire rate (rpm)", "Shots per minute while the trigger is down.", { min: 1, max: 3000, step: 5 }),
+      number(`${prefix}.magazineSize`, WEAPONS, group, "Magazine size", "Shots before a reload is required. 0 means the weapon never reloads.", { min: 0, max: 500, step: 1, integer: true }),
+      number(`${prefix}.reloadTime`, WEAPONS, group, "Reload time (ms)", "How long a reload takes.", { min: 0, max: 20000, step: 50 }),
+      boolean(`${prefix}.automatic`, WEAPONS, group, "Automatic", "Holding the trigger keeps firing."),
+    );
+  }
+
+  if (weapon.ranged) {
+    fields.push(
+      number(`${prefix}.ranged.bulletSpeed`, WEAPONS, group, "Bullet speed (px/s)", "Muzzle velocity. Slower rounds need more leading.", { min: 50, max: 8000, step: 25 }),
+      number(`${prefix}.ranged.spread`, WEAPONS, group, "Spread (rad)", "Maximum random cone deviation applied per projectile by the server.", { min: 0, max: 1.5, step: 0.005 }),
+      number(`${prefix}.ranged.pellets`, WEAPONS, group, "Pellets per shot", "Projectiles fired per trigger pull. More than one makes it a shotgun.", { min: 1, max: 64, step: 1, integer: true }),
+    );
+
+    if (weapon.ranged.falloff) {
+      fields.push(
+        number(`${prefix}.ranged.falloff.startDistance`, WEAPONS, group, "Falloff start (px)", "Damage is full up to this distance.", { min: 0, max: 4000, step: 10, mustNotExceed: `${prefix}.ranged.falloff.endDistance` }),
+        number(`${prefix}.ranged.falloff.endDistance`, WEAPONS, group, "Falloff end (px)", "Damage reaches its floor at this distance and stays there.", { min: 0, max: 4000, step: 10, mustBeAtLeast: `${prefix}.ranged.falloff.startDistance` }),
+        percentage(`${prefix}.ranged.falloff.minMultiplier`, WEAPONS, group, "Damage floor", "Fraction of the base damage still dealt beyond the falloff end."),
+      );
+    }
+  }
+
+  if (weapon.melee) {
+    fields.push(
+      number(`${prefix}.melee.arcDegrees`, WEAPONS, group, "Swing arc (°)", "Half-angle of the damage cone around the aim direction.", { min: 1, max: 180, step: 1 }),
+      number(`${prefix}.melee.attackIntervalMs`, WEAPONS, group, "Attack interval (ms)", "Minimum time between two swings.", { min: 20, max: 5000, step: 10 }),
+    );
+  }
+
+  return fields;
+}
+
+// -- Grenades ---------------------------------------------------------------
+
+function grenadeFields(): FieldDescriptor[] {
+  const { GRENADES } = CATEGORY;
+  return [
+    boolean("grenades.enabled", GRENADES, "Carrying", "Enabled", "Off means grenades cannot be thrown, granted or spawned."),
+    number("grenades.startingCount", GRENADES, "Carrying", "Starting grenades", "Issued to every player at the start of a match.", { min: 0, max: 20, step: 1, integer: true, mustNotExceed: "grenades.maxCount" }),
+    number("grenades.maxCount", GRENADES, "Carrying", "Maximum grenades", "Hard cap on how many a player may carry.", { min: 0, max: 20, step: 1, integer: true, mustBeAtLeast: "grenades.startingCount" }),
+
+    number("grenades.minThrowSpeed", GRENADES, "Throw", "Minimum throw power (px/s)", "Throw speed with no charge at all.", { min: 0, max: 4000, step: 10, mustNotExceed: "grenades.maxThrowSpeed" }),
+    number("grenades.maxThrowSpeed", GRENADES, "Throw", "Maximum throw power (px/s)", "Throw speed at a full charge.", { min: 0, max: 4000, step: 10, mustBeAtLeast: "grenades.minThrowSpeed" }),
+    number("grenades.maxChargeMs", GRENADES, "Throw", "Maximum charge time (ms)", "How long the button must be held to reach full power. The server measures this itself.", { min: 50, max: 10000, step: 50 }),
+
+    number("grenades.gravity", GRENADES, "Flight", "Gravity", "Downward acceleration on a thrown grenade, px/s².", { min: 0, max: 12000, step: 50 }),
+    percentage("grenades.bounciness", GRENADES, "Flight", "Bounce", "Fraction of the impact speed kept when bouncing off geometry."),
+    percentage("grenades.friction", GRENADES, "Flight", "Friction", "Fraction of the sliding speed kept on contact. Lower brings a grenade to rest sooner."),
+    number("grenades.radius", GRENADES, "Flight", "Collision radius (px)", "How big the grenade is for collision purposes.", { min: 1, max: 60, step: 1 }),
+    number("grenades.fuseMs", GRENADES, "Flight", "Fuse duration (ms)", "Time from leaving the hand to detonation.", { min: 100, max: 20000, step: 100 }),
+
+    number("grenades.explosionRadius", GRENADES, "Explosion", "Explosion radius (px)", "Everything within this distance of the blast takes damage.", { min: 10, max: 1500, step: 10 }),
+    number("grenades.maxDamage", GRENADES, "Explosion", "Maximum damage", "Damage at the very centre of the blast. The thrower is not exempt.", { min: 0, max: 1000, step: 1 }),
+    percentage("grenades.minDamageMultiplier", GRENADES, "Explosion", "Damage falloff floor", "Fraction of the maximum damage still dealt at the edge of the radius."),
+  ];
+}
+
+// -- Power-ups --------------------------------------------------------------
+
+/** Fields for one power-up. The `type` decides which effect fields appear. */
+function powerUpFields(powerUp: PowerUpDefinition): FieldDescriptor[] {
+  const { POWERUPS } = CATEGORY;
+  const group = powerUp.name || powerUp.id;
+  const prefix = `powerUps.${powerUp.id}`;
+
+  const fields: FieldDescriptor[] = [
+    text(`${prefix}.name`, POWERUPS, group, "Display name", "Shown in the pickup notification."),
+    boolean(`${prefix}.enabled`, POWERUPS, group, "Enabled", "A disabled power-up never spawns but stays in the catalogue."),
+    number(`${prefix}.spawnWeight`, POWERUPS, group, "Spawn weight", "Relative likelihood of being chosen as a crate's contents, compared against the other power-ups.", { min: 0, max: 1000, step: 1 }),
+  ];
+
+  switch (powerUp.type) {
+    case PowerUpType.HEALTH:
+      fields.push(percentage(`${prefix}.restoreFraction`, POWERUPS, group, "Health restored", "Fraction of maximum health restored, never exceeding the maximum."));
+      break;
+    case PowerUpType.SPEED:
+      fields.push(
+        number(`${prefix}.speedMultiplier`, POWERUPS, group, "Speed multiplier", "Multiplies the top running speed while the effect lasts.", { min: 1, max: 5, step: 0.05 }),
+        number(`${prefix}.durationMs`, POWERUPS, group, "Duration (ms)", "How long the effect lasts.", { min: 500, max: 120000, step: 500 }),
+      );
+      break;
+    case PowerUpType.GRENADE:
+      fields.push(number(`${prefix}.amount`, POWERUPS, group, "Grenades granted", "How many grenades this pickup hands over, up to the carrying limit.", { min: 1, max: 20, step: 1, integer: true }));
+      break;
+    case PowerUpType.WEAPON:
+      // Which weapon it grants is a genuine choice, so it is a select over the
+      // catalogue rather than free text -- an unknown id would make dead crates.
+      break;
+  }
+
+  return fields;
+}
+
+function weaponPowerUpSelect(powerUp: PowerUpDefinition, weapons: readonly WeaponDefinition[]): FieldDescriptor | null {
+  if (powerUp.type !== PowerUpType.WEAPON) return null;
+  return select(
+    `powerUps.${powerUp.id}.weaponId`,
+    CATEGORY.POWERUPS,
+    powerUp.name || powerUp.id,
+    "Weapon granted",
+    "Which weapon a player receives on pickup.",
+    weapons.map((weapon) => ({ value: weapon.id, label: weapon.name })),
+  );
+}
+
+// -- Crates, match, arena, traps --------------------------------------------
+
+function crateFields(): FieldDescriptor[] {
+  const { CRATES } = CATEGORY;
+  return [
+    number("crate.health", CRATES, "Crates", "Crate health", "Damage a crate absorbs before it breaks open.", { min: 1, max: 2000, step: 1 }),
+    number("crate.width", CRATES, "Crates", "Crate width (px)", "Also its hit box.", { min: 8, max: 300, step: 2 }),
+    number("crate.height", CRATES, "Crates", "Crate height (px)", "Also its hit box.", { min: 8, max: 300, step: 2 }),
+    number("crate.lifetimeMs", CRATES, "Crates", "Crate lifetime (ms)", "How long an untouched crate stays before it is removed, freeing its spawn point. 0 disables expiry.", { min: 0, max: 600000, step: 1000 }),
+
+    number("powerUpSpawning.intervalMs", CRATES, "Spawning", "Spawn interval (ms)", "Time between crate spawn attempts.", { min: 500, max: 600000, step: 500 }),
+    number("powerUpSpawning.firstSpawnDelayMs", CRATES, "Spawning", "First spawn delay (ms)", "Quiet period after the match starts before the first crate appears.", { min: 0, max: 600000, step: 500 }),
+    number("powerUpSpawning.maxActiveCrates", CRATES, "Spawning", "Maximum active crates", "Upper bound on crates present at once, regardless of how many spawn points are free.", { min: 0, max: 64, step: 1, integer: true }),
+    number("powerUpSpawning.revealedLifetimeMs", CRATES, "Spawning", "Revealed power-up lifetime (ms)", "How long a revealed power-up waits to be collected before vanishing.", { min: 0, max: 600000, step: 1000 }),
+    number("powerUpSpawning.pickupRadius", CRATES, "Spawning", "Pickup radius (px)", "How close a player must come to collect a revealed power-up.", { min: 4, max: 400, step: 1 }),
+  ];
+}
+
+function matchFields(): FieldDescriptor[] {
+  const { MATCH } = CATEGORY;
+  return [
+    number("match.minPlayers", MATCH, "Match", "Minimum players", "Players needed before the countdown starts.", { min: 2, max: 32, step: 1, integer: true, mustNotExceed: "match.maxPlayers" }),
+    number("match.maxPlayers", MATCH, "Match", "Maximum players", "Hard cap on players in one match. Rooms created afterwards use the new limit.", { min: 2, max: 32, step: 1, integer: true, mustBeAtLeast: "match.minPlayers" }),
+    number("match.countdownMs", MATCH, "Match", "Countdown (ms)", "How long the pre-match countdown runs.", { min: 1000, max: 60000, step: 500 }),
+    number("match.resultsMs", MATCH, "Match", "Result screen (ms)", "How long the results stay up before the room recycles into a new lobby.", { min: 1000, max: 300000, step: 500 }),
+    number("match.maxDurationMs", MATCH, "Match", "Maximum match length (ms)", "Safety valve: a match can never run longer than this.", { min: 30000, max: 3600000, step: 10000 }),
+  ];
+}
+
+function arenaFields(): FieldDescriptor[] {
+  const { ARENA } = CATEGORY;
+  return [
+    boolean("arenaShrink.enabled", ARENA, "Closing walls", "Enabled", "Off means the arena never shrinks and a stalemate runs to the match time limit."),
+    number("arenaShrink.startAfterMs", ARENA, "Closing walls", "Start after (ms)", "Play time before the left and right walls start advancing.", { min: 0, max: 1800000, step: 5000 }),
+    number("arenaShrink.speedPerSecond", ARENA, "Closing walls", "Wall speed (px/s)", "How fast each wall advances. Both sides move at once, so the gap closes twice as fast.", { min: 1, max: 1000, step: 1 }),
+    number("arenaShrink.minWidth", ARENA, "Closing walls", "Minimum width (px)", "The walls stop once the gap between them reaches this.", { min: 100, max: 4000, step: 20 }),
+    number("arenaShrink.crushDamagePerSecond", ARENA, "Closing walls", "Crush damage (per second)", "Damage to a player the walls are pressing against, so a wedged player cannot stall the match.", { min: 0, max: 500, step: 1 }),
+  ];
+}
+
+function trapFields(): FieldDescriptor[] {
+  const { TRAPS } = CATEGORY;
+  return [
+    boolean("traps.enabled", TRAPS, "Defaults", "Traps enabled", "Master switch. Off means no trap in any arena ever activates."),
+    number("traps.damage", TRAPS, "Defaults", "Damage", "Damage per activation, or per second for a trap that damages continuously. Individual traps may override this.", { min: 0, max: 1000, step: 1 }),
+    number("traps.activationDelayMs", TRAPS, "Defaults", "Activation delay (ms)", "Warning period between a trap being triggered and becoming dangerous.", { min: 0, max: 20000, step: 50 }),
+    number("traps.activeDurationMs", TRAPS, "Defaults", "Active duration (ms)", "How long a trap stays dangerous. 0 means it never switches off once active.", { min: 0, max: 60000, step: 50 }),
+    number("traps.cooldownMs", TRAPS, "Defaults", "Cooldown (ms)", "Rest period after an activation before the trap can trigger again.", { min: 0, max: 120000, step: 50 }),
+    number("traps.moveSpeed", TRAPS, "Defaults", "Movement speed (px/s)", "Speed of a trap that moves, such as a crusher or a roaming hazard.", { min: 0, max: 2000, step: 10 }),
+    number("traps.triggerRadius", TRAPS, "Defaults", "Trigger radius (px)", "How near a player must come to set off a proximity trap.", { min: 0, max: 1500, step: 5 }),
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// The registry
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the complete field list for a configuration.
+ *
+ * Generated from `config` rather than hand-listed, which is the whole point: add
+ * a weapon or a power-up to the catalogue and its fields appear in the admin
+ * interface and the debug console without either of them changing.
+ *
+ * `baseline` supplies each field's default -- the value "reset to default"
+ * restores. It is the configuration the server ships with (plus any deployment
+ * seed), never the currently-edited one.
+ */
+export function buildConfigFields(config: GameConfig, baseline: GameConfig = config): ConfigFieldDefinition[] {
+  const descriptors: FieldDescriptor[] = [
+    ...playerFields(),
+    ...matchFields(),
+    ...config.weapons.flatMap(weaponFields),
+    ...grenadeFields(),
+    ...config.powerUps.flatMap((powerUp) => {
+      const fields = powerUpFields(powerUp);
+      const weaponChoice = weaponPowerUpSelect(powerUp, config.weapons);
+      return weaponChoice ? [...fields, weaponChoice] : fields;
+    }),
+    ...crateFields(),
+    ...arenaFields(),
+    ...trapFields(),
+  ];
+
+  return descriptors.flatMap((descriptor) => {
+    // A descriptor whose value is missing from both configurations describes
+    // something that is not there -- a falloff block that was removed, say. Drop
+    // it rather than presenting a control that writes into nothing.
+    const defaultValue = readConfigValue(baseline, descriptor.key) ?? readConfigValue(config, descriptor.key);
+    if (defaultValue === undefined) return [];
+    return [{ ...descriptor, defaultValue }];
+  });
+}
+
+/**
+ * The set of configurable values, indexed for lookup.
+ *
+ * Also the write whitelist: a key that is not a field cannot be written, which is
+ * what stops a caller from reaching arbitrary parts of the configuration object
+ * through a crafted dotted path.
+ */
+export class ConfigRegistry {
+  private readonly byKey: Map<string, ConfigFieldDefinition>;
+  private readonly fields: ConfigFieldDefinition[];
+
+  constructor(config: GameConfig, baseline: GameConfig = config) {
+    this.fields = buildConfigFields(config, baseline);
+    this.byKey = new Map(this.fields.map((field) => [field.key, field]));
+  }
+
+  list(): readonly ConfigFieldDefinition[] {
+    return this.fields;
+  }
+
+  get(key: string): ConfigFieldDefinition | null {
+    return this.byKey.get(key) ?? null;
+  }
+
+  has(key: string): boolean {
+    return this.byKey.has(key);
+  }
+
+  /** Every category, in the order the fields declare them. */
+  categories(): string[] {
+    return unique(this.fields.map((field) => field.category));
+  }
+
+  /** Subcategories within one category, in declaration order. */
+  subcategories(category: string): string[] {
+    return unique(
+      this.fields.filter((field) => field.category === category).map((field) => field.subcategory),
+    );
+  }
+
+  /** Keys belonging to a category, optionally narrowed to one subcategory. */
+  keysIn(category: string, subcategory?: string): string[] {
+    return this.fields
+      .filter(
+        (field) =>
+          field.category === category &&
+          (subcategory === undefined || field.subcategory === subcategory),
+      )
+      .map((field) => field.key);
+  }
+
+  read(config: GameConfig, key: string): ConfigValue | undefined {
+    return this.has(key) ? readConfigValue(config, key) : undefined;
+  }
+
+  /**
+   * Write a value that has already been validated.
+   *
+   * Returns false for an unknown key, a non-editable field, or a path that no
+   * longer resolves -- never throws, because a stale key from an interface that
+   * was open while the catalogue changed is a miss, not an error.
+   */
+  write(config: GameConfig, key: string, value: ConfigValue): boolean {
+    const field = this.byKey.get(key);
+    if (!field || !field.editable) return false;
+    return writeConfigValue(config, key, value);
+  }
+}
+
+function unique(values: string[]): string[] {
+  return Array.from(new Set(values));
+}

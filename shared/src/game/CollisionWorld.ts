@@ -1,10 +1,10 @@
 import { boundsOverlap, centeredBounds, rectToBounds, segmentVsBounds, type Bounds, type RayHit } from "../core/geometry.js";
-import type { ArenaDefinition, Surface } from "./arena.js";
+import type { ArenaDefinition, ArenaElement } from "../arena/types.js";
 
 const CELL_SIZE = 256;
 
 export interface SurfaceHit extends RayHit {
-  surface: Surface;
+  surface: ArenaElement;
 }
 
 /**
@@ -18,7 +18,7 @@ export class CollisionWorld {
   readonly arena: ArenaDefinition;
   readonly bounds: Bounds;
 
-  private readonly surfaces: Surface[];
+  private readonly surfaces: ArenaElement[];
   private readonly surfaceBounds: Bounds[];
   private readonly columns: number;
   private readonly rows: number;
@@ -31,8 +31,8 @@ export class CollisionWorld {
 
   constructor(arena: ArenaDefinition) {
     this.arena = arena;
-    this.surfaces = arena.surfaces;
-    this.surfaceBounds = arena.surfaces.map(rectToBounds);
+    this.surfaces = arena.elements;
+    this.surfaceBounds = arena.elements.map(rectToBounds);
     this.bounds = { left: 0, top: 0, right: arena.width, bottom: arena.height };
 
     this.columns = Math.max(1, Math.ceil(arena.width / CELL_SIZE));
@@ -55,7 +55,7 @@ export class CollisionWorld {
     this.visitStamp = new Int32Array(this.surfaces.length);
   }
 
-  getSurface(index: number): Surface {
+  getSurface(index: number): ArenaElement {
     return this.surfaces[index]!;
   }
 
@@ -143,14 +143,21 @@ function ascending(a: number, b: number): number {
   return a - b;
 }
 
-const cache = new Map<string, CollisionWorld>();
+/**
+ * One collision world per arena *object*.
+ *
+ * Keyed by identity rather than by id, because an arena id is no longer stable
+ * content: an administrator can move a platform and save under the same id, and
+ * a world cached against that id would go on simulating the old geometry. A
+ * `WeakMap` also means an edited-away arena's index is collected with it.
+ */
+const cache = new WeakMap<ArenaDefinition, CollisionWorld>();
 
-/** Arenas are immutable, so one collision world per arena id is enough. */
 export function getCollisionWorld(arena: ArenaDefinition): CollisionWorld {
-  let world = cache.get(arena.id);
+  let world = cache.get(arena);
   if (!world) {
     world = new CollisionWorld(arena);
-    cache.set(arena.id, world);
+    cache.set(arena, world);
   }
   return world;
 }

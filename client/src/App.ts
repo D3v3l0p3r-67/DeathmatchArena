@@ -1,7 +1,7 @@
 import Phaser from "phaser";
 import {
   CAMERA,
-  MATCH,
+  getMatchConfig,
   MatchState,
   validatePlayerName,
   type MatchResultMessage,
@@ -281,7 +281,7 @@ export class App {
 
     events.on("matchResult", (result) => {
       this.lastResult = result;
-      this.resultsEndsAt = performance.now() + MATCH.RESULTS_MS;
+      this.resultsEndsAt = performance.now() + getMatchConfig().resultsMs;
       this.hud.setVisible(false);
       this.ui.setSpectating(false, "", 0);
       this.ui.showResults(result, this.network.sessionId);
@@ -431,6 +431,8 @@ export class App {
       crateCount: scene?.crateCount ?? 0,
       powerUpCount: scene?.powerUpCount ?? 0,
       grenadeCount: scene?.grenadeCount ?? 0,
+      trapCount: scene?.trapCount ?? 0,
+      activeTrapCount: scene?.activeTrapCount ?? 0,
     });
   }
 

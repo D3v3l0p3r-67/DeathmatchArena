@@ -1,3 +1,5 @@
+import type { ArenaDefinition } from "../arena/types.js";
+import type { GameConfig } from "../config/types.js";
 import type { KillEvent, MatchResultPayload } from "../game/types.js";
 
 export type {
@@ -60,6 +62,11 @@ export const ServerMessage = {
   DEBUG_STATE: "debugState",
   /** Outcome of one debug command. */
   DEBUG_RESULT: "debugResult",
+  /**
+   * The room's configuration changed mid-match (only a debug command can do
+   * this). Clients predict movement from these values, so they have to be told.
+   */
+  CONFIG_CHANGED: "configChanged",
 } as const;
 
 export type ServerMessageType = (typeof ServerMessage)[keyof typeof ServerMessage];
@@ -73,10 +80,29 @@ export interface WelcomePayload {
   sessionId: string;
   roomId: string;
   arenaId: string;
+  /**
+   * The arena itself, geometry and all.
+   *
+   * Sent rather than looked up: arenas are administered data, so one may have
+   * been created long after this client was built. It also means what the client
+   * draws and what the server collides against are the same object.
+   */
+  arena: ArenaDefinition;
+  /**
+   * The room's effective configuration.
+   *
+   * Not a convenience: the client predicts movement with these numbers, so
+   * anything else would put prediction and simulation on different physics.
+   */
+  config: GameConfig;
   /** Server timestamp at the moment of joining; used to align clocks for debug output. */
   serverTime: number;
   /** The name actually assigned after server-side validation. */
   name: string;
+}
+
+export interface ConfigChangedPayload {
+  config: GameConfig;
 }
 
 export interface PingPayload {

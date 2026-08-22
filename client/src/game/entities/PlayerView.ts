@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { PLAYER, clamp, lerpAngle } from "@deathmatch/shared";
+import { PLAYER, clamp, getPlayerConfig, lerpAngle } from "@deathmatch/shared";
 import { TextureKeys, getPlayerColor } from "../TextureFactory.js";
 
 export interface PlayerViewState {
@@ -142,7 +142,7 @@ export class PlayerView {
   private drawHealthBar(health: number): void {
     const width = 34;
     const height = 4;
-    const ratio = clamp(health / PLAYER.MAX_HEALTH, 0, 1);
+    const ratio = clamp(health / getPlayerConfig().maxHealth, 0, 1);
 
     this.healthBar.clear();
     // Hide a full bar to keep the screen calm; damage is what needs attention.

@@ -15,7 +15,6 @@ import {
   DEFAULT_GAME_CONFIG,
   FIXED_DELTA,
   MatchState,
-  PLAYER,
   PowerUpType,
   SHOTGUN_ID,
   ServerMessage,
@@ -34,6 +33,7 @@ import {
   type PowerUpCollectedPayload,
 } from "@deathmatch/shared";
 import { clock, createHarness, fireAt, type Harness } from "./harness.js";
+import { MAX_HEALTH } from "./helpers.js";
 
 /** Deep-ish clone of the shipped config, so a test can retune it in isolation. */
 function cloneDefaultConfig(): GameConfig {
@@ -130,9 +130,9 @@ describe("power-up configuration", () => {
     const arena = getArena("foundry");
     const crate = getCrateConfig();
 
-    assert.ok(arena.powerUpSpawnPoints.length > 0, "the map needs power-up spawn points");
+    assert.ok(arena.powerUpSpawns.length > 0, "the map needs power-up spawn points");
 
-    for (const point of arena.powerUpSpawnPoints) {
+    for (const point of arena.powerUpSpawns) {
       assert.ok(
         point.x > 0 && point.x < arena.width && point.y > 0 && point.y < arena.height,
         `spawn point ${point.x},${point.y} is outside the arena`,
@@ -196,7 +196,7 @@ describe("crates", () => {
     const crateId = runUntilCrateSpawns(harness);
     const crate = harness.state.crates.get(crateId)!;
 
-    const points = harness.arena.powerUpSpawnPoints;
+    const points = harness.arena.powerUpSpawns;
     const matching = points.some((point) => point.x === crate.x && point.y === crate.y);
     assert.ok(matching, `crate at ${crate.x},${crate.y} is not on a configured spawn point`);
   });
@@ -329,9 +329,9 @@ describe("power-up effects", () => {
 
     // On full health there is nothing to give, so the pickup is declined and
     // stays on the ground rather than being wasted.
-    player.health = PLAYER.MAX_HEALTH;
+    player.health = MAX_HEALTH;
     assert.equal(harness.powerUps.applyPowerUp(medkit, player, runtime, 0), false);
-    assert.equal(player.health, PLAYER.MAX_HEALTH);
+    assert.equal(player.health, MAX_HEALTH);
   });
 
   it("is collected by walking into the revealed power-up", () => {
@@ -469,8 +469,8 @@ describe("closing arena", () => {
 
     shrinkFor(harness, 6, config.startAfterMs);
 
-    assert.ok(squeezed.health < PLAYER.MAX_HEALTH, "the wall hurts whoever it catches");
-    assert.equal(safe.health, PLAYER.MAX_HEALTH, "and leaves the middle alone");
+    assert.ok(squeezed.health < MAX_HEALTH, "the wall hurts whoever it catches");
+    assert.equal(safe.health, MAX_HEALTH, "and leaves the middle alone");
   });
 
   it("does nothing while the match is not running", () => {

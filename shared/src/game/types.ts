@@ -1,4 +1,4 @@
-import { PHYSICS } from "./constants.js";
+import { getPlayerConfig } from "../config/registry.js";
 
 /** Lifecycle of a single match, owned exclusively by the server. */
 export const MatchState = {
@@ -52,7 +52,18 @@ export interface MovementState {
   jumpsRemaining: number;
 }
 
-export function createMovementState(x = 0, y = 0): MovementState {
+/**
+ * A fresh movement state.
+ *
+ * `maxJumps` defaults to the process-wide configuration; the server passes its
+ * room's value explicitly, so a room with a retuned jump allowance starts its
+ * players with the right one.
+ */
+export function createMovementState(
+  x = 0,
+  y = 0,
+  maxJumps = getPlayerConfig().maxJumps,
+): MovementState {
   return {
     x,
     y,
@@ -64,7 +75,7 @@ export function createMovementState(x = 0, y = 0): MovementState {
     facing: 1,
     jumpHeld: false,
     speedMultiplier: 1,
-    jumpsRemaining: PHYSICS.MAX_JUMPS,
+    jumpsRemaining: Math.max(1, Math.round(maxJumps)),
   };
 }
 

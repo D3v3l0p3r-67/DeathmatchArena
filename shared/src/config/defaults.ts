@@ -17,6 +17,34 @@ export const CHAINSAW_ID = "chainsaw";
 export const DEFAULT_GAME_CONFIG: GameConfig = {
   defaultWeaponId: ASSAULT_RIFLE_ID,
 
+  player: {
+    maxHealth: 100,
+    moveSpeed: 330,
+    groundAcceleration: 3600,
+    airAcceleration: 2000,
+    groundFriction: 3200,
+    // Deliberately far lower than ground friction: momentum carries through a
+    // jump, which is what makes the movement feel like it has weight.
+    airFriction: 260,
+    gravity: 2200,
+    maxFallSpeed: 1500,
+    jumpVelocity: 780,
+    maxJumps: 2,
+    airJumpMultiplier: 0.92,
+    jumpCutMultiplier: 0.45,
+    coyoteTimeMs: 90,
+    jumpBufferMs: 120,
+  },
+
+  match: {
+    // Two so the game is playable in two browser windows.
+    minPlayers: 2,
+    maxPlayers: 10,
+    countdownMs: 5000,
+    resultsMs: 12000,
+    maxDurationMs: 10 * 60 * 1000,
+  },
+
   weapons: [
     {
       id: ASSAULT_RIFLE_ID,
@@ -186,5 +214,18 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
     revealedLifetimeMs: 20000,
     pickupRadius: 34,
     firstSpawnDelayMs: 6000,
+  },
+
+  // What every trap inherits unless it says otherwise. A trap placed in an arena
+  // usually overrides nothing at all, so retuning traps globally is one edit here
+  // rather than one per arena.
+  traps: {
+    enabled: true,
+    damage: 25,
+    activationDelayMs: 400,
+    activeDurationMs: 900,
+    cooldownMs: 2200,
+    moveSpeed: 160,
+    triggerRadius: 90,
   },
 };

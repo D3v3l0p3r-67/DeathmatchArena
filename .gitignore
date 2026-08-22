@@ -14,6 +14,10 @@ client/dist/
 # Colyseus dev-mode state cache (written into whichever cwd the server runs from)
 .devmode.json
 
+# Stored arenas and configuration overrides. Runtime data, not source: the
+# server seeds it from the build on first start.
+data/
+
 # Logs / editor / OS noise
 *.log
 npm-debug.log*

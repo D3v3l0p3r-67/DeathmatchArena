@@ -1,7 +1,5 @@
 import {
-  MATCH,
   MatchState,
-  PLAYER,
   ServerMessage,
   clamp,
   createMovementState,
@@ -11,7 +9,6 @@ import {
   type MatchResultMessage,
   type MatchStanding,
 } from "@deathmatch/shared";
-import { serverConfig } from "../config.js";
 import type { PlayerRuntime } from "../rooms/PlayerRuntime.js";
 import type { RoomContext } from "../rooms/RoomContext.js";
 import type { PlayerState } from "../rooms/schema/PlayerState.js";
@@ -19,6 +16,7 @@ import type { ArenaShrinkSystem } from "./ArenaShrinkSystem.js";
 import type { GrenadeSystem } from "./GrenadeSystem.js";
 import type { PowerUpSystem } from "./PowerUpSystem.js";
 import type { ProjectileSystem } from "./ProjectileSystem.js";
+import type { TrapSystem } from "./TrapSystem.js";
 import type { WeaponSystem } from "./WeaponSystem.js";
 
 /**
@@ -42,6 +40,7 @@ export class MatchManager {
     private readonly powerUps: PowerUpSystem,
     private readonly arenaShrink: ArenaShrinkSystem,
     private readonly grenades: GrenadeSystem,
+    private readonly traps: TrapSystem,
   ) {}
 
   update(now: number): void {
@@ -65,21 +64,26 @@ export class MatchManager {
   // Phases
   // -------------------------------------------------------------------------
 
+  /** Match pacing and size, read live so a configuration change lands next tick. */
+  private get rules() {
+    return this.context.config.getMatchConfig();
+  }
+
   private updateWaiting(now: number): void {
-    if (this.countConnectedPlayers() < serverConfig.match.minPlayersToStart) return;
+    if (this.countConnectedPlayers() < this.rules.minPlayers) return;
     this.beginCountdown(now);
   }
 
   private beginCountdown(now: number): void {
     this.context.state.matchState = MatchState.COUNTDOWN;
-    this.phaseEndsAt = now + serverConfig.match.countdownMs;
-    this.context.state.countdownSeconds = Math.ceil(serverConfig.match.countdownMs / 1000);
+    this.phaseEndsAt = now + this.rules.countdownMs;
+    this.context.state.countdownSeconds = Math.ceil(this.rules.countdownMs / 1000);
     this.context.logger.info("Countdown started", { players: this.countConnectedPlayers() });
   }
 
   private updateCountdown(now: number): void {
     // Players may leave during the countdown; fall back to WAITING if we drop below the threshold.
-    if (this.countConnectedPlayers() < serverConfig.match.minPlayersToStart) {
+    if (this.countConnectedPlayers() < this.rules.minPlayers) {
       this.context.state.matchState = MatchState.WAITING;
       this.context.state.countdownSeconds = 0;
       this.context.logger.info("Countdown aborted, not enough players");
@@ -126,10 +130,13 @@ export class MatchManager {
     state.startingPlayerCount = participants.length;
     state.winnerId = "";
     state.winnerName = "";
-    this.matchDeadline = now + MATCH.MAX_MATCH_DURATION_MS;
+    this.matchDeadline = now + this.rules.maxDurationMs;
 
     this.powerUps.onMatchStarted(now);
     this.arenaShrink.onMatchStarted();
+    // Traps start every match from rest, so a crusher left extended by the last
+    // one is not already on top of somebody at the countdown.
+    this.traps.reset();
 
     this.refreshCounters();
     this.context.logger.info("Match started", { players: participants.length, arena: state.arenaId });
@@ -162,11 +169,12 @@ export class MatchManager {
     }
 
     state.matchState = MatchState.FINISHED;
-    this.phaseEndsAt = now + serverConfig.match.resultsMs;
+    this.phaseEndsAt = now + this.rules.resultsMs;
     this.projectiles.clear();
     this.powerUps.clear();
     this.arenaShrink.reset();
     this.grenades.clear();
+    this.traps.reset();
 
     const standings = this.buildStandings();
     const payload: MatchResultMessage = {
@@ -192,13 +200,14 @@ export class MatchManager {
     this.powerUps.clear();
     this.arenaShrink.reset();
     this.grenades.clear();
+    this.traps.reset();
     this.requeueRequests.clear();
 
     for (const player of state.players.values()) {
       const runtime = this.context.runtimes.get(player.sessionId);
       player.alive = false;
       player.inMatch = false;
-      player.health = PLAYER.MAX_HEALTH;
+      player.health = this.context.config.getPlayerConfig().maxHealth;
       player.kills = 0;
       player.deaths = 0;
       player.placement = 0;
@@ -230,13 +239,14 @@ export class MatchManager {
   // -------------------------------------------------------------------------
 
   private spawnPlayer(player: PlayerState, runtime: PlayerRuntime, spawnIndex: number, now: number): void {
-    const spawn = this.context.arena.spawnPoints[spawnIndex]!;
+    const spawn = this.playerSpawns()[spawnIndex]!;
     const position = findFreeSpawnPosition(this.context.world, spawn.x, spawn.y);
 
     runtime.resetForMatch(now);
     runtime.spawnIndex = spawnIndex;
 
-    const movement = createMovementState(position.x, position.y);
+    const player0 = this.context.config.getPlayerConfig();
+    const movement = createMovementState(position.x, position.y, player0.maxJumps);
     Object.assign(runtime.movement, movement);
 
     player.x = position.x;
@@ -246,7 +256,7 @@ export class MatchManager {
     player.onGround = false;
     player.facing = position.x < this.context.arena.width / 2 ? 1 : -1;
     player.aimAngle = player.facing > 0 ? 0 : Math.PI;
-    player.health = PLAYER.MAX_HEALTH;
+    player.health = player0.maxHealth;
     player.alive = true;
     player.inMatch = true;
     player.kills = 0;
@@ -279,7 +289,7 @@ export class MatchManager {
     if (this.context.state.matchState !== MatchState.PLAYING) return;
 
     const attacker = attackerId ? this.context.state.players.get(attackerId) ?? null : null;
-    const damage = clamp(Math.round(amount), 0, PLAYER.MAX_HEALTH);
+    const damage = clamp(Math.round(amount), 0, this.context.config.getPlayerConfig().maxHealth);
     victim.health = Math.max(0, victim.health - damage);
 
     const fatal = victim.health === 0;
@@ -423,9 +433,23 @@ export class MatchManager {
       .sort((a, b) => a.placement - b.placement || b.kills - a.kills);
   }
 
+  /**
+   * The spawn points this arena offers.
+   *
+   * Filtered every time rather than cached: an arena is data an administrator can
+   * change, and a cached list would keep spawning players on a point that was
+   * switched off.
+   */
+  private playerSpawns() {
+    const enabled = this.context.arena.playerSpawns.filter((spawn) => spawn.enabled);
+    // An arena with nothing enabled would leave nowhere to stand; the validator
+    // refuses to save one, but a hand-edited file could still get here.
+    return enabled.length > 0 ? enabled : this.context.arena.playerSpawns;
+  }
+
   /** Distinct, shuffled spawn points so nobody starts on top of anyone else. */
   private shuffledSpawnIndices(): number[] {
-    const indices = this.context.arena.spawnPoints.map((_, index) => index);
+    const indices = this.playerSpawns().map((_, index) => index);
     for (let i = indices.length - 1; i > 0; i--) {
       const j = Math.floor(this.context.random() * (i + 1));
       const swap = indices[i]!;

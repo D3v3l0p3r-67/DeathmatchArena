@@ -1,9 +1,16 @@
 /**
- * Gameplay tuning constants.
+ * Structural constants.
  *
- * This file is the single source of truth: the server simulates with these values and
- * the client predicts with the very same numbers. Never duplicate a value into
- * `client/` or `server/` — import it from here instead.
+ * What is left here is what genuinely cannot be tuned at runtime: the simulation
+ * rate both sides step at, the network contract, and the handful of numbers that
+ * describe the shape of the world rather than how it plays.
+ *
+ * Everything a designer would want to change -- movement, jumping, health, match
+ * pacing, weapons, traps -- moved to the game configuration, which an
+ * administrator owns and the server sends to each client on join. If you are
+ * looking for gravity or maximum health, they are in `config/`.
+ *
+ * Never duplicate a value into `client/` or `server/` — import it from here.
  */
 
 /** Fixed simulation step. Both client prediction and server simulation advance in
@@ -44,15 +51,14 @@ export const NETWORK = {
   RECONCILE_SMOOTHING: 0.0000001,
 } as const;
 
+/**
+ * Match plumbing that is not gameplay.
+ *
+ * Player counts, the countdown and the results screen are configurable and live
+ * in `config.match`; what is left here is the reconnection window (a property of
+ * the transport) and the kill feed (a property of the client's UI).
+ */
 export const MATCH = {
-  MAX_PLAYERS: 10,
-  /** Lowered to 2 so the game is testable with two browser windows. */
-  MIN_PLAYERS_TO_START: 2,
-  COUNTDOWN_MS: 5000,
-  /** How long the results screen stays up before the room recycles into WAITING. */
-  RESULTS_MS: 12000,
-  /** Safety valve: a match can never run longer than this. */
-  MAX_MATCH_DURATION_MS: 10 * 60 * 1000,
   /** Grace period for a disconnected player to reclaim their seat. */
   RECONNECTION_WINDOW_SEC: 20,
   /** Kill feed entries kept client-side and how long each stays visible. */
@@ -60,10 +66,10 @@ export const MATCH = {
   KILL_FEED_ENTRY_TTL_MS: 6000,
 } as const;
 
+/** The body. Its size is structural: hitboxes, spawn clearance and art depend on it. */
 export const PLAYER = {
   WIDTH: 28,
   HEIGHT: 48,
-  MAX_HEALTH: 100,
   /** Distance from the aim pivot to the muzzle, along the aim direction. */
   MUZZLE_OFFSET_X: 22,
   /** Vertical offset of the aim pivot from the body centre (roughly shoulder height). */
@@ -74,30 +80,14 @@ export const PLAYER = {
 export const PLAYER_HALF_WIDTH = PLAYER.WIDTH / 2;
 export const PLAYER_HALF_HEIGHT = PLAYER.HEIGHT / 2;
 
+/**
+ * What is left of the physics constants.
+ *
+ * Gravity, jump strength, run speed and the rest are configurable and reach the
+ * integrator as an argument -- see `config.player`. The collision skin is not a
+ * tuning knob but a numerical detail of how overlaps are resolved, so it stays.
+ */
 export const PHYSICS = {
-  GRAVITY: 2200,
-  MAX_FALL_SPEED: 1500,
-  MAX_RUN_SPEED: 330,
-  GROUND_ACCELERATION: 3600,
-  AIR_ACCELERATION: 2000,
-  GROUND_FRICTION: 3200,
-  AIR_FRICTION: 260,
-  JUMP_VELOCITY: -780,
-  /** Releasing jump early cuts upward velocity to this fraction (variable jump height). */
-  JUMP_CUT_MULTIPLIER: 0.45,
-  /**
-   * Total jumps available between touching the ground: 1 is a plain jump, 2 adds
-   * the mid-air jump. Lives here rather than in the tunable game config because
-   * client prediction and server simulation must agree on it exactly -- a value
-   * one side could change independently would desynchronise them.
-   */
-  MAX_JUMPS: 2,
-  /** Mid-air jumps are slightly weaker than the one off the ground. */
-  AIR_JUMP_MULTIPLIER: 0.92,
-  /** Jump still allowed shortly after walking off a ledge. */
-  COYOTE_TIME: 0.09,
-  /** Jump pressed slightly before landing is remembered. */
-  JUMP_BUFFER_TIME: 0.12,
   /** Skin width used when resolving AABB overlaps. */
   COLLISION_EPSILON: 0.01,
 } as const;

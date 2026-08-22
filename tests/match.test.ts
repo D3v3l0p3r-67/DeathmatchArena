@@ -7,12 +7,16 @@
  */
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
+import os from "node:os";
 
 // Speed the phases up. Must happen before `config.ts` is imported.
 process.env.COUNTDOWN_MS = "400";
 process.env.RESULTS_MS = "600";
 process.env.VERBOSE_LOGGING = "false";
 process.env.MIN_PLAYERS = "2";
+// Store administration data somewhere disposable: these tests start a real
+// server, and a real server loads and saves arenas and configuration.
+process.env.DATA_DIR = `${os.tmpdir()}/deathmatch-test-${process.pid}-${Math.random().toString(36).slice(2)}`;
 
 import { Server } from "@colyseus/core";
 import { WebSocketTransport } from "@colyseus/ws-transport";
@@ -30,6 +34,7 @@ import {
 } from "@deathmatch/shared";
 import { delay, randomPort, waitFor } from "./helpers.js";
 
+const { initialiseAdmin } = await import("../server/src/admin/index.js");
 const { BattleRoom } = await import("../server/src/rooms/BattleRoom.js");
 type BattleRoomType = InstanceType<typeof BattleRoom>;
 type GameRoom = Room<BattleRoomType, BattleRoomType["state"]>;
@@ -39,6 +44,10 @@ let gameServer: Server;
 let sdk: Client;
 
 before(async () => {
+  // Exactly what a real server does before it listens: load stored arenas and
+  // publish the configuration, so rooms are created from the same values.
+  await initialiseAdmin();
+
   gameServer = new Server({ transport: new WebSocketTransport({}) });
   gameServer.define("battle", BattleRoom);
   await gameServer.listen(port);

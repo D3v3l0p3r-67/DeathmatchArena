@@ -10,7 +10,6 @@ import {
   CHAINSAW_ID,
   FIXED_DELTA,
   MatchState,
-  PLAYER,
   SHOTGUN_ID,
   ServerMessage,
   createInputCommand,
@@ -20,6 +19,7 @@ import {
   type KillPayload,
 } from "@deathmatch/shared";
 import { createHarness, fireAt, type Harness } from "./harness.js";
+import { MAX_HEALTH } from "./helpers.js";
 
 
 describe("projectile collision", () => {
@@ -43,7 +43,7 @@ describe("projectile collision", () => {
     assert.equal(harness.damage[0]!.victimId, "target");
     assert.equal(harness.damage[0]!.attackerId, "shooter");
     assert.equal(harness.damage[0]!.amount, getWeapon(target.weaponId).damage);
-    assert.equal(target.health, PLAYER.MAX_HEALTH - getWeapon(target.weaponId).damage);
+    assert.equal(target.health, MAX_HEALTH - getWeapon(target.weaponId).damage);
     assert.equal(harness.state.projectiles.size, 0, "the projectile is consumed by the hit");
   });
 
@@ -56,7 +56,7 @@ describe("projectile collision", () => {
     harness.step(30);
 
     assert.equal(harness.damage.length, 0, "the wall should absorb the shot");
-    assert.equal(target.health, PLAYER.MAX_HEALTH);
+    assert.equal(target.health, MAX_HEALTH);
     assert.equal(harness.state.projectiles.size, 0, "the projectile is destroyed on impact");
   });
 
@@ -69,7 +69,7 @@ describe("projectile collision", () => {
     harness.step(30);
 
     assert.equal(harness.damage.length, 0);
-    assert.equal(shooter.health, PLAYER.MAX_HEALTH);
+    assert.equal(shooter.health, MAX_HEALTH);
   });
 
   it("cannot tunnel past a target or a wall, however fast the round travels", () => {
@@ -93,7 +93,7 @@ describe("projectile collision", () => {
 
     assert.equal(harness.damage.length, 1, `round moving ${perTick}px/tick skipped the target`);
     assert.equal(harness.damage[0]!.victimId, "target");
-    assert.ok(target.health < PLAYER.MAX_HEALTH);
+    assert.ok(target.health < MAX_HEALTH);
 
     // Same round, this time with the x=820 wall in the way.
     const second = createHarness();
@@ -103,7 +103,7 @@ describe("projectile collision", () => {
     second.step(4);
 
     assert.equal(second.damage.length, 0, `round moving ${perTick}px/tick tunnelled through the wall`);
-    assert.equal(shielded.health, PLAYER.MAX_HEALTH);
+    assert.equal(shielded.health, MAX_HEALTH);
   });
 
   it("expires instead of living forever", () => {
@@ -194,7 +194,7 @@ describe("elimination", () => {
     harness.state.startingPlayerCount = 2;
 
     const rifle = getWeapon(shooter.weaponId);
-    const shotsToKill = Math.ceil(PLAYER.MAX_HEALTH / rifle.damage);
+    const shotsToKill = Math.ceil(MAX_HEALTH / rifle.damage);
     const interval = getFireIntervalMs(rifle) + 1;
 
     let now = 0;
@@ -253,7 +253,7 @@ describe("elimination", () => {
     fireAt(harness, "shooter", 0, 0);
     harness.step(30);
 
-    assert.equal(target.health, PLAYER.MAX_HEALTH, "no damage lands before the match starts");
+    assert.equal(target.health, MAX_HEALTH, "no damage lands before the match starts");
     assert.equal(shooter.kills, 0);
   });
 });
@@ -340,7 +340,7 @@ describe("chainsaw", () => {
     assert.equal(harness.damage.length, 1);
     assert.equal(harness.damage[0]!.victimId, "victim");
     assert.equal(harness.damage[0]!.amount, getWeapon(CHAINSAW_ID).damage);
-    assert.ok(victim.health < PLAYER.MAX_HEALTH);
+    assert.ok(victim.health < MAX_HEALTH);
   });
 
   it("cannot reach a player standing beyond its range", () => {
@@ -350,7 +350,7 @@ describe("chainsaw", () => {
     swing(harness, "attacker", 0, 0);
 
     assert.equal(harness.damage.length, 0, "a swing into empty air hits nothing");
-    assert.equal(victim.health, PLAYER.MAX_HEALTH);
+    assert.equal(victim.health, MAX_HEALTH);
   });
 
   it("cannot hit a player behind the attacker", () => {
@@ -361,7 +361,7 @@ describe("chainsaw", () => {
     swing(harness, "attacker", 0, 0);
 
     assert.equal(harness.damage.length, 0, "the swing arc must not wrap around the attacker");
-    assert.equal(behind.health, PLAYER.MAX_HEALTH);
+    assert.equal(behind.health, MAX_HEALTH);
   });
 
   it("cannot cut through a wall", () => {
@@ -372,7 +372,7 @@ describe("chainsaw", () => {
     swing(harness, "attacker", 0, 0);
 
     assert.equal(harness.damage.length, 0, "geometry must block a melee swing");
-    assert.equal(shielded.health, PLAYER.MAX_HEALTH);
+    assert.equal(shielded.health, MAX_HEALTH);
   });
 
   it("honours its configured attack interval", () => {
@@ -418,7 +418,7 @@ describe("chainsaw", () => {
     const rifle = getWeapon(ASSAULT_RIFLE_ID);
     assert.ok(chainsaw.damage > rifle.damage, "a swing must out-damage a rifle round");
 
-    const swingsToKill = Math.ceil(PLAYER.MAX_HEALTH / chainsaw.damage);
+    const swingsToKill = Math.ceil(MAX_HEALTH / chainsaw.damage);
     const interval = getFireIntervalMs(chainsaw) + 1;
     for (let swingIndex = 0; swingIndex < swingsToKill; swingIndex++) {
       fireAt(harness, "attacker", 0, swingIndex * interval);

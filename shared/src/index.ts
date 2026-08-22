@@ -11,15 +11,26 @@
 export * from "./core/math.js";
 export * from "./core/geometry.js";
 
-// Configuration (data an administration interface will eventually own)
+// Configuration: the data model, the shipped values, the read model, and the
+// metadata + validation an administration interface drives itself from.
 export * from "./config/types.js";
 export * from "./config/defaults.js";
 export * from "./config/registry.js";
+export * from "./config/schema.js";
+export * from "./config/validator.js";
+
+// Arenas: also data, also owned by the administration interface.
+export * from "./arena/types.js";
+export * from "./arena/traps.js";
+export * from "./arena/defaults.js";
+export * from "./arena/registry.js";
+export * from "./arena/factory.js";
+export * from "./arena/validator.js";
 
 // Game model
 export * from "./game/constants.js";
 export * from "./game/types.js";
-export * from "./game/arena.js";
+export * from "./game/traps.js";
 export * from "./game/weapons.js";
 export * from "./game/powerups.js";
 export * from "./game/CollisionWorld.js";

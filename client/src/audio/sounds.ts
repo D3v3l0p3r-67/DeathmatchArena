@@ -120,6 +120,8 @@ export const SoundId = {
   Defeat: "defeat",
   KillConfirm: "kill-confirm",
   ShrinkWarning: "shrink-warning",
+  TrapArm: "trap-arm",
+  TrapFire: "trap-fire",
   UiClick: "ui-click",
 } as const;
 
@@ -404,6 +406,31 @@ export const SOUNDS: Readonly<Record<string, SoundDefinition>> = Object.freeze({
       { kind: "tone", wave: "square", frequency: 360, gain: 0.2, attack: 0.01, duration: 0.5, delay: 0.05 },
     ],
   },
+  // --- Traps ---------------------------------------------------------------
+  [SoundId.TrapArm]: {
+    id: SoundId.TrapArm,
+    channel: WORLD,
+    pitchJitter: 0.08,
+    volume: 0.34,
+    throttleMs: 120,
+    layers: [
+      // A rising click-and-whine: the sound of something deciding to hurt you.
+      { kind: "tone", wave: "square", frequency: 180, sweepTo: 420, gain: 0.3, attack: 0.004, duration: 0.22 },
+      { kind: "noise", gain: 0.3, attack: 0.002, duration: 0.1, cutoff: 2400, resonance: 7 },
+    ],
+  },
+  [SoundId.TrapFire]: {
+    id: SoundId.TrapFire,
+    channel: COMBAT,
+    pitchJitter: 0.14,
+    volume: 0.5,
+    throttleMs: 60,
+    layers: [
+      { kind: "noise", gain: 0.9, attack: 0.001, duration: 0.26, cutoff: 4200, cutoffTo: 420 },
+      { kind: "tone", wave: "sawtooth", frequency: 200, sweepTo: 55, gain: 0.5, attack: 0.002, duration: 0.2 },
+    ],
+  },
+
   [SoundId.UiClick]: {
     id: SoundId.UiClick,
     channel: INTERFACE,

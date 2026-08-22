@@ -1,13 +1,12 @@
 import {
   MatchState,
-  PLAYER,
   PowerUpType,
   ServerMessage,
   applyHealthRestore,
   type CrateDestroyedPayload,
   type PowerUpCollectedPayload,
   type PowerUpDefinition,
-  type SpawnPoint,
+  type ArenaSpawnPoint,
 } from "@deathmatch/shared";
 import type { PlayerRuntime } from "../rooms/PlayerRuntime.js";
 import type { RoomContext } from "../rooms/RoomContext.js";
@@ -87,8 +86,9 @@ export class PowerUpSystem {
 
       [PowerUpType.HEALTH]: (powerUp, player) => {
         if (powerUp.type !== PowerUpType.HEALTH) return false;
-        if (player.health >= PLAYER.MAX_HEALTH) return false;
-        player.health = applyHealthRestore(player.health, PLAYER.MAX_HEALTH, powerUp);
+        const maxHealth = this.context.config.getPlayerConfig().maxHealth;
+        if (player.health >= maxHealth) return false;
+        player.health = applyHealthRestore(player.health, maxHealth, powerUp);
         return true;
       },
 
@@ -218,9 +218,19 @@ export class PowerUpSystem {
     this.spawnCrate(spawnIndex, contents, now);
   }
 
+  /**
+   * The points crates may actually use.
+   *
+   * Disabled points are filtered out here rather than at load, so an
+   * administrator switching one off reaches a running match at the next spawn.
+   */
+  private enabledSpawnPoints(): readonly ArenaSpawnPoint[] {
+    return this.context.arena.powerUpSpawns.filter((point) => point.enabled);
+  }
+
   /** Uniformly random choice among unoccupied power-up spawn points. */
   private pickFreeSpawnIndex(): number {
-    const points = this.context.arena.powerUpSpawnPoints;
+    const points = this.enabledSpawnPoints();
     const free: number[] = [];
     for (let index = 0; index < points.length; index++) {
       if (!this.occupiedSpawns.has(index)) free.push(index);
@@ -231,7 +241,7 @@ export class PowerUpSystem {
   }
 
   private spawnCrate(spawnIndex: number, contents: PowerUpDefinition, now: number): void {
-    const point: SpawnPoint = this.context.arena.powerUpSpawnPoints[spawnIndex]!;
+    const point: ArenaSpawnPoint = this.enabledSpawnPoints()[spawnIndex]!;
     const config = this.context.config.getCrateConfig();
 
     const state = new CrateState();

@@ -145,12 +145,19 @@ export class DebugCommandService {
         case "boolean":
           args[param.key] = value === true || value === "true" || value === 1;
           break;
-        default:
-          // Strings and selects are passed through as text; handlers resolve them
+        default: {
+          // Strings and selects are carried as text and resolved by the handler
           // against the catalogue, so an unknown id is rejected there.
-          args[param.key] =
-            typeof value === "string" ? value : String(param.defaultValue ?? "");
+          //
+          // A number or a boolean is stringified rather than refused: a console
+          // that sends 42 for a text parameter plainly means "42", and a caller
+          // should not have to know which of the two a parameter happens to be.
+          // Anything that is not a primitive is not a value and falls back.
+          const primitive =
+            typeof value === "string" || typeof value === "number" || typeof value === "boolean";
+          args[param.key] = primitive ? String(value) : String(param.defaultValue ?? "");
           break;
+        }
       }
     }
 

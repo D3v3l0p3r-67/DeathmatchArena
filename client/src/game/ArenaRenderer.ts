@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { SurfaceType, type ArenaDefinition, type Surface } from "@deathmatch/shared";
+import { SurfaceType, type ArenaDefinition, type ArenaElement } from "@deathmatch/shared";
 
 /** Fill / edge colours per surface type, so geometry reads at a glance. */
 const SURFACE_STYLE: Record<string, { fill: number; edge: number; accent: number }> = {
@@ -54,12 +54,12 @@ export class ArenaRenderer {
   }
 
   private drawSurfaces(): void {
-    for (const surface of this.arena.surfaces) {
+    for (const surface of this.arena.elements) {
       this.drawSurface(surface);
     }
   }
 
-  private drawSurface(surface: Surface): void {
+  private drawSurface(surface: ArenaElement): void {
     const style = SURFACE_STYLE[surface.type] ?? SURFACE_STYLE[SurfaceType.PLATFORM]!;
 
     this.geometry.fillStyle(style.fill, 1);
@@ -79,7 +79,7 @@ export class ArenaRenderer {
   private drawSpawnMarkers(): void {
     const markers = this.scene.add.graphics().setDepth(-9);
     markers.lineStyle(1, 0x37d0ff, 0.18);
-    for (const spawn of this.arena.spawnPoints) {
+    for (const spawn of this.arena.playerSpawns) {
       markers.strokeCircle(spawn.x, spawn.y, 20);
     }
   }

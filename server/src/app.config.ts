@@ -6,7 +6,8 @@ import express from "express";
 import path from "node:path";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { MATCH } from "@deathmatch/shared";
+import { MATCH, getGameConfig } from "@deathmatch/shared";
+import { adminServices, createAdminRouter, initialiseAdmin } from "./admin/index.js";
 import { serverConfig } from "./config.js";
 import { BattleRoom } from "./rooms/BattleRoom.js";
 import { createLogger } from "./utils/logger.js";
@@ -39,8 +40,6 @@ export default config({
 
     logger.info("Registered room type", {
       room: "battle",
-      maxPlayers: serverConfig.match.maxPlayers,
-      minPlayers: serverConfig.match.minPlayersToStart,
       reconnectionWindowSec: MATCH.RECONNECTION_WINDOW_SEC,
     });
   },
@@ -58,14 +57,30 @@ export default config({
       res.json({ status: "ok", uptime: process.uptime(), env: serverConfig.nodeEnv });
     });
 
-    /** Lets the client discover server-side match rules without duplicating them. */
+    /**
+     * Lets the client discover the match rules before it joins anything.
+     *
+     * Read live from the configuration, so it reflects what an administrator has
+     * set rather than what the process started with.
+     */
     app.get("/config", (_req, res) => {
+      const match = getGameConfig().match;
       res.json({
-        minPlayersToStart: serverConfig.match.minPlayersToStart,
-        maxPlayers: serverConfig.match.maxPlayers,
-        countdownMs: serverConfig.match.countdownMs,
+        minPlayersToStart: match.minPlayers,
+        maxPlayers: match.maxPlayers,
+        countdownMs: match.countdownMs,
       });
     });
+
+    /**
+     * The administration API.
+     *
+     * Mounted unconditionally and *not* gated on the environment, for the same
+     * reason the debug tooling is not: administration has to work in production.
+     * What gates it is the token check inside, applied to every route before
+     * anything else happens.
+     */
+    app.use("/admin/api", createAdminRouter(() => adminServices().arenas, () => adminServices().config));
 
     if (serverConfig.enablePlayground) {
       app.use("/playground", playground());
@@ -90,7 +105,14 @@ export default config({
       const distPath = candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]!;
       if (existsSync(distPath)) {
         app.use(express.static(distPath));
-        app.get(/^(?!\/(health|config|colyseus|playground|matchmake)).*/, (_req, res) => {
+
+        // The administration interface is its own page in the build, so `/admin`
+        // has to be pointed at it explicitly -- the fallback below deliberately
+        // excludes anything under /admin so the API is never shadowed by it.
+        app.get("/admin", (_req, res) => {
+          res.sendFile(path.join(distPath, "admin.html"));
+        });
+        app.get(/^(?!\/(health|config|colyseus|playground|matchmake|admin)).*/, (_req, res) => {
           res.sendFile(path.join(distPath, "index.html"));
         });
         logger.info("Serving client build", { distPath });
@@ -100,7 +122,11 @@ export default config({
     }
   },
 
-  beforeListen: () => {
+  beforeListen: async () => {
+    // Stored arenas and configuration are loaded *before* the listener opens, so
+    // the first room created can never run on the shipped defaults by accident.
+    await initialiseAdmin();
+
     logger.info("Server starting", {
       env: serverConfig.nodeEnv,
       port: serverConfig.port,
@@ -109,6 +135,11 @@ export default config({
     // Debug access is an explicit grant, never a property of the environment.
     // Say plainly what the running server will accept.
     const { tokens, playerNames, allowAll } = serverConfig.debug;
+    if (tokens.length === 0) {
+      logger.info("Administration is unreachable: DEBUG_TOKENS is empty, and only a token opens it");
+    } else {
+      logger.info("Administration reachable at /admin with any configured DEBUG_TOKENS value");
+    }
     if (allowAll) {
       logger.warn("DEBUG_ALLOW_ALL is on: every player can use debug tooling");
     } else if (tokens.length === 0 && playerNames.length === 0) {
