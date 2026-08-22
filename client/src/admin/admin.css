@@ -1,9 +1,9 @@
 /**
  * The administration interface.
  *
- * Shares the game's palette (from `styles.css`) but not its layout: this is a
- * dense tool that people will keep open for an hour, so it favours information
- * density and a stable layout over the game shell's drama.
+ * Self-contained on purpose -- it shares nothing with the game's stylesheet.
+ * This is a dense tool that people will keep open for an hour, so it favours
+ * information density and a stable layout over the game shell's drama.
  */
 
 /*
@@ -32,6 +32,57 @@ body {
   --admin-warn: #ffd166;
   --admin-danger: #ff4d5e;
   --admin-good: #4ade80;
+
+  /* Barely there at rest, findable when reached for. */
+  --admin-scroll-thumb: #2a3550;
+  --admin-scroll-thumb-hover: #3d4c6e;
+
+  /*
+   * Tells the browser this is a dark page, which is what makes *native* parts
+   * render dark: default scrollbars, number-input spinners, select popups and
+   * focus rings. Cheaper and more thorough than styling each one.
+   */
+  color-scheme: dark;
+}
+
+/*
+ * Scrollbars.
+ *
+ * A page this dark with a default scrollbar reads as a bright stripe down the
+ * edge -- the most prominent thing on screen, for the least important reason.
+ *
+ * Both syntaxes are here on purpose. `scrollbar-color` is the standard and is
+ * what current browsers use; where it is supported it also *disables* the older
+ * `::-webkit-scrollbar` pseudo-elements, so the two never fight. Older WebKit
+ * falls back to the block below and lands in the same place.
+ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--admin-scroll-thumb) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+/* Transparent, so the bar sits on whichever panel it belongs to. */
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--admin-scroll-thumb);
+  border-radius: 999px;
+  /* A transparent border padded out of the background keeps the thumb clear of
+     the panel edge, so it floats rather than being welded to the border. */
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--admin-scroll-thumb-hover);
 }
 
 .admin-body {
