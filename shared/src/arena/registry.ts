@@ -50,7 +50,12 @@ export function getArena(arenaId: string): ArenaDefinition {
   const requested = arenas.get(arenaId);
   if (requested?.enabled) return requested;
 
-  const fallback = arenas.get(DEFAULT_ARENA_ID) ?? listPlayableArenas()[0] ?? listArenas()[0];
+  // The default has to be playable too, or disabling it would hand every match
+  // the very arena an administrator just took out of rotation.
+  const preferred = arenas.get(DEFAULT_ARENA_ID);
+  const fallback =
+    (preferred?.enabled ? preferred : undefined) ?? listPlayableArenas()[0] ?? listArenas()[0];
+
   if (!fallback) throw new Error("No arenas are available");
   return fallback;
 }

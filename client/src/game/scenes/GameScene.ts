@@ -778,6 +778,19 @@ export class GameScene extends Phaser.Scene {
     return this.powerUpViews.size;
   }
 
+  get trapCount(): number {
+    return this.trapViews.size;
+  }
+
+  /** How many traps are dangerous right now. Read from state, never inferred. */
+  get activeTrapCount(): number {
+    let count = 0;
+    for (const phase of this.trapPhases.values()) {
+      if (phase === TrapPhase.ACTIVE) count++;
+    }
+    return count;
+  }
+
   get grenadeCount(): number {
     return this.grenadeViews.size;
   }

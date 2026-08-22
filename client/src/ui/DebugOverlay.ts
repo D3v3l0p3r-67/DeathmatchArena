@@ -14,6 +14,9 @@ export interface DebugSnapshot {
   crateCount: number;
   powerUpCount: number;
   grenadeCount: number;
+  /** Traps built for this arena, with how many are dangerous right now. */
+  trapCount: number;
+  activeTrapCount: number;
 }
 
 /**
@@ -39,6 +42,7 @@ export class DebugOverlay {
     crates: requireElement("debug-crates"),
     powerUps: requireElement("debug-powerups"),
     grenades: requireElement("debug-grenades"),
+    traps: requireElement("debug-traps"),
   };
 
   private visible = false;
@@ -86,5 +90,6 @@ export class DebugOverlay {
     setText(this.fields.crates, String(snapshot.crateCount));
     setText(this.fields.powerUps, String(snapshot.powerUpCount));
     setText(this.fields.grenades, String(snapshot.grenadeCount));
+    setText(this.fields.traps, `${snapshot.activeTrapCount} / ${snapshot.trapCount}`);
   }
 }

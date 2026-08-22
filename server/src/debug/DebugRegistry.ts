@@ -361,7 +361,9 @@ export class DebugRegistry {
           category: "Configuration",
           params: [
             { key: "path", label: "Parameter", type: "select", options: [] },
-            { key: "value", label: "Value", type: "number", step: 1 },
+            // Carried as text and coerced by the validator, so one command can
+            // set a number, a switch or a choice without three variants of it.
+            { key: "value", label: "Value", type: "string" },
           ],
         },
         run: (context, args) => {

@@ -1162,6 +1162,27 @@ kbd {
   background: #64dbff;
 }
 
+/* One collapsible group per configuration section. There are far too many
+   parameters for a flat list now that the console and the administration
+   interface share one catalogue. */
+.debug-console__config-group {
+  margin-bottom: 4px;
+  border-bottom: 1px solid rgba(120, 160, 220, 0.12);
+}
+
+.debug-console__config-group > summary {
+  cursor: pointer;
+  padding: 5px 0;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.debug-console__config-group > div {
+  padding: 0 0 6px 10px;
+}
+
 .debug-console__config-row {
   display: flex;
   align-items: center;
@@ -1199,6 +1220,22 @@ kbd {
 .debug-console__config-row input[type="checkbox"] {
   width: 16px;
   height: 16px;
+}
+
+.debug-console__config-row select {
+  width: 130px;
+  padding: 3px 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(120, 160, 220, 0.3);
+  border-radius: 5px;
+}
+
+.debug-console__config-row input:disabled,
+.debug-console__config-row select:disabled {
+  opacity: 0.45;
 }
 
 .debug-console__log {

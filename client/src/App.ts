@@ -431,6 +431,8 @@ export class App {
       crateCount: scene?.crateCount ?? 0,
       powerUpCount: scene?.powerUpCount ?? 0,
       grenadeCount: scene?.grenadeCount ?? 0,
+      trapCount: scene?.trapCount ?? 0,
+      activeTrapCount: scene?.activeTrapCount ?? 0,
     });
   }
 

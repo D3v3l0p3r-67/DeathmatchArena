@@ -227,47 +227,100 @@ export class DebugConsole {
   /**
    * Room-scoped tuning values.
    *
-   * Changing one runs the `set-config` command like any other, so the server
-   * validates the path and the range exactly as it would for a typed request.
+   * The same parameters the administration interface offers, with the same
+   * limits -- both are rendered from one description on the server. The
+   * difference is what a change means: here it applies to this room until it
+   * closes, and is never stored.
+   *
+   * Grouped and collapsed, because "the same parameters" now means well over a
+   * hundred of them, and a flat list of that is not a console.
    */
   private renderConfig(entries: DebugConfigEntry[]): void {
     const fragment = document.createDocumentFragment();
+    let currentGroup = "";
+    let body: HTMLElement | null = null;
 
     for (const entry of entries) {
-      const row = document.createElement("div");
-      row.className = "debug-console__config-row";
-      toggleClass(row, "is-overridden", entry.overridden);
+      const group = `${entry.category} / ${entry.subcategory}`;
+      if (group !== currentGroup) {
+        currentGroup = group;
+        const section = document.createElement("details");
+        section.className = "debug-console__config-group";
+        // Open whatever has been retuned, so a room override is never hidden.
+        section.open = entries.some(
+          (candidate) =>
+            candidate.overridden &&
+            `${candidate.category} / ${candidate.subcategory}` === group,
+        );
 
-      const label = document.createElement("span");
-      label.className = "debug-console__config-label";
-      label.textContent = entry.label;
-      label.title = entry.path;
-      row.append(label);
+        const summary = document.createElement("summary");
+        summary.textContent = group;
+        section.append(summary);
 
-      if (typeof entry.value === "boolean") {
-        const input = document.createElement("input");
-        input.type = "checkbox";
-        input.checked = entry.value;
-        input.addEventListener("change", () => {
-          this.hooks.runCommand("set-config", { path: entry.path, value: input.checked });
-        });
-        row.append(input);
-      } else {
-        const input = document.createElement("input");
-        input.type = "number";
-        input.value = String(entry.value);
-        if (entry.min !== undefined) input.min = String(entry.min);
-        if (entry.max !== undefined) input.max = String(entry.max);
-        if (entry.step !== undefined) input.step = String(entry.step);
-        input.addEventListener("change", () => {
-          this.hooks.runCommand("set-config", { path: entry.path, value: Number(input.value) });
-        });
-        row.append(input);
+        body = document.createElement("div");
+        section.append(body);
+        fragment.append(section);
       }
 
-      fragment.append(row);
+      body?.append(this.renderConfigRow(entry));
     }
 
     this.configRoot.replaceChildren(fragment);
+  }
+
+  private renderConfigRow(entry: DebugConfigEntry): HTMLElement {
+    const row = document.createElement("div");
+    row.className = "debug-console__config-row";
+    toggleClass(row, "is-overridden", entry.overridden);
+
+    const label = document.createElement("span");
+    label.className = "debug-console__config-label";
+    label.textContent = entry.label;
+    label.title = entry.path;
+    row.append(label);
+
+    // Values are sent as text whatever their type; the server coerces each one
+    // against its own description, so the console never has to.
+    const send = (value: string) => this.hooks.runCommand("set-config", { path: entry.path, value });
+
+    if (typeof entry.value === "boolean") {
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = entry.value;
+      input.disabled = !entry.editable;
+      input.addEventListener("change", () => send(String(input.checked)));
+      row.append(input);
+    } else if (entry.options) {
+      const select = document.createElement("select");
+      select.disabled = !entry.editable;
+      for (const option of entry.options) {
+        const element = document.createElement("option");
+        element.value = option.value;
+        element.textContent = option.label;
+        select.append(element);
+      }
+      select.value = String(entry.value);
+      select.addEventListener("change", () => send(select.value));
+      row.append(select);
+    } else if (typeof entry.value === "string") {
+      const input = document.createElement("input");
+      input.type = "text";
+      input.value = entry.value;
+      input.disabled = !entry.editable;
+      input.addEventListener("change", () => send(input.value));
+      row.append(input);
+    } else {
+      const input = document.createElement("input");
+      input.type = "number";
+      input.value = String(entry.value);
+      input.disabled = !entry.editable;
+      if (entry.min !== undefined) input.min = String(entry.min);
+      if (entry.max !== undefined) input.max = String(entry.max);
+      if (entry.step !== undefined) input.step = String(entry.step);
+      input.addEventListener("change", () => send(input.value));
+      row.append(input);
+    }
+
+    return row;
   }
 }

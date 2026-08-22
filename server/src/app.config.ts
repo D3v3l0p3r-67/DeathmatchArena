@@ -105,6 +105,13 @@ export default config({
       const distPath = candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]!;
       if (existsSync(distPath)) {
         app.use(express.static(distPath));
+
+        // The administration interface is its own page in the build, so `/admin`
+        // has to be pointed at it explicitly -- the fallback below deliberately
+        // excludes anything under /admin so the API is never shadowed by it.
+        app.get("/admin", (_req, res) => {
+          res.sendFile(path.join(distPath, "admin.html"));
+        });
         app.get(/^(?!\/(health|config|colyseus|playground|matchmake|admin)).*/, (_req, res) => {
           res.sendFile(path.join(distPath, "index.html"));
         });

@@ -11,6 +11,7 @@
  * out at match start) and an arena with no spawn points at all is not, and an
  * editor that refuses both equally is an editor people stop using.
  */
+import { getCrateConfig } from "../config/registry.js";
 import { PLAYER_HALF_HEIGHT, PLAYER_HALF_WIDTH } from "../game/constants.js";
 import { SurfaceType } from "../game/types.js";
 import { trapRegistry, type TrapRegistry } from "./traps.js";
@@ -129,8 +130,18 @@ export function validateArena(
 
   // -- Spawn points ---------------------------------------------------------
 
-  validateSpawns(arena.playerSpawns, "playerSpawns", "player spawn", arena, issues, claimId);
-  validateSpawns(arena.powerUpSpawns, "powerUpSpawns", "power-up spawn", arena, issues, claimId);
+  // Each spawn kind is checked against the body that actually appears there. A
+  // crate is a different size from a player, and measuring a crate point with a
+  // player's hitbox flags every properly-placed one as buried.
+  const crate = getCrateConfig();
+  validateSpawns(arena.playerSpawns, "playerSpawns", "player spawn", arena, issues, claimId, {
+    halfWidth: PLAYER_HALF_WIDTH,
+    halfHeight: PLAYER_HALF_HEIGHT,
+  });
+  validateSpawns(arena.powerUpSpawns, "powerUpSpawns", "power-up spawn", arena, issues, claimId, {
+    halfWidth: crate.width / 2,
+    halfHeight: crate.height / 2,
+  });
 
   const enabledPlayerSpawns = arena.playerSpawns.filter((spawn) => spawn.enabled);
   if (enabledPlayerSpawns.length === 0) {
@@ -205,6 +216,8 @@ function validateSpawns(
   arena: ArenaDefinition,
   issues: ArenaIssue[],
   claimId: (path: string, id: string) => void,
+  /** Half-extents of whatever appears at these points. */
+  body: { halfWidth: number; halfHeight: number },
 ): void {
   if (spawns.length > ARENA_LIMITS.MAX_SPAWNS) {
     issues.push({
@@ -224,8 +237,8 @@ function validateSpawns(
     }
 
     // A spawn is the *centre* of whatever appears there, so the body has to fit.
-    const insideX = spawn.x >= PLAYER_HALF_WIDTH && spawn.x <= arena.width - PLAYER_HALF_WIDTH;
-    const insideY = spawn.y >= PLAYER_HALF_HEIGHT && spawn.y <= arena.height - PLAYER_HALF_HEIGHT;
+    const insideX = spawn.x >= body.halfWidth && spawn.x <= arena.width - body.halfWidth;
+    const insideY = spawn.y >= body.halfHeight && spawn.y <= arena.height - body.halfHeight;
     if (!insideX || !insideY) {
       issues.push({ path: spawnPath, message: "Sits outside the arena.", severity: "error" });
       return;
@@ -233,7 +246,7 @@ function validateSpawns(
 
     // Buried spawns are survivable -- the server searches for free space at match
     // start -- so this is a warning rather than a refusal.
-    if (overlapsGeometry(arena, spawn.x, spawn.y, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT)) {
+    if (overlapsGeometry(arena, spawn.x, spawn.y, body.halfWidth, body.halfHeight)) {
       issues.push({
         path: spawnPath,
         message: "Sits inside solid geometry; the server will nudge it clear at match start.",

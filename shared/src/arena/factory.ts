@@ -44,10 +44,19 @@ export function uniqueId(base: string, taken: readonly string[]): string {
   return `${slug}-${Date.now().toString(36)}`.slice(0, 48);
 }
 
-/** Ids for objects inside an arena. Unique within that arena, not globally. */
+/**
+ * An id for a new object inside an arena.
+ *
+ * Numbered within its own kind -- the sixth trap is `trap-6` -- but checked for
+ * collisions against *every* object, because ids share one namespace across
+ * geometry, spawns and traps. Pass the whole arena's contents, not just the list
+ * being added to.
+ */
 export function nextObjectId(prefix: string, existing: readonly { id: string }[]): string {
-  let index = existing.length + 1;
   const taken = new Set(existing.map((item) => item.id));
+  const sameKind = existing.filter((item) => item.id.startsWith(`${prefix}-`)).length;
+
+  let index = sameKind + 1;
   while (taken.has(`${prefix}-${index}`)) index++;
   return `${prefix}-${index}`;
 }
@@ -227,6 +236,11 @@ function readString(value: unknown, fallback: string): string {
 }
 
 function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
+  // `Number(null)`, `Number("")` and `Number([])` are all 0, so a missing field
+  // would clamp to the minimum rather than fall back to a sensible default --
+  // a height of `null` becoming 600 instead of 1800.
+  if (value === null || value === undefined || value === "") return fallback;
+
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return fallback;
   return Math.min(max, Math.max(min, numeric));
