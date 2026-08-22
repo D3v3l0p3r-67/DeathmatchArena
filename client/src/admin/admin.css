@@ -6,6 +6,21 @@
  * density and a stable layout over the game shell's drama.
  */
 
+/*
+ * This page carries its own reset. It deliberately does not load the game's
+ * stylesheet, which locks the document at `height: 100%; overflow: hidden` and
+ * disables text selection -- right for a canvas, wrong for a page of settings
+ * you need to scroll through and copy keys out of.
+ */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
 :root {
   --admin-bg: #0b0f18;
   --admin-panel: #131a28;
@@ -27,10 +42,18 @@
   font-size: 14px;
 }
 
+/*
+ * The shell is exactly one viewport tall and does not scroll; the panels inside
+ * it do. That is what lets the category header stay put while a long list of
+ * settings moves under it, and what gives the arena editor's canvas a definite
+ * height to fill. `dvh` so a mobile browser's collapsing address bar does not
+ * leave a strip of the page unreachable.
+ */
 .shell {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
 }
 
 .shell__header {
@@ -60,8 +83,11 @@
 
 .content {
   flex: 1;
+  /* Without this a grid child refuses to shrink below its content, and the
+     scrolling panels inside would never get a bounded height to scroll in. */
   min-height: 0;
   display: flex;
+  overflow: hidden;
 }
 
 /* -- Status line ---------------------------------------------------------- */
@@ -166,6 +192,8 @@
 
 .signin {
   margin: auto;
+  max-height: calc(100dvh - 120px);
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -218,6 +246,7 @@
   display: grid;
   grid-template-columns: 190px 1fr;
   width: 100%;
+  height: 100%;
   min-height: 0;
 }
 
@@ -228,6 +257,8 @@
   padding: 14px 10px;
   background: var(--admin-panel);
   border-right: 1px solid var(--admin-line);
+  /* Enough categories to overflow on a short window. */
+  overflow-y: auto;
 }
 
 .config__nav-item {
@@ -268,6 +299,7 @@
 .config__body {
   padding: 18px 22px 60px;
   overflow-y: auto;
+  min-height: 0;
 }
 
 .config__header {
@@ -443,6 +475,7 @@
   display: grid;
   grid-template-columns: 280px 1fr;
   width: 100%;
+  height: 100%;
   min-height: 0;
 }
 
@@ -467,6 +500,7 @@
 
 .arenas__workspace {
   min-width: 0;
+  min-height: 0;
   display: flex;
 }
 
@@ -520,7 +554,9 @@
     "stage inspector"
     "issues inspector";
   width: 100%;
+  height: 100%;
   min-width: 0;
+  min-height: 0;
 }
 
 .editor__toolbar {
@@ -697,9 +733,37 @@
   margin-top: 18px;
 }
 
+/*
+ * Narrow enough that the columns stack. Once they do, locking the shell to the
+ * viewport would put half the page out of reach, so the document scrolls
+ * normally and the individual panels stop scrolling on their own.
+ */
 @media (max-width: 1100px) {
+  .shell {
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+
+  .content {
+    overflow: visible;
+  }
+
+  .arenas,
+  .config,
   .editor {
     grid-template-columns: 1fr;
+    height: auto;
+  }
+
+  .config__nav,
+  .config__body,
+  .arenas__list,
+  .inspector {
+    overflow-y: visible;
+  }
+
+  .editor {
     grid-template-areas:
       "toolbar"
       "stage"
@@ -707,12 +771,8 @@
       "issues";
   }
 
+  /* The canvas still needs a definite height of its own to fill. */
   .editor__stage {
-    height: 55vh;
-  }
-
-  .arenas,
-  .config {
-    grid-template-columns: 1fr;
+    height: 55dvh;
   }
 }

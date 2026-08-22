@@ -5,8 +5,11 @@
  * arena models through `@deathmatch/shared` and nothing else. No Phaser, no
  * Colyseus, no game code -- which is what keeps a mistake here from being able
  * to break a match.
+ *
+ * That includes the stylesheet. The game's locks the document at `height: 100%;
+ * overflow: hidden` and forbids text selection, which is exactly right for a
+ * canvas that must never scroll and exactly wrong for a page of settings.
  */
-import "../styles.css";
 import "./admin.css";
 import { AdminApp } from "./AdminApp.js";
 
