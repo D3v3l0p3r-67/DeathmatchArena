@@ -14,6 +14,7 @@ import type { RoomContext } from "../rooms/RoomContext.js";
 import { CrateState } from "../rooms/schema/CrateState.js";
 import type { PlayerState } from "../rooms/schema/PlayerState.js";
 import { PowerUpState } from "../rooms/schema/PowerUpState.js";
+import type { GrenadeSystem } from "./GrenadeSystem.js";
 import type { WeaponSystem } from "./WeaponSystem.js";
 
 /** Server-only bookkeeping for a crate. Crucially, this is where its contents hide. */
@@ -73,6 +74,7 @@ export class PowerUpSystem {
   constructor(
     private readonly context: RoomContext,
     private readonly weapons: WeaponSystem,
+    private readonly grenades: GrenadeSystem,
   ) {
     this.appliers = {
       [PowerUpType.WEAPON]: (powerUp, player, runtime) => {
@@ -88,6 +90,13 @@ export class PowerUpSystem {
         if (player.health >= PLAYER.MAX_HEALTH) return false;
         player.health = applyHealthRestore(player.health, PLAYER.MAX_HEALTH, powerUp);
         return true;
+      },
+
+      [PowerUpType.GRENADE]: (powerUp, player) => {
+        if (powerUp.type !== PowerUpType.GRENADE) return false;
+        // Declines when the player is already carrying the maximum, so the
+        // pickup stays on the ground rather than being wasted.
+        return this.grenades.grant(player, powerUp.amount);
       },
 
       [PowerUpType.SPEED]: (powerUp, player, runtime, now) => {

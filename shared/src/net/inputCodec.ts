@@ -20,6 +20,7 @@ const BUTTON = {
   JUMP: 1 << 2,
   FIRE: 1 << 3,
   RELOAD: 1 << 4,
+  CHARGE_GRENADE: 1 << 5,
 } as const;
 
 /** Radians are quantised to 1/1000 rad (~0.06°), well below aiming precision. */
@@ -33,6 +34,7 @@ export function encodeInput(input: InputCommand): EncodedInput {
   if (input.jump) bits |= BUTTON.JUMP;
   if (input.fire) bits |= BUTTON.FIRE;
   if (input.reload) bits |= BUTTON.RELOAD;
+  if (input.chargeGrenade) bits |= BUTTON.CHARGE_GRENADE;
 
   return [input.seq >>> 0, bits, Math.round(normalizeAngle(input.aimAngle) * ANGLE_SCALE)];
 }
@@ -49,7 +51,7 @@ export function decodeInput(encoded: unknown, target?: InputCommand): InputComma
   const [seq, bits, angle] = encoded as [unknown, unknown, unknown];
   if (!isFiniteNumber(seq) || !isFiniteNumber(bits) || !isFiniteNumber(angle)) return null;
   if (seq < 0 || seq > 0xffffffff || Math.floor(seq) !== seq) return null;
-  if (bits < 0 || bits > 0x1f || Math.floor(bits) !== bits) return null;
+  if (bits < 0 || bits > 0x3f || Math.floor(bits) !== bits) return null;
   if (angle < -MAX_ENCODED_ANGLE || angle > MAX_ENCODED_ANGLE) return null;
 
   const command = target ?? createInputCommand();
@@ -59,6 +61,7 @@ export function decodeInput(encoded: unknown, target?: InputCommand): InputComma
   command.jump = (bits & BUTTON.JUMP) !== 0;
   command.fire = (bits & BUTTON.FIRE) !== 0;
   command.reload = (bits & BUTTON.RELOAD) !== 0;
+  command.chargeGrenade = (bits & BUTTON.CHARGE_GRENADE) !== 0;
   command.aimAngle = normalizeAngle(angle / ANGLE_SCALE);
   return command;
 }

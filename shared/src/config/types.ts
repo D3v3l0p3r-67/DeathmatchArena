@@ -109,6 +109,7 @@ export const PowerUpType = {
   WEAPON: "weapon",
   HEALTH: "health",
   SPEED: "speed",
+  GRENADE: "grenade",
 } as const;
 
 export type PowerUpTypeValue = (typeof PowerUpType)[keyof typeof PowerUpType];
@@ -151,7 +152,18 @@ export interface SpeedPowerUp extends PowerUpDefinitionBase {
   durationMs: number;
 }
 
-export type PowerUpDefinition = WeaponPowerUp | HealthPowerUp | SpeedPowerUp;
+/** Hands over grenades, up to the carrying limit. */
+export interface GrenadePowerUp extends PowerUpDefinitionBase {
+  type: typeof PowerUpType.GRENADE;
+  /** How many grenades this pickup grants. */
+  amount: number;
+}
+
+export type PowerUpDefinition =
+  | WeaponPowerUp
+  | HealthPowerUp
+  | SpeedPowerUp
+  | GrenadePowerUp;
 
 /** The breakable container power-ups arrive in. */
 export interface CrateConfig {
@@ -178,6 +190,49 @@ export interface PowerUpSpawnConfig {
   pickupRadius: number;
   /** Delay after the match starts before the first spawn attempt. */
   firstSpawnDelayMs: number;
+}
+
+/**
+ * Grenades: how many you carry, how hard you can throw one, and what it does.
+ *
+ * Everything the server needs to validate a throw and resolve an explosion. The
+ * client never supplies a velocity, a hit or a damage number -- it only holds a
+ * button, and the server measures how long.
+ */
+export interface GrenadeConfig {
+  enabled: boolean;
+  /** Grenades every player is issued at the start of a match. */
+  startingCount: number;
+  /** Hard cap on how many a player may carry. */
+  maxCount: number;
+
+  /** Throw speed at no charge, in px/s. */
+  minThrowSpeed: number;
+  /** Throw speed at full charge, in px/s. */
+  maxThrowSpeed: number;
+  /** How long the button must be held to reach `maxThrowSpeed`, in ms. */
+  maxChargeMs: number;
+
+  /** Downward acceleration on a thrown grenade, in px/s². */
+  gravity: number;
+  /** Fraction of the impact velocity kept when bouncing off geometry, 0..1. */
+  bounciness: number;
+  /** Fraction of the sliding velocity kept on contact, 0..1. Lower stops sooner. */
+  friction: number;
+  /** Collision radius of the grenade itself, in px. */
+  radius: number;
+
+  /** Time from leaving the hand to detonation, in ms. */
+  fuseMs: number;
+  /** Everything within this distance of the blast takes damage, in px. */
+  explosionRadius: number;
+  /** Damage at the very centre of the blast. */
+  maxDamage: number;
+  /**
+   * 0..1 — the fraction of `maxDamage` still dealt at the edge of the radius.
+   * Damage falls linearly from the centre outwards to this floor.
+   */
+  minDamageMultiplier: number;
 }
 
 /**
@@ -218,4 +273,5 @@ export interface GameConfig {
   crate: CrateConfig;
   powerUpSpawning: PowerUpSpawnConfig;
   arenaShrink: ArenaShrinkConfig;
+  grenades: GrenadeConfig;
 }

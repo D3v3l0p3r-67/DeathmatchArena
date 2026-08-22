@@ -35,6 +35,7 @@ const { WeaponSystem } = await import("../server/src/systems/WeaponSystem.js");
 const { PowerUpSystem } = await import("../server/src/systems/PowerUpSystem.js");
 const { MatchManager } = await import("../server/src/systems/MatchManager.js");
 const { ArenaShrinkSystem } = await import("../server/src/systems/ArenaShrinkSystem.js");
+const { GrenadeSystem } = await import("../server/src/systems/GrenadeSystem.js");
 
 type RoomContext = import("../server/src/rooms/RoomContext.js").RoomContext;
 
@@ -59,6 +60,7 @@ export interface Harness {
   weapons: InstanceType<typeof WeaponSystem>;
   powerUps: InstanceType<typeof PowerUpSystem>;
   arenaShrink: InstanceType<typeof ArenaShrinkSystem>;
+  grenades: InstanceType<typeof GrenadeSystem>;
   matchManager: InstanceType<typeof MatchManager>;
   runtimes: Map<string, InstanceType<typeof PlayerRuntime>>;
   damage: DamageRecord[];
@@ -70,6 +72,8 @@ export interface Harness {
   stepPowerUps(now: number): void;
   /** Advance the closing walls by `dt` seconds. */
   stepArenaShrink(dt: number, now: number): void;
+  /** Advance grenades in flight by `dt` seconds. */
+  stepGrenades(dt: number, now: number): void;
   arena: ArenaDefinition;
   /** Swap the room's configuration, as a debug command would. */
   replaceConfig(config: GameConfig): void;
@@ -128,9 +132,17 @@ export function createHarness(): Harness {
   const collision = new CollisionSystem(world);
   const projectiles = new ProjectileSystem(context, collision);
   const weapons = new WeaponSystem(context, projectiles, collision);
-  const powerUps = new PowerUpSystem(context, weapons);
   const arenaShrink = new ArenaShrinkSystem(context);
-  const matchManager = new MatchManager(context, weapons, projectiles, powerUps, arenaShrink);
+  const grenadeSystem = new GrenadeSystem(context, () => arenaShrink.bounds);
+  const powerUps = new PowerUpSystem(context, weapons, grenadeSystem);
+  const matchManager = new MatchManager(
+    context,
+    weapons,
+    projectiles,
+    powerUps,
+    arenaShrink,
+    grenadeSystem,
+  );
   arenaShrink.reset();
 
   return {
@@ -141,6 +153,7 @@ export function createHarness(): Harness {
     weapons,
     powerUps,
     arenaShrink,
+    grenades: grenadeSystem,
     matchManager,
     runtimes,
     damage,
@@ -171,6 +184,9 @@ export function createHarness(): Harness {
     },
     stepArenaShrink(dt, now) {
       arenaShrink.update(dt, now);
+    },
+    stepGrenades(dt, now) {
+      grenadeSystem.update(dt, now);
     },
     arena,
     replaceConfig(config) {

@@ -22,6 +22,10 @@ export class InputController {
   private firePressedSinceSample = false;
 
   private firing = false;
+  /** True while the right mouse button is held, i.e. a grenade is winding up. */
+  private chargingGrenade = false;
+  /** When the wind-up began, for the local power bar. */
+  private chargeStartedAt = 0;
   private enabled = true;
 
   constructor(private readonly scene: Phaser.Scene) {
@@ -65,12 +69,18 @@ export class InputController {
     });
 
     scene.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
-      if (!pointer.leftButtonDown()) return;
-      this.firing = true;
-      this.firePressedSinceSample = true;
+      if (pointer.leftButtonDown()) {
+        this.firing = true;
+        this.firePressedSinceSample = true;
+      }
+      if (pointer.rightButtonDown() && !this.chargingGrenade) {
+        this.chargingGrenade = true;
+        this.chargeStartedAt = performance.now();
+      }
     });
     scene.input.on(Phaser.Input.Events.POINTER_UP, (pointer: Phaser.Input.Pointer) => {
       if (pointer.leftButtonReleased()) this.firing = false;
+      if (pointer.rightButtonReleased()) this.chargingGrenade = false;
     });
 
     // Losing focus mid-fire would otherwise leave the trigger stuck down.
@@ -93,6 +103,22 @@ export class InputController {
 
   get currentAimAngle(): number {
     return this.aimAngle;
+  }
+
+  get isChargingGrenade(): boolean {
+    return this.chargingGrenade;
+  }
+
+  /**
+   * How far the local wind-up has progressed, 0..1.
+   *
+   * Purely for the power bar: it is drawn from the client's own press time so it
+   * moves smoothly at frame rate. The strength that actually decides the throw
+   * is measured on the server, from the same button held over the same ticks.
+   */
+  chargeProgress(maxChargeMs: number): number {
+    if (!this.chargingGrenade || maxChargeMs <= 0) return 0;
+    return Math.min(1, (performance.now() - this.chargeStartedAt) / maxChargeMs);
   }
 
   /** World-space pointer position, recomputed from the camera every frame. */
@@ -127,6 +153,7 @@ export class InputController {
       this.jumpPressedSinceSample || this.isDown("jump") || this.isDown("jumpAlt") || this.isDown("jumpUp");
     command.fire = this.firing || this.firePressedSinceSample;
     command.reload = this.reloadPressedSinceSample || this.isDown("reload");
+    command.chargeGrenade = this.chargingGrenade;
     command.aimAngle = this.aimAngle;
 
     this.clearStickyFlags();
@@ -141,6 +168,9 @@ export class InputController {
 
   private releaseAll(): void {
     this.firing = false;
+    // Losing focus mid-wind-up releases the button, which the server reads as a
+    // throw at whatever charge had accumulated -- better than a stuck wind-up.
+    this.chargingGrenade = false;
     this.clearStickyFlags();
   }
 

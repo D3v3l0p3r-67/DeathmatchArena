@@ -118,6 +118,15 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
       weaponId: SHOTGUN_ID,
     },
     {
+      id: "grenade-pack",
+      name: "Grenades",
+      type: PowerUpType.GRENADE,
+      enabled: true,
+      spawnWeight: 20,
+      color: 0x8fd14f,
+      amount: 2,
+    },
+    {
       id: "weapon-chainsaw",
       name: "Chainsaw",
       type: PowerUpType.WEAPON,
@@ -135,6 +144,28 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
     // Long enough that a crate in a quiet corner still gets found, short enough
     // that its spawn point eventually frees up again.
     lifetimeMs: 45000,
+  },
+
+  grenades: {
+    enabled: true,
+    startingCount: 1,
+    maxCount: 3,
+    // A gentle lob at no charge, a long throw at full charge.
+    minThrowSpeed: 420,
+    maxThrowSpeed: 1250,
+    maxChargeMs: 1100,
+    // Heavier than a bullet and much heavier than a player, so it arcs sharply
+    // and settles quickly instead of skating across the arena.
+    gravity: 1900,
+    bounciness: 0.42,
+    friction: 0.72,
+    radius: 7,
+    fuseMs: 2000,
+    explosionRadius: 190,
+    // Lethal at the centre, survivable at the edge -- a direct hit should win a
+    // fight, a near miss should only start one.
+    maxDamage: 95,
+    minDamageMultiplier: 0.18,
   },
 
   arenaShrink: {

@@ -18,6 +18,8 @@ export interface HudSnapshot {
   /** Whole seconds until the arena starts closing; 0 once it has. */
   shrinkCountdownSeconds: number;
   shrinking: boolean;
+  /** Local wind-up progress, 0..1. Drawn from the client's own press time. */
+  grenadeCharge: number;
 }
 
 /**
@@ -41,6 +43,10 @@ export class HUD {
   private readonly shrinkEffect = requireElement("hud-shrink");
   private readonly shrinkLabel = requireElement("hud-shrink-label");
   private readonly shrinkTimer = requireElement("hud-shrink-timer");
+  private readonly grenadeGroup = requireElement("hud-grenades");
+  private readonly grenadeCount = requireElement("hud-grenade-count");
+  private readonly throwPower = requireElement("hud-throw-power");
+  private readonly throwFill = requireElement("hud-throw-fill");
   private readonly reload = requireElement("hud-reload");
   private readonly reloadFill = requireElement("hud-reload-fill");
   private readonly alive = requireElement("hud-alive");
@@ -93,10 +99,27 @@ export class HUD {
     }
 
     this.updateReload(player.reloading, weapon.reloadTime);
+    this.updateGrenades(player, snapshot);
     this.updateEffects(player, snapshot);
 
     const inFight = snapshot.matchState === MatchState.PLAYING && player.alive;
     toggleClass(this.crosshair, "is-active", inFight);
+  }
+
+  /**
+   * Grenade count, and the power bar while a throw is winding up.
+   *
+   * The count is server state. The bar is local so it moves at frame rate, but
+   * it charges against the same configured maximum the server measures with, so
+   * a full bar really is a full-power throw.
+   */
+  private updateGrenades(player: SyncedPlayer, snapshot: HudSnapshot): void {
+    setText(this.grenadeCount, String(player.grenades));
+    toggleClass(this.grenadeGroup, "is-empty", player.grenades === 0);
+
+    const charging = snapshot.grenadeCharge > 0 && player.alive;
+    toggleClass(this.throwPower, "is-active", charging);
+    if (charging) this.throwFill.style.width = `${Math.min(1, snapshot.grenadeCharge) * 100}%`;
   }
 
   /**

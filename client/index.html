@@ -35,6 +35,7 @@
             />
             <p class="field-error" id="name-error" role="alert"></p>
             <button class="button button--primary" id="play-button" type="submit">Play</button>
+            <button class="menu__settings" id="menu-settings-button" type="button">Settings</button>
           </form>
 
           <p class="hint">
@@ -105,6 +106,14 @@
               ><span id="hud-magazine">30</span>
             </div>
             <div class="weapon__melee" id="hud-melee">MELEE</div>
+            <div class="grenades" id="hud-grenades">
+              <span class="grenades__label">GRENADES</span>
+              <span class="grenades__count" id="hud-grenade-count">0</span>
+            </div>
+            <div class="throw-power" id="hud-throw-power">
+              <span class="throw-power__label">THROW</span>
+              <div class="throw-power__bar"><div class="throw-power__fill" id="hud-throw-fill"></div></div>
+            </div>
             <div class="weapon__reload" id="hud-reload">
               <span class="weapon__reload-label">RELOADING</span>
               <div class="weapon__reload-bar"><div class="weapon__reload-fill" id="hud-reload-fill"></div></div>
@@ -181,6 +190,7 @@
         <div class="debug__row"><span>Projectiles</span><b id="debug-projectiles">-</b></div>
         <div class="debug__row"><span>Crates</span><b id="debug-crates">-</b></div>
         <div class="debug__row"><span>Power-ups</span><b id="debug-powerups">-</b></div>
+        <div class="debug__row"><span>Grenades</span><b id="debug-grenades">-</b></div>
         <div class="debug__hint">F3 toggles this overlay</div>
       </div>
 
@@ -189,6 +199,65 @@
         server only for sessions it has authorized, and every command is checked
         again server-side.
       -->
+
+      <!-- Audio and effects preferences. Entirely client-side. -->
+      <div class="settings" data-layer="settings">
+        <header class="settings__header">
+          <h2>Settings</h2>
+          <button type="button" class="settings__close" data-settings-close aria-label="Close">x</button>
+        </header>
+
+        <div class="settings__body">
+          <section class="settings__group">
+            <h3>Audio</h3>
+            <label class="setting setting--toggle">
+              <span class="setting__label">Mute all</span>
+              <input type="checkbox" id="setting-mute" />
+            </label>
+            <label class="setting">
+              <span class="setting__label">Master</span>
+              <input type="range" min="0" max="100" id="setting-master" />
+              <span class="setting__value" id="setting-master-value">100%</span>
+            </label>
+            <label class="setting">
+              <span class="setting__label">Combat</span>
+              <input type="range" min="0" max="100" id="setting-combat" />
+              <span class="setting__value" id="setting-combat-value">100%</span>
+            </label>
+            <label class="setting">
+              <span class="setting__label">World</span>
+              <input type="range" min="0" max="100" id="setting-world" />
+              <span class="setting__value" id="setting-world-value">100%</span>
+            </label>
+            <label class="setting">
+              <span class="setting__label">Interface</span>
+              <input type="range" min="0" max="100" id="setting-interface" />
+              <span class="setting__value" id="setting-interface-value">100%</span>
+            </label>
+          </section>
+
+          <section class="settings__group">
+            <h3>Effects</h3>
+            <label class="setting">
+              <span class="setting__label">Particles</span>
+              <input type="range" min="0" max="100" id="setting-particles" />
+              <span class="setting__value" id="setting-particles-value">100%</span>
+            </label>
+            <label class="setting">
+              <span class="setting__label">Screen shake</span>
+              <input type="range" min="0" max="100" id="setting-shake" />
+              <span class="setting__value" id="setting-shake-value">100%</span>
+            </label>
+            <label class="setting setting--toggle">
+              <span class="setting__label">Damage numbers</span>
+              <input type="checkbox" id="setting-damage-numbers" />
+            </label>
+          </section>
+        </div>
+
+        <p class="settings__hint">O opens this panel &middot; Esc closes it</p>
+      </div>
+
       <div class="debug-console" data-layer="debug-console">
         <header class="debug-console__header">
           <h2>Debug console</h2>

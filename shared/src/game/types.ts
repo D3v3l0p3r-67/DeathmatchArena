@@ -92,6 +92,14 @@ export interface InputCommand {
   jump: boolean;
   fire: boolean;
   reload: boolean;
+  /**
+   * True while the throw button is held.
+   *
+   * Deliberately a *held state* rather than a "throw with strength X" event: the
+   * server counts how many ticks it stayed down and derives the throw speed
+   * itself, so charge duration is not something a client can claim.
+   */
+  chargeGrenade: boolean;
   /** Aim direction in world space, radians. The client computes it, the server validates it. */
   aimAngle: number;
 }
@@ -104,6 +112,7 @@ export function createInputCommand(seq = 0): InputCommand {
     jump: false,
     fire: false,
     reload: false,
+    chargeGrenade: false,
     aimAngle: 0,
   };
 }

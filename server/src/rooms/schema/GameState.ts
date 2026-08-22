@@ -7,6 +7,7 @@ import {
   type SyncedGameState,
 } from "@deathmatch/shared";
 import { CrateState } from "./CrateState.js";
+import { GrenadeState } from "./GrenadeState.js";
 import { PlayerState } from "./PlayerState.js";
 import { PowerUpState } from "./PowerUpState.js";
 import { ProjectileState } from "./ProjectileState.js";
@@ -32,6 +33,9 @@ export class GameState extends Schema implements SyncedGameState {
 
   /** Power-ups revealed by broken crates, waiting to be collected. */
   @type({ map: PowerUpState }) powerUps = new MapSchema<PowerUpState>();
+
+  /** Grenades in flight. The blast itself is resolved server-side. */
+  @type({ map: GrenadeState }) grenades = new MapSchema<GrenadeState>();
 
   /** Whole seconds left in the countdown; only changes once per second. */
   @type("uint8") countdownSeconds = 0;

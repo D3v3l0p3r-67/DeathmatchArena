@@ -6,6 +6,8 @@ import {
   PLAYER,
   getArena,
   getCollisionWorld,
+  getPowerUp,
+  getWeapon,
   type ArenaDefinition,
   type CollisionWorld,
   type CrateDestroyedPayload,
@@ -13,7 +15,9 @@ import {
   type MeleeSwingPayload,
   type PowerUpCollectedPayload,
   type SyncedCrate,
+  type GrenadeExplodedPayload,
   type SyncedGameState,
+  type SyncedGrenade,
   type SyncedPlayer,
   type SyncedPowerUp,
   type SyncedProjectile,
@@ -26,7 +30,9 @@ import { CameraController } from "../CameraController.js";
 import { EffectsSystem } from "../EffectsSystem.js";
 import { InputController } from "../InputController.js";
 import { ShrinkWallsView } from "../ShrinkWallsView.js";
+import { DEFAULT_EFFECTS_SETTINGS, type EffectsSettings } from "../fx/effects.js";
 import { CrateView } from "../entities/CrateView.js";
+import { GrenadeView } from "../entities/GrenadeView.js";
 import { PlayerView } from "../entities/PlayerView.js";
 import { PowerUpView } from "../entities/PowerUpView.js";
 import { ProjectileView } from "../entities/ProjectileView.js";
@@ -76,9 +82,17 @@ export class GameScene extends Phaser.Scene {
   private readonly projectileViews = new Map<string, ProjectileView>();
   private readonly crateViews = new Map<string, CrateView>();
   private readonly powerUpViews = new Map<string, PowerUpView>();
+  private readonly grenadeViews = new Map<string, GrenadeView>();
 
   private accumulatorMs = 0;
   private started = false;
+
+  /** Player preferences, applied to every effect this scene plays. */
+  private effectsSettings: EffectsSettings = { ...DEFAULT_EFFECTS_SETTINGS };
+
+  /** Previous per-player state, so movement events can be spotted in a patch. */
+  private readonly wasOnGround = new Map<string, boolean>();
+  private readonly lastJumps = new Map<string, number>();
 
   /** Session id currently followed by the camera (self, or a survivor when dead). */
   private spectateTargetId = "";
@@ -114,6 +128,7 @@ export class GameScene extends Phaser.Scene {
     this.cameraController = new CameraController(this, this.arena);
     this.inputController = new InputController(this);
     this.effects = new EffectsSystem(this);
+    this.effects.applySettings(this.effectsSettings);
     this.shrinkWalls = new ShrinkWallsView(this, this.arena);
 
     // Start looking at the middle of the arena until we spawn.
@@ -137,6 +152,9 @@ export class GameScene extends Phaser.Scene {
     events.on("crateDestroyed", (payload) => this.onCrateDestroyed(payload));
     events.on("powerUpCollected", (payload) => this.onPowerUpCollected(payload));
     events.on("meleeSwing", (payload) => this.onMeleeSwing(payload));
+    events.on("grenadeAdded", ({ grenade }) => this.addGrenadeView(grenade));
+    events.on("grenadeRemoved", ({ grenade }) => this.removeGrenadeView(grenade));
+    events.on("grenadeExploded", (payload) => this.onGrenadeExploded(payload));
     events.on("patch", ({ state, receivedAt }) => this.onPatch(state, receivedAt));
     events.on("damage", (payload) => this.onDamage(payload));
     events.on("matchStateChanged", ({ matchState }) => this.onMatchStateChanged(matchState));
@@ -154,6 +172,37 @@ export class GameScene extends Phaser.Scene {
     for (const projectile of state.projectiles.values()) this.addProjectileView(projectile);
     for (const crate of state.crates.values()) this.addCrateView(crate);
     for (const powerUp of state.powerUps.values()) this.addPowerUpView(powerUp);
+    for (const grenade of state.grenades.values()) this.addGrenadeView(grenade);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Grenades
+  // ---------------------------------------------------------------------------
+
+  private addGrenadeView(grenade: SyncedGrenade): void {
+    if (this.grenadeViews.has(grenade.id)) return;
+    this.grenadeViews.set(grenade.id, new GrenadeView(this, grenade, performance.now()));
+  }
+
+  private removeGrenadeView(grenade: SyncedGrenade): void {
+    this.grenadeViews.get(grenade.id)?.destroy();
+    this.grenadeViews.delete(grenade.id);
+  }
+
+  /** The blast is already resolved; this only makes it visible. */
+  private onGrenadeExploded(payload: GrenadeExplodedPayload): void {
+    this.effects.explosion(payload.x, payload.y, payload.radius);
+
+    // Shake harder the closer the blast was to whoever is being watched.
+    const view = this.playerViews.get(this.spectateTargetId || this.network.sessionId);
+    if (!view) return;
+    const distance = Math.hypot(view.container.x - payload.x, view.container.y - payload.y);
+    if (distance > payload.radius * 3) return;
+
+    const strength = 1 - Math.min(1, distance / (payload.radius * 3));
+    const near = this.effects.shakeFor("explosionNear", strength);
+    const far = this.effects.shakeFor("explosionFar");
+    this.cameraController.shake(near.durationMs, far.intensity + near.intensity);
   }
 
   // ---------------------------------------------------------------------------
@@ -184,14 +233,16 @@ export class GameScene extends Phaser.Scene {
 
   /** The crate broke open -- splinters, and a nudge of screen shake if it was ours. */
   private onCrateDestroyed(payload: CrateDestroyedPayload): void {
-    this.effects.impact(payload.x, payload.y, 0xc9a227, 16);
+    this.effects.burst("crateBreak", payload.x, payload.y);
     if (payload.destroyedBy === this.network.sessionId) {
-      this.cameraController.shake(90, 0.003);
+      const shake = this.effects.shakeFor("crateBreak");
+      this.cameraController.shake(shake.durationMs, shake.intensity);
     }
   }
 
   private onPowerUpCollected(payload: PowerUpCollectedPayload): void {
-    this.effects.impact(payload.x, payload.y, 0xffffff, 12);
+    const color = getPowerUp(payload.powerUpId)?.color ?? 0xffffff;
+    this.effects.tintedBurst("pickup", payload.x, payload.y, color);
     this.hooks.onPowerUpCollected(payload);
   }
 
@@ -214,7 +265,8 @@ export class GameScene extends Phaser.Scene {
     );
 
     if (payload.connected && payload.sessionId === this.network.sessionId) {
-      this.cameraController.shake(70, 0.0022);
+      const shake = this.effects.shakeFor("meleeConnect");
+      this.cameraController.shake(shake.durationMs, shake.intensity);
     }
   }
 
@@ -254,7 +306,9 @@ export class GameScene extends Phaser.Scene {
     this.effects.muzzleFlash(projectile.x, projectile.y, angle, projectile.weaponId);
 
     if (projectile.ownerId === this.network.sessionId) {
-      this.cameraController.shake(60, 0.0016);
+      const weapon = getWeapon(projectile.weaponId);
+      const shake = this.effects.shakeFor((weapon.ranged?.pellets ?? 1) > 1 ? "ownShotgun" : "ownShot");
+      this.cameraController.shake(shake.durationMs, shake.intensity);
     }
   }
 
@@ -299,6 +353,8 @@ export class GameScene extends Phaser.Scene {
       });
     }
 
+    this.spawnMovementEffects(state);
+
     for (const view of this.projectileViews.values()) view.syncFromServer(receivedAt);
 
     for (const [id, view] of this.crateViews) {
@@ -309,8 +365,54 @@ export class GameScene extends Phaser.Scene {
       const powerUp = state.powerUps.get(id);
       if (powerUp) view.refresh(powerUp);
     }
+    for (const [id, view] of this.grenadeViews) {
+      const grenade = state.grenades.get(id);
+      if (!grenade) continue;
+      if (view.detectBounce(grenade)) {
+        this.effects.burst("grenadeBounce", grenade.x, grenade.y);
+      }
+      view.syncFromServer(grenade, receivedAt);
+    }
 
     this.detectLocalDeath(state);
+  }
+
+  /**
+   * Turn state changes into movement effects.
+   *
+   * Jumps and landings are never messages -- they are simply visible in the
+   * patch, so the puffs and rings are derived here rather than costing bandwidth.
+   */
+  private spawnMovementEffects(state: SyncedGameState): void {
+    for (const [sessionId, player] of state.players) {
+      if (!player.inMatch || !player.alive) {
+        this.wasOnGround.delete(sessionId);
+        this.lastJumps.delete(sessionId);
+        continue;
+      }
+
+      const wasGrounded = this.wasOnGround.get(sessionId);
+      const previousJumps = this.lastJumps.get(sessionId);
+      const feetY = player.y + PLAYER.HEIGHT / 2;
+
+      // The jump allowance dropping is the jump; dropping it while airborne is
+      // the mid-air one, which gets a ring of its own.
+      if (previousJumps !== undefined && player.jumpsRemaining < previousJumps) {
+        if (wasGrounded === false) {
+          this.effects.burst("doubleJump", player.x, feetY);
+          this.effects.ring(player.x, feetY, 0x9fe8ff, 46, 320);
+        }
+      }
+
+      if (wasGrounded === false && player.onGround) {
+        // Thrown sideways along the ground rather than straight up.
+        this.effects.burst("landing", player.x, feetY, 0, 1);
+        this.effects.burst("landing", player.x, feetY, Math.PI, 1);
+      }
+
+      this.wasOnGround.set(sessionId, player.onGround);
+      this.lastJumps.set(sessionId, player.jumpsRemaining);
+    }
   }
 
   private detectLocalDeath(state: SyncedGameState): void {
@@ -322,7 +424,8 @@ export class GameScene extends Phaser.Scene {
       if (view) this.effects.deathBurst(view.container.x, view.container.y, view.colorValue);
 
       this.inputController.setEnabled(false);
-      this.cameraController.shake(320, 0.008);
+      const shake = this.effects.shakeFor("died");
+      this.cameraController.shake(shake.durationMs, shake.intensity);
       this.hooks.onLocalDeath();
       this.pickInitialSpectateTarget();
     }
@@ -343,12 +446,13 @@ export class GameScene extends Phaser.Scene {
     const localId = this.network.sessionId;
 
     if (payload.victimId === localId) {
-      this.cameraController.shake(120, 0.004);
+      const shake = this.effects.shakeFor("tookDamage");
+      this.cameraController.shake(shake.durationMs, shake.intensity);
     }
     if (payload.attackerId === localId && payload.victimId !== localId) {
       this.effects.damageNumber(payload.x, payload.y - 20, payload.amount, payload.fatal);
     }
-    this.effects.impact(payload.x, payload.y, 0xff4d5e, payload.fatal ? 14 : 7);
+    this.effects.burst("fleshImpact", payload.x, payload.y, undefined, payload.fatal ? 1.6 : 1);
   }
 
   private onMatchStateChanged(matchState: string): void {
@@ -366,6 +470,8 @@ export class GameScene extends Phaser.Scene {
       this.crateViews.clear();
       for (const view of this.powerUpViews.values()) view.destroy();
       this.powerUpViews.clear();
+      for (const view of this.grenadeViews.values()) view.destroy();
+      this.grenadeViews.clear();
     }
   }
 
@@ -387,8 +493,17 @@ export class GameScene extends Phaser.Scene {
     this.renderLocalPlayer(deltaSeconds);
     this.renderRemotePlayers(now, deltaSeconds);
     this.renderProjectiles(now);
+    this.renderGrenades(now, deltaSeconds);
     this.renderShrinkWalls(deltaSeconds);
     this.updateCamera(deltaSeconds);
+  }
+
+  private renderGrenades(now: number, deltaSeconds: number): void {
+    const state = this.network.state;
+    if (!state) return;
+    for (const [id, view] of this.grenadeViews) {
+      view.render(now, deltaSeconds, state.grenades.get(id)?.fuseSeconds ?? 0);
+    }
   }
 
   private renderShrinkWalls(deltaSeconds: number): void {
@@ -598,6 +713,28 @@ export class GameScene extends Phaser.Scene {
 
   get powerUpCount(): number {
     return this.powerUpViews.size;
+  }
+
+  get grenadeCount(): number {
+    return this.grenadeViews.size;
+  }
+
+  /** Apply the player's effects preferences. Safe to call before `begin`. */
+  applyEffectsSettings(settings: EffectsSettings): void {
+    this.effectsSettings = { ...settings };
+    this.effects?.applySettings(this.effectsSettings);
+  }
+
+  /** Where the camera is looking, used to place the audio listener. */
+  getCameraCentre(): { x: number; y: number } | null {
+    if (!this.started) return null;
+    const camera = this.cameras.main;
+    return { x: camera.worldView.centerX, y: camera.worldView.centerY };
+  }
+
+  /** Local wind-up progress, 0..1, for the HUD power bar. */
+  getGrenadeChargeProgress(maxChargeMs: number): number {
+    return this.inputController.chargeProgress(maxChargeMs);
   }
 
   /** Tear everything down when leaving a room, so the scene can be reused. */

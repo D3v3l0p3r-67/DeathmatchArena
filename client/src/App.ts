@@ -6,9 +6,15 @@ import {
   validatePlayerName,
   type MatchResultMessage,
   type MatchStateValue,
+  getGrenadeConfig,
   type PowerUpCollectedPayload,
 } from "@deathmatch/shared";
+import { AudioEngine, DEFAULT_AUDIO_SETTINGS } from "./audio/AudioEngine.js";
+import { SoundController } from "./audio/SoundController.js";
+import { SoundId } from "./audio/sounds.js";
 import { clientConfig } from "./config.js";
+import { DEFAULT_EFFECTS_SETTINGS } from "./game/fx/effects.js";
+import { SettingsPanel, loadEffectsSettings } from "./ui/SettingsPanel.js";
 import { NetworkManager } from "./net/NetworkManager.js";
 import { BootScene, BOOT_SCENE_KEY } from "./game/scenes/BootScene.js";
 import { GameScene, GAME_SCENE_KEY } from "./game/scenes/GameScene.js";
@@ -36,6 +42,10 @@ export class App {
   private readonly ui: UIManager;
   private readonly hud = new HUD();
   private readonly killFeed: KillFeed;
+  private readonly audio = new AudioEngine();
+  private readonly sound: SoundController;
+  private readonly settings: SettingsPanel;
+
   private readonly debug = new DebugOverlay();
   private readonly debugConsole = new DebugConsole({
     runCommand: (commandId, params) => this.network.sendDebugCommand(commandId, params),
@@ -68,6 +78,15 @@ export class App {
   constructor() {
     this.killFeed = new KillFeed(() => this.network.sessionId);
 
+    this.sound = new SoundController(this.audio, this.network);
+    this.settings = new SettingsPanel(
+      { audio: { ...DEFAULT_AUDIO_SETTINGS, ...this.audio.getSettings() }, effects: loadEffectsSettings(DEFAULT_EFFECTS_SETTINGS) },
+      {
+        onChange: (settings) => this.applySettings(settings),
+        onPreview: () => this.audio.play(SoundId.UiClick),
+      },
+    );
+
     this.ui = new UIManager({
       onPlay: (name) => void this.handlePlay(name),
       onCancelMatchmaking: () => void this.returnToMenu(),
@@ -78,7 +97,26 @@ export class App {
 
     this.restoreStoredName();
     this.subscribeToNetwork();
+    this.sound.attach();
     this.bindDebugConsoleKey();
+    this.bindSettingsButton();
+    this.applySettings(this.settings.getSettings());
+  }
+
+  private bindSettingsButton(): void {
+    document.getElementById("menu-settings-button")?.addEventListener("click", () => {
+      // Opening from a click is also a user gesture, which is the only moment a
+      // browser lets audio start.
+      void this.audio.resume();
+      this.audio.play(SoundId.UiClick);
+      this.settings.setOpen(true);
+    });
+  }
+
+  /** Push preferences into the systems that act on them. */
+  private applySettings(settings: ReturnType<SettingsPanel["getSettings"]>): void {
+    this.audio.updateSettings(settings.audio);
+    this.getGameScene()?.applyEffectsSettings(settings.effects);
   }
 
   start(): void {
@@ -133,6 +171,11 @@ export class App {
 
   private async handlePlay(rawName: string): Promise<void> {
     if (this.joining) return;
+
+    // Browsers refuse to start audio until a user gesture; clicking Play is one,
+    // so this is the moment the audio engine can come alive.
+    await this.audio.resume();
+    this.audio.play(SoundId.UiClick);
 
     // Validate locally for instant feedback; the server validates again and wins.
     const validation = validatePlayerName(rawName);
@@ -333,9 +376,16 @@ export class App {
     if (now - this.lastHudUpdate < HUD_UPDATE_INTERVAL_MS) return;
     this.lastHudUpdate = now;
 
+    this.updateListener();
     this.updateHud();
     this.updateDebugOverlay();
     this.updateLobby();
+  }
+
+  /** The audio listener follows the camera, so sound pans with the view. */
+  private updateListener(): void {
+    const centre = this.getGameScene()?.getCameraCentre();
+    if (centre) this.audio.setListenerPosition(centre.x, centre.y);
   }
 
   private updateHud(): void {
@@ -350,6 +400,7 @@ export class App {
       totalPlayers: state.startingPlayerCount || state.playerCount,
       shrinkCountdownSeconds: state.shrinkCountdownSeconds,
       shrinking: state.shrinking,
+      grenadeCharge: this.getGameScene()?.getGrenadeChargeProgress(grenadeMaxChargeMs()) ?? 0,
     });
 
     const scene = this.getGameScene();
@@ -379,6 +430,7 @@ export class App {
       projectileCount: scene?.projectileCount ?? 0,
       crateCount: scene?.crateCount ?? 0,
       powerUpCount: scene?.powerUpCount ?? 0,
+      grenadeCount: scene?.grenadeCount ?? 0,
     });
   }
 
@@ -406,3 +458,8 @@ export class App {
 }
 
 export { BOOT_SCENE_KEY };
+
+/** The configured wind-up time the local power bar fills against. */
+function grenadeMaxChargeMs(): number {
+  return getGrenadeConfig().maxChargeMs;
+}

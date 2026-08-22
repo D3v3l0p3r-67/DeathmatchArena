@@ -49,6 +49,14 @@ export class PlayerRuntime {
   /** Timestamp at which the active speed effect expires; 0 when none is active. */
   speedBoostEndsAt = 0;
 
+  /**
+   * Timestamp the current grenade wind-up began; 0 when not charging.
+   *
+   * The server's own clock, which is what makes throw strength something a
+   * client cannot claim -- only hold.
+   */
+  grenadeChargeStartedAt = 0;
+
   /** Spawn point index assigned for the current match. */
   spawnIndex = -1;
 
@@ -75,6 +83,7 @@ export class PlayerRuntime {
     this.lastShotAt = Number.NEGATIVE_INFINITY;
     this.reloadEndsAt = 0;
     this.speedBoostEndsAt = 0;
+    this.grenadeChargeStartedAt = 0;
     this.movement.speedMultiplier = 1;
     this.highestAcceptedSeq = 0;
     this.lastInput.seq = 0;
@@ -83,6 +92,7 @@ export class PlayerRuntime {
     this.lastInput.jump = false;
     this.lastInput.fire = false;
     this.lastInput.reload = false;
+    this.lastInput.chargeGrenade = false;
     void now;
   }
 }

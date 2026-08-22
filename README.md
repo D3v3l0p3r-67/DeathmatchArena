@@ -44,7 +44,7 @@ Useful server endpoints in development:
 ### Other commands
 
 ```bash
-npm test           # 87 tests: physics, combat, power-ups, debug access, protocol and a real networked match
+npm test           # 113 tests: physics, combat, grenades, power-ups, presentation, debug access, protocol and a real networked match
 npm run typecheck  # tsc --noEmit across all three packages
 npm run build      # bundles the server and builds the client
 npm start          # runs the built server
@@ -60,8 +60,10 @@ D / Right Arrow     move right
 Space / W / Up      jump (press again in mid-air for a second jump)
 Mouse               aim
 Left Mouse          fire (hold — the rifle is automatic)
+Right Mouse         hold to charge a grenade throw, release to throw
 R                   reload
 Left / Right Arrow  switch spectated player (while dead)
+O                   open settings (audio and effects)
 F3                  toggle the debug overlay
 ```
 
@@ -110,6 +112,7 @@ and is imported by both sides — nothing in `client/` or `server/` redefines it
 | `systems/MatchManager.ts` | Match lifecycle, spawning, damage resolution, eliminations, winner |
 | `systems/PowerUpSystem.ts` | Crate spawning and destruction, revealed pickups, active effects |
 | `systems/ArenaShrinkSystem.ts` | The closing walls, and the damage they do |
+| `systems/GrenadeSystem.ts` | Throw charging, grenade flight and bounces, fuses and blasts |
 | `debug/DebugAuthorizationService.ts` | Who may use debug tooling; the only place that decides |
 | `debug/DebugRegistry.ts` | The debug command catalogue and the room's tunable values |
 | `debug/DebugCommandService.ts` | Authorization gate, argument validation and dispatch |
@@ -128,7 +131,11 @@ keeps them unit-testable and free of circular imports.
 | `net/SnapshotBuffer.ts` | Snapshot history and interpolation for remote entities |
 | `game/CameraController.ts` | Smooth follow, world clamping, screenshake |
 | `game/InputController.ts` | The only place that knows about key bindings |
-| `ui/*` | HUD, kill feed, debug overlay, debug console and screen management (plain DOM) |
+| `audio/sounds.ts` | The sound catalogue — every sound as synthesis parameters, no files |
+| `audio/AudioEngine.ts` | Runtime synthesis, mixer channels, positional falloff and panning |
+| `audio/SoundController.ts` | The one place that maps game events to sounds |
+| `game/fx/effects.ts` | The effect catalogue — bursts and camera shakes as data |
+| `ui/*` | HUD, kill feed, settings, debug overlay, debug console and screen management (plain DOM) |
 
 ---
 
@@ -347,6 +354,7 @@ does the power-up become an entity clients can see.
 | --- | --- | --- |
 | Medkit | `health-50` | Restores a configured fraction of maximum health, capped at the maximum. |
 | Speed Boost | `speed-boost` | Multiplies movement speed for a configured duration. |
+| Grenades | `grenade-pack` | Hands over a configured number of grenades, up to the carrying limit. |
 | Shotgun | `weapon-shotgun` | Grants the weapon named by `weaponId`. |
 | Chainsaw | `weapon-chainsaw` | Same mechanism, different `weaponId`. |
 
@@ -357,6 +365,34 @@ power-up that is disabled — or one granting a disabled weapon — never spawns
 Adding another weapon power-up is one entry in `config/defaults.ts`: the applier
 is registered per *type*, not per id, so `{ type: "weapon", weaponId: "..." }`
 needs no new code.
+
+### Grenades
+
+Every player starts a match with one grenade; more come from crates like anything
+else. Holding the right mouse button winds up a throw, and releasing it throws
+along the current aim.
+
+The client's entire contribution is *a held button and an aim angle*. It never
+sends a charge duration, a velocity, a hit or a damage number. The server sees
+the button go down, sees it come up, and measures the interval against its own
+clock — which is why a modified client cannot claim a full-power throw it never
+charged, and why holding for an hour still only yields the configured maximum.
+
+From there the server owns everything: the arc under gravity, the bounces off
+geometry and off the closing walls, the fuse, and the blast. Damage falls off
+linearly from the centre of the explosion to a configured floor at the edge, and
+the thrower is checked like everybody else — standing next to your own grenade
+hurts. Blasts open crates too.
+
+The HUD shows the grenade count, and a power bar while a throw is charging. The
+bar is drawn from the client's own press time so it moves at frame rate, but it
+fills against the same configured maximum the server measures with, so a full bar
+really is a full-power throw.
+
+Every value is configurable (`grenades`) and exposed as a room-scoped debug
+tunable: starting and maximum count, minimum and maximum throw speed, maximum
+charge time, gravity, bounciness, friction, fuse, blast radius, maximum damage,
+damage at the edge, and how many a pickup grants.
 
 ### Spawn points
 
@@ -395,6 +431,57 @@ Configurable today, without touching TypeScript logic:
 
 Ids are stable and internal; `name` is what players see. The two are separate, so
 renaming a weapon in the HUD never breaks a reference to it.
+
+---
+
+## Sound and effects
+
+### Sound is synthesised, not loaded
+
+There are no audio files in this repository. Every sound is built at runtime from
+oscillators and filtered noise described in `client/src/audio/sounds.ts`, so the
+game ships nothing to download and nothing to license — and retuning a gunshot is
+editing numbers rather than opening an audio editor.
+
+A sound is a stack of layers. Each layer is a tone (with an optional pitch sweep)
+or filtered noise, shaped by an attack/decay envelope; layering a swept tone under
+noise is what turns a beep into a gunshot or an explosion. Two details do most of
+the work: **pitch jitter**, without which a rifle firing ten times a second sounds
+like a machine rather than a gun, and **per-sound throttling**, without which a
+shotgun's nine pellets land nine impacts in the same millisecond and are heard as
+one distorted clack.
+
+Sounds in the world are positional: they fade with distance from the camera and
+pan towards the side they happened on, which is most of what makes a firefight
+readable when you cannot see the shooter. Sounds *about you* — being hit, your own
+pickup, a kill you scored — play unpositioned at full volume, so they cut through.
+
+`SoundController` is the only place that maps events to sounds. Some of it needs
+no messages at all: jumps, landings, reloads and a ticking fuse are simply visible
+in the synchronised state, so they become audible without costing bandwidth.
+
+### Effects are data too
+
+`client/src/game/fx/effects.ts` holds every burst and camera shake as numbers
+rather than constants inline, so the game's feel is tunable in one file. Bursts
+carry particle counts, speed and lifetime ranges, gravity and an optional cone;
+shakes carry a duration and an intensity.
+
+Beyond the existing muzzle flashes and impacts, there are landing puffs, a ring
+under the mid-air jump, sparks where a grenade bounces, debris when a crate
+breaks, a burst tinted with a power-up's own colour when it is collected, and a
+blast drawn at the radius the server actually used.
+
+### What a player can change
+
+Press **O** (or *Settings* on the menu) for master and per-channel volumes, mute,
+particle density, screen shake and damage numbers. All of it is stored in the
+player's own browser and none of it reaches the server — volumes and particle
+counts are presentation, and presentation is the client's.
+
+Turning particles or shake to zero is a supported setting, not a broken one: the
+game still plays every flash and flourish, just without the debris or the camera
+movement.
 
 ---
 
@@ -500,6 +587,13 @@ npm test
   crush damage, disabling it) and the crate pipeline end to end: spawn points, weighted
   contents, crate damage and destruction, revealed pickups, collection, and every
   power-up effect including expiry. Also asserts a crate never exposes its contents.
+- **`tests/grenades.test.ts`** — the loadout, charge-to-speed curve (including an
+  absurd hold being clamped), flight under gravity, bouncing off geometry, the fuse,
+  and a blast that falls off with distance and catches the thrower too.
+- **`tests/presentation.test.ts`** — the sound and effect catalogues: every id has a
+  definition, every sound routes to a real channel and renders (no sub-audible tones,
+  no zero-length layers), burst-prone sounds are throttled, and no camera shake is
+  set hard enough to be unplayable.
 - **`tests/protocol.test.ts`** — input codec round-trips, malformed payload rejection,
   name validation, rate limiting.
 - **`tests/match.test.ts`** — end-to-end against a real Colyseus server over a real

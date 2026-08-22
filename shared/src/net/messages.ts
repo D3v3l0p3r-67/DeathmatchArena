@@ -51,6 +51,8 @@ export const ServerMessage = {
   CRATE_DESTROYED: "crateDestroyed",
   /** A melee weapon was swung; purely so clients can animate it. */
   MELEE_SWING: "meleeSwing",
+  /** A grenade detonated. Ephemeral, so a message rather than state. */
+  GRENADE_EXPLODED: "grenadeExploded",
   /**
    * Debug authorization result plus, when granted, the command catalogue and the
    * room's tunable values. Unauthorized sessions receive only a refusal.
@@ -131,6 +133,16 @@ export interface MeleeSwingPayload {
   aimAngle: number;
   /** True when the swing connected with at least one player or crate. */
   connected: boolean;
+}
+
+export interface GrenadeExplodedPayload {
+  grenadeId: string;
+  /** Session id of the thrower, for the client's own screen shake. */
+  ownerId: string;
+  x: number;
+  y: number;
+  /** Blast radius in px, so the effect matches the damage that was applied. */
+  radius: number;
 }
 
 export interface NoticePayload {
