@@ -52,6 +52,54 @@ export const DEFAULT_EFFECTS_SETTINGS: EffectsSettings = {
   damageNumbers: true,
 };
 
+/**
+ * What a body does when it dies.
+ *
+ * A player used to simply vanish the frame their health hit zero, which reads as
+ * a rendering glitch rather than as a kill. Throwing them, spinning them and
+ * fading them costs nothing and makes the moment legible from across the arena.
+ */
+export const DEATH_ANIMATION = {
+  /** How long the body is visible after dying, in ms. */
+  durationMs: 700,
+  /** Total spin over the animation, in radians. */
+  spin: 2.6,
+  /** How far it is thrown upwards before gravity takes it, px. */
+  lift: 110,
+  /** Downward acceleration on the body, px/s². Faster than a player falls. */
+  gravity: 2600,
+  /** How far it drifts away from whoever killed it, px/s. */
+  driftSpeed: 90,
+};
+
+/**
+ * The last kill of a match.
+ *
+ * Time drops away, the body falls in slow motion, and only once it is over does
+ * the results screen appear -- so the moment somebody wins is something you
+ * watch rather than something a menu interrupts.
+ *
+ * Purely presentational: the match is already decided on the server before any
+ * of this starts, so nothing here can change who won.
+ */
+export const FINALE = {
+  /** How slow time gets at the deepest point, as a fraction of normal. */
+  timeScale: 0.22,
+  /** Dropping into slow motion, in ms of real time. */
+  easeInMs: 140,
+  /** How long it stays there. */
+  holdMs: 720,
+  /** Coming back to normal speed. */
+  easeOutMs: 900,
+  /**
+   * How long after the final kill the results appear, in ms of real time.
+   *
+   * A little longer than the ramp, so the screen arrives after the arena has
+   * settled rather than on top of it.
+   */
+  resultsAfterMs: 1950,
+} as const;
+
 /** Bursts, keyed by what caused them. */
 export const BURSTS = Object.freeze({
   bulletImpact: {
@@ -197,6 +245,8 @@ export const SHAKES = Object.freeze({
   tookDamage: { durationMs: 120, intensity: 0.004 },
   died: { durationMs: 320, intensity: 0.008 },
   crateBreak: { durationMs: 90, intensity: 0.003 },
+  /** The kill that ends a match: a heavier thump than an ordinary death. */
+  finalKill: { durationMs: 420, intensity: 0.012 },
   /** Scaled by how close the trap was. */
   trapFire: { durationMs: 140, intensity: 0.005 },
   /** Scaled by how close the blast was. */

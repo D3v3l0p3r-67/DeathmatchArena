@@ -91,6 +91,7 @@ export class PlayerRuntime {
     this.speedBoostEndsAt = 0;
     this.grenadeChargeStartedAt = 0;
     this.movement.speedMultiplier = 1;
+    this.movement.knockbackTimer = 0;
     this.highestAcceptedSeq = 0;
     this.lastInput.seq = 0;
     this.lastInput.moveLeft = false;

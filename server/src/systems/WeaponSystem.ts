@@ -149,6 +149,9 @@ export class WeaponSystem {
       -Math.cos(aimAngle),
       -Math.sin(aimAngle),
       weapon.recoilForce,
+      // No lift: a shooter is braced against their own weapon, and hopping with
+      // every shot would make an automatic unusable.
+      false,
     );
 
     if (ammoLimited && player.ammo === 0) this.tryStartReload(player, runtime, weapon, now);

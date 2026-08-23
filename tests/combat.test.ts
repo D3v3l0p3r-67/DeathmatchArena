@@ -222,12 +222,34 @@ describe("elimination", () => {
     assert.equal(payload.victimId, "target");
     assert.equal(payload.weaponId, rifle.id);
     assert.equal(payload.selfInflicted, false);
+    assert.equal(payload.endsMatch, true, "one player left standing means this kill ended it");
 
     // Only the server decides this, and only once one player is left standing.
     harness.matchManager.update(now);
     assert.equal(harness.state.matchState, MatchState.FINISHED);
     assert.equal(harness.state.winnerId, "shooter");
     assert.equal(harness.state.winnerName, "shooter");
+  });
+
+  it("only flags the kill that actually ends the match", () => {
+    // Three players: the first elimination leaves two standing, so it is an
+    // ordinary kill and the client must not treat it as the finish.
+    harness.addPlayer("shooter", 200, 1700);
+    harness.addPlayer("target", 600, 1700);
+    harness.addPlayer("bystander", 700, 1700);
+
+    const rifle = getWeapon(ASSAULT_RIFLE_ID);
+    const interval = getFireIntervalMs(rifle) + 1;
+    let now = 0;
+    for (let shot = 0; shot < Math.ceil(MAX_HEALTH / rifle.damage); shot++) {
+      fireAt(harness, "shooter", 0, now);
+      harness.step(30, now);
+      now += interval;
+    }
+
+    const kill = harness.broadcasts.find((entry) => entry.type === ServerMessage.KILL);
+    assert.ok(kill, "somebody was eliminated");
+    assert.equal((kill.payload as KillPayload).endsMatch, false);
   });
 
   it("ignores further hits on a player who is already dead", () => {
@@ -546,6 +568,84 @@ describe("knockback and recoil", () => {
 
     assert.equal(target.x, before, "position must only change through the integrator");
     assert.ok(velocity("target").x > 0, "but the velocity should have changed");
+  });
+
+  /**
+   * Let the simulation actually run for a while.
+   *
+   * Movement only advances on queued input -- a player the server has heard
+   * nothing from stands still -- so covering ground means feeding the same
+   * do-nothing command the client sends when no key is held.
+   */
+  function idleFor(seconds: number, ids: string[]): void {
+    const steps = Math.round(seconds / FIXED_DELTA);
+    for (let step = 0; step < steps; step++) {
+      // Held every step: the match manager is running too, and it has every
+      // right to call a two-player match over -- this test is about physics.
+      harness.state.matchState = MatchState.PLAYING;
+      for (const id of ids) {
+        harness.runtimes.get(id)!.inputQueue.push(createInputCommand(1000 + step));
+      }
+      harness.run(FIXED_DELTA);
+    }
+  }
+
+  it("carries the victim a visible distance rather than being scrubbed off by the floor", () => {
+    // The failure this pins: ground friction is 3200px/s², which under ordinary
+    // deceleration erases a rifle's shove within two frames and about half a
+    // pixel of travel -- landing a hit then looks like nothing happened at all.
+    const { victim: target } = facingPair();
+    const before = target.x;
+
+    fireAt(harness, "shooter", 0, 0);
+    harness.step(40);
+    idleFor(0.5, ["target"]);
+
+    assert.ok(target.x - before > 25, `a hit should move somebody, moved ${target.x - before}px`);
+  });
+
+  it("stops carrying the shove once the recovery window is over", () => {
+    // The window is what keeps a shove alive; it must not leave the player
+    // permanently frictionless.
+    const { victim: target } = facingPair();
+
+    fireAt(harness, "shooter", 0, 0);
+    harness.step(40);
+    assert.ok(harness.runtimes.get("target")!.movement.knockbackTimer > 0);
+
+    idleFor(1.5, ["target"]);
+    assert.equal(harness.runtimes.get("target")!.movement.knockbackTimer, 0);
+    assert.ok(Math.abs(velocity("target").x) < 1, "and they should have come to rest");
+    void target;
+  });
+
+  it("takes a standing victim off their feet", () => {
+    // A purely horizontal push against the floor is fought by friction and by
+    // the victim's own footing; lifting them is what makes a hit read as one.
+    facingPair();
+    const movement = harness.runtimes.get("target")!.movement;
+    movement.onGround = true;
+
+    fireAt(harness, "shooter", 0, 0);
+    harness.step(40);
+
+    assert.ok(velocity("target").y < 0, "the shove should have lifted them");
+  });
+
+  it("does not hop the shooter with their own recoil", () => {
+    // Recoil passes no lift: an automatic weapon would otherwise bounce its
+    // owner off the floor several times a second.
+    const shooter = harness.addPlayer("shooter", 200, 1700);
+    const movement = harness.runtimes.get("shooter")!.movement;
+    movement.x = 200;
+    movement.y = 1700;
+    movement.onGround = true;
+    harness.weapons.equip(shooter, harness.runtimes.get("shooter")!, "shotgun");
+
+    fireAt(harness, "shooter", 0, 0);
+
+    assert.equal(velocity("shooter").y, 0, "firing level should not lift the shooter");
+    assert.ok(velocity("shooter").x < 0, "but it should still kick them backwards");
   });
 
   it("kicks the shooter backwards", () => {

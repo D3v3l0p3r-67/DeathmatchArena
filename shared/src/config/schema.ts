@@ -305,7 +305,10 @@ function playerFields(): FieldDescriptor[] {
     number("player.coyoteTimeMs", PLAYER, "Jumping", "Coyote time (ms)", "Grace period after walking off a ledge during which a jump still counts.", { min: 0, max: 500, step: 5 }),
     number("player.jumpBufferMs", PLAYER, "Jumping", "Jump buffer (ms)", "A jump pressed this long before landing is remembered and fires on touchdown.", { min: 0, max: 500, step: 5 }),
 
-    number("player.maxKnockbackSpeed", PLAYER, "Vitality", "Knockback limit (px/s)", "The most any single hit may add to a player's speed. The safety valve: without it a weapon tuned too high launches people across the arena.", { min: 0, max: 4000, step: 25 }),
+    number("player.maxKnockbackSpeed", PLAYER, "Knockback", "Knockback limit (px/s)", "The most any single hit may add to a player's speed. The safety valve: without it a weapon tuned too high launches people across the arena.", { min: 0, max: 4000, step: 25 }),
+    number("player.knockbackDamping", PLAYER, "Knockback", "Knockback damping", "How quickly a shove bleeds away, per second. A hit carries roughly speed ÷ this many pixels, so lowering it makes every hit throw people further.", { min: 0.5, max: 40, step: 0.5 }),
+    number("player.knockbackRecoveryMs", PLAYER, "Knockback", "Knockback window (ms)", "How long a shove keeps its own decay before ordinary friction takes over.", { min: 0, max: 3000, step: 10 }),
+    percentage("player.knockbackLift", PLAYER, "Knockback", "Knockback lift", "How much of a hit is turned into lift when it lands on somebody standing. Taking them off their feet is what stops the floor scrubbing the shove off.", 2),
   ];
 }
 
@@ -464,7 +467,7 @@ function crateFields(): FieldDescriptor[] {
 function matchFields(): FieldDescriptor[] {
   const { MATCH } = CATEGORY;
   return [
-    number("match.minPlayers", MATCH, "Match", "Minimum players", "Players needed before the countdown starts.", { min: 2, max: 32, step: 1, integer: true, mustNotExceed: "match.maxPlayers" }),
+    number("match.minPlayers", MATCH, "Match", "Minimum players", "Participants needed before the countdown starts, bots included. Equal to the maximum means every match is a full arena; lower lets one start short-handed.", { min: 2, max: 32, step: 1, integer: true, mustNotExceed: "match.maxPlayers" }),
     number("match.maxPlayers", MATCH, "Match", "Maximum players", "Hard cap on players in one match. Rooms created afterwards use the new limit.", { min: 2, max: 32, step: 1, integer: true, mustBeAtLeast: "match.minPlayers" }),
     number("match.countdownMs", MATCH, "Match", "Countdown (ms)", "How long the pre-match countdown runs.", { min: 1000, max: 60000, step: 500 }),
     number("match.resultsMs", MATCH, "Match", "Result screen (ms)", "How long the results stay up before the room recycles into a new lobby.", { min: 1000, max: 300000, step: 500 }),

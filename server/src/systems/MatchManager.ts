@@ -356,7 +356,8 @@ export class MatchManager {
     }
 
     // Placement counts the survivors: the last player out of N finishes Nth.
-    victim.placement = this.getAlivePlayers().length + 1;
+    const survivors = this.getAlivePlayers().length;
+    victim.placement = survivors + 1;
 
     const payload: KillPayload = {
       killerId: killer?.sessionId ?? "",
@@ -364,6 +365,9 @@ export class MatchManager {
       victimId: victim.sessionId,
       victimName: victim.name,
       weaponId,
+      // Decided here rather than by the client, which will not learn the match
+      // is over until the next patch.
+      endsMatch: survivors <= 1,
       selfInflicted: !killer || killer.sessionId === victim.sessionId,
     };
     this.context.broadcast(ServerMessage.KILL, payload);

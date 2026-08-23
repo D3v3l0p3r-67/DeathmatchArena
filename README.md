@@ -218,9 +218,9 @@ how long the match runs first, how fast the walls travel, how narrow the gap get
 before they stop, and how hard they hurt. The HUD counts down to it and then
 warns while it is happening, both driven by whole seconds the server sends.
 
-Two players are enough to start (configurable via `MIN_PLAYERS`); five is the
-maximum, and the free places are held open for people before bots take them —
-see [NPCs](#npcs).
+A match is always five: at least one person, with bots taking whatever places
+people do not. Nothing starts short-handed, and the free places are held open for
+people before bots take them — see [NPCs](#npcs).
 When a match starts the room locks itself, so Colyseus routes new arrivals into a fresh
 room instead of an ongoing fight. Dead players stay connected as spectators and can
 cycle through the survivors. After the results screen the room recycles itself so the
@@ -561,14 +561,24 @@ dozen of them logging at eight hertz is noise nobody can read.
 
 ### Filling a lobby
 
-An arena seats five. A lobby holds its free places open for **people** first —
-a bot is a consolation prize, and given the choice a match should fill with
-players. Only once the hold expires do bots take what is left.
+**A match is always five, at least one of them a person, and bots take whatever
+people do not.**
+
+Nothing starts short-handed: the minimum and the maximum are the same number, so
+the lobby fills before the countdown rather than beginning with whoever happens
+to be standing there. The free places are held open for **people** first — a bot
+is a consolation prize, and given the choice a match should fill with players —
+and only once the hold expires do bots take what is left.
 
 ```
-1 player joins  ->  "Holding places for other players · 58s"  +  Start now with bots
+1 player joins   ->  "Holding places for other players · 58s"  +  Start now with bots
    ...nobody else arrives...
-hold expires    ->  four bots join, the match starts
+hold expires     ->  four bots join, the match starts        (1 person + 4 bots)
+
+2 players join   ->  still waiting: three seats are still somebody's
+either presses   ->  three bots join, the match starts       (2 people + 3 bots)
+
+5 players join   ->  the match starts, no bots               (5 people)
 ```
 
 The hold starts when the first person arrives and deliberately does **not** reset
@@ -584,6 +594,8 @@ watching. A dropped connection is not the same as leaving — that seat is held 
 the reconnection window.
 
 ```
+match.minPlayers     equal to the maximum, which is what makes "always five" true
+match.maxPlayers     the arena seats this many (5)
 npc.enabled          on by default
 npc.fillToPlayers    top a waiting lobby up to this many participants (5)
 npc.fillAfterMs      how long the places stay open for people (60s)
@@ -806,7 +818,7 @@ Configurable without touching TypeScript:
 
 | Area | Values |
 | --- | --- |
-| Player | max health, move speed, accelerations, frictions, knockback limit |
+| Player | max health, move speed, accelerations, frictions, knockback limit, damping, window and lift |
 | Jumping | gravity, jump strength, max jumps, mid-air jump strength, early-release cut, coyote time, jump buffer, fall speed |
 | Match | min/max players, countdown, result screen, maximum match length |
 | Weapons | enabled, damage, range, fire rate, magazine size, reload time, automatic, knockback, recoil |
@@ -845,10 +857,10 @@ across the room need not also throw its owner:
 
 | | Knockback | Recoil |
 | --- | --- | --- |
-| Assault Rifle | 0.25 | 0.04 |
-| Shotgun | 0.3 *per pellet* | 0.4 |
-| Chainsaw | 0.9 | 0 |
-| Grenade blast | 1.4 at the centre | — |
+| Assault Rifle | 0.75 | 0.3 |
+| Shotgun | 0.3 *per pellet* | 1.1 |
+| Chainsaw | 1.3 | 0 |
+| Grenade blast | 1.8 at the centre | — |
 
 One unit is 260 px/s along the direction of travel, so the numbers read as
 multiples of each other rather than as raw speeds. Knockback is applied **per
@@ -861,12 +873,29 @@ so a near miss shoves and a direct hit launches.
 configuration value can break is not really configurable, and it is the only
 thing standing between a mistyped weapon and somebody crossing the arena.
 
-One interaction is worth knowing about, because it silently cancels the whole
-feature if you get it wrong: the run-speed cap must not clip a velocity that is
-already above it. Clamping outright means a knocked-back player erases the shove
-by holding a movement key. The limit now never clips below the speed already
-carried — holding a key still cannot push you *past* the cap, and friction is what
-bleeds the excess.
+Two interactions are worth knowing about, because either of them silently cancels
+the whole feature.
+
+**The run-speed cap must not clip a velocity that is already above it.** Clamping
+outright means a knocked-back player erases the shove by holding a movement key.
+The limit never clips below the speed already carried — holding a key still cannot
+push you *past* the cap.
+
+**Friction must not be what bleeds a shove off.** Ground friction is 3200px/s²,
+which erases a rifle's shove within two frames and about half a pixel of travel:
+landing a hit then looks like nothing happened at all. A shove therefore opens a
+window (`player.knockbackRecoveryMs`) during which horizontal speed decays by
+`player.knockbackDamping` of itself per second instead, which makes the distance
+travelled proportional to the impulse — roughly `speed ÷ damping` pixels, so a
+rifle round moves somebody about 30px and a point-blank shotgun the better part of
+170. The window is part of the movement state and is synchronised, because
+prediction has to replay a knocked-back player exactly as the server did.
+
+A hit landing on somebody standing also takes them off their feet, in proportion
+to the impulse (`player.knockbackLift`): a purely horizontal push against the
+floor is fought by the victim's own footing, and lifting them is what makes a hit
+read as one. Recoil deliberately passes no lift — an automatic weapon would
+otherwise bounce its owner off the floor several times a second.
 
 ---
 
@@ -907,6 +936,39 @@ Beyond the existing muzzle flashes and impacts, there are landing puffs, a ring
 under the mid-air jump, sparks where a grenade bounces, debris when a crate
 breaks, a burst tinted with a power-up's own colour when it is collected, and a
 blast drawn at the radius the server actually used.
+
+### Dying, and the last kill of a match
+
+A death used to be a body disappearing on the frame its health hit zero, and only
+for the local player at that — a kill across the arena looked like a player
+quietly vanishing. Now every kill throws the body: it is lifted, spun, drifts away
+from whoever shot it and fades as it falls (`DEATH_ANIMATION`). It is owned by
+`PlayerView` and ticked from the scene rather than from the state-apply path,
+because a dead player's state stops changing and there would be nothing to drive
+it.
+
+The kill that ends a match gets more than that. The server flags it: `endsMatch`
+rides on the kill message, decided in `MatchManager.eliminate` from the number of
+survivors, because the client cannot work it out for itself — the kill arrives
+immediately and the finished state only with the next patch, so without the flag
+the last kill of a match looks like any other for a fifth of a second.
+
+On that flag the scene drops into slow motion (`FINALE`), and the shell holds the
+results screen back until it has played out — the moment somebody wins is
+something you watch rather than something a menu covers. Two details keep that
+honest:
+
+- **Simulation time and presentation time are separate.** Prediction, input and
+  snapshot interpolation keep running on real time; only what is *drawn* slows
+  down. Slowing the network loop would desynchronise the client from the server
+  for the sake of an effect.
+- **The wait itself runs on real time.** A Phaser timer would be dilated by the
+  very effect it is waiting on and the results would arrive late by exactly
+  however much time was slowed. The shell also keeps a backstop timer, so a scene
+  torn down mid-animation still ends with the standings on screen.
+
+Nothing here can change the outcome: the match is decided on the server before any
+of it starts.
 
 ### What a player can change
 

@@ -35,6 +35,8 @@ export interface SyncedPlayer {
   readonly weaponId: string;
   /** Movement speed multiplier from an active effect; 1 when nothing is active. */
   readonly speedMultiplier: number;
+  /** Seconds left of the window in which a shove decays on its own terms. */
+  readonly knockbackTimer: number;
   /**
    * Whole seconds left on the active speed effect, 0 when none.
    * Whole seconds rather than a deadline so the value changes at most once per

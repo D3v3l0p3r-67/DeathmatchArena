@@ -60,7 +60,20 @@ export interface RoomContext {
    * Like damage, this is only ever called from something the server computed
    * itself: a client cannot ask to be pushed, or ask to push anyone.
    */
-  applyKnockback(sessionId: string, directionX: number, directionY: number, force: number): void;
+  /**
+   * Shove a player along a direction.
+   *
+   * `lift` decides whether a hit landing on somebody standing also takes them
+   * off their feet: true for damage, false for a shooter's own recoil, which
+   * would otherwise hop them off the floor with every round.
+   */
+  applyKnockback(
+    sessionId: string,
+    directionX: number,
+    directionY: number,
+    force: number,
+    lift?: boolean,
+  ): void;
 
   /**
    * Damage a power-up crate. Routed to the `PowerUpSystem`, which owns crate

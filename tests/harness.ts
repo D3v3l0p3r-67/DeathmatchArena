@@ -144,15 +144,30 @@ export function createHarness(): Harness {
     },
     // The real impulse, on the real movement state, so a test can assert that a
     // hit actually moved somebody rather than that a stub was called.
-    applyKnockback(sessionId: string, directionX: number, directionY: number, force: number) {
+    applyKnockback(
+      sessionId: string,
+      directionX: number,
+      directionY: number,
+      force: number,
+      lift = true,
+    ) {
       const runtime = runtimes.get(sessionId);
       const player = state.players.get(sessionId);
       if (!runtime || !player?.alive || !player.inMatch) return;
 
-      applyKnockback(runtime.movement, directionX, directionY, force, configView.getPlayerConfig());
+      const playerConfig = configView.getPlayerConfig();
+      applyKnockback(
+        runtime.movement,
+        directionX,
+        directionY,
+        force,
+        playerConfig,
+        lift ? playerConfig.knockbackLift : 0,
+      );
       player.velocityX = runtime.movement.velocityX;
       player.velocityY = runtime.movement.velocityY;
       player.onGround = runtime.movement.onGround;
+      player.knockbackTimer = runtime.movement.knockbackTimer;
     },
     damageCrate(crateId: string, amount: number, attackerId: string, now: number) {
       powerUps.damageCrate(crateId, amount, attackerId, now);

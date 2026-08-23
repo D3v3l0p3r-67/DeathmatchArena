@@ -13,7 +13,7 @@ import { AudioEngine, DEFAULT_AUDIO_SETTINGS } from "./audio/AudioEngine.js";
 import { SoundController } from "./audio/SoundController.js";
 import { SoundId } from "./audio/sounds.js";
 import { clientConfig } from "./config.js";
-import { DEFAULT_EFFECTS_SETTINGS } from "./game/fx/effects.js";
+import { DEFAULT_EFFECTS_SETTINGS, FINALE } from "./game/fx/effects.js";
 import { SettingsPanel, loadEffectsSettings } from "./ui/SettingsPanel.js";
 import { NetworkManager } from "./net/NetworkManager.js";
 import { BootScene, BOOT_SCENE_KEY } from "./game/scenes/BootScene.js";
@@ -74,6 +74,14 @@ export class App {
   private lastHudUpdate = 0;
   private resultsEndsAt = 0;
   private lastResult: MatchResultMessage | null = null;
+  /**
+   * A result held back while the final kill plays out.
+   *
+   * The server calls the match the moment the last player dies, which is exactly
+   * when the arena is at its most worth watching. The standings wait for the
+   * scene to say the finale is over.
+   */
+  private pendingResult: MatchResultMessage | null = null;
 
   constructor() {
     this.killFeed = new KillFeed(() => this.network.sessionId);
@@ -222,6 +230,9 @@ export class App {
       onSpectateTargetChanged: (name) => this.updateSpectatorBanner(name),
       onPowerUpCollected: (payload) => this.handlePowerUpCollected(payload),
       onCrateIncoming: (warning) => this.audio.playAt(SoundId.CrateIncoming, warning.x, warning.y, 0.8),
+      onFinaleComplete: () => {
+        if (this.pendingResult) this.showResults(this.pendingResult);
+      },
     });
   }
 
@@ -284,11 +295,21 @@ export class App {
     });
 
     events.on("matchResult", (result) => {
-      this.lastResult = result;
-      this.resultsEndsAt = performance.now() + getMatchConfig().resultsMs;
-      this.hud.setVisible(false);
-      this.ui.setSpectating(false, "", 0);
-      this.ui.showResults(result, this.network.sessionId);
+      // Held only while the scene is actually playing a finale; if the match
+      // ended some other way -- the clock running out, everyone leaving -- there
+      // is nothing to wait for and the standings go up immediately.
+      if (!this.getGameScene()?.isPlayingFinale()) {
+        this.showResults(result);
+        return;
+      }
+
+      this.pendingResult = result;
+      // A backstop: the scene normally reports the finale finished, but if it is
+      // torn down mid-animation -- a disconnect, a tab that lost its context --
+      // nothing would ever put the standings up.
+      window.setTimeout(() => {
+        if (this.pendingResult === result) this.showResults(result);
+      }, FINALE.resultsAfterMs + 500);
     });
 
     events.on("notice", (notice) => this.ui.showNotice(notice));
@@ -348,6 +369,16 @@ export class App {
         // the standings. Nothing to do here.
         break;
     }
+  }
+
+  /** Put the standings up and start their countdown. */
+  private showResults(result: MatchResultMessage): void {
+    this.pendingResult = null;
+    this.lastResult = result;
+    this.resultsEndsAt = performance.now() + getMatchConfig().resultsMs;
+    this.hud.setVisible(false);
+    this.ui.setSpectating(false, "", 0);
+    this.ui.showResults(result, this.network.sessionId);
   }
 
   private handleLocalDeath(): void {

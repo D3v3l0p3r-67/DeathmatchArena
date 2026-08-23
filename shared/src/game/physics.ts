@@ -34,6 +34,10 @@ export function stepPlayerMovement(
   applyJump(state, input, dt, player);
   applyGravity(state, dt, player);
   integrateAndCollide(state, dt, world, bounds);
+
+  // Counted down after the step, so a shove that lands between steps is worth a
+  // full recovery window rather than however much of one is left.
+  if (state.knockbackTimer > 0) state.knockbackTimer = Math.max(0, state.knockbackTimer - dt);
 }
 
 /**
@@ -57,6 +61,14 @@ function applyHorizontalIntent(
 ): void {
   const direction = (input.moveRight ? 1 : 0) - (input.moveLeft ? 1 : 0);
 
+  // A live shove bleeds off by its own damping instead of through friction, and
+  // keeps doing so whether or not the player is steering. Ground friction would
+  // otherwise erase the whole impulse within a frame or two of it landing.
+  const knocked = state.knockbackTimer > 0;
+  if (knocked) {
+    state.velocityX -= state.velocityX * Math.min(1, player.knockbackDamping * dt);
+  }
+
   if (direction !== 0) {
     const acceleration = state.onGround ? player.groundAcceleration : player.airAcceleration;
     // A speed power-up raises the cap, not the acceleration, so a boosted player
@@ -72,6 +84,8 @@ function applyHorizontalIntent(
     state.facing = direction;
     return;
   }
+
+  if (knocked) return;
 
   const friction = (state.onGround ? player.groundFriction : player.airFriction) * dt;
   if (Math.abs(state.velocityX) <= friction) {
@@ -230,6 +244,7 @@ export function applyKnockback(
   directionY: number,
   force: number,
   player: PlayerConfig,
+  lift = 0,
 ): void {
   if (force <= 0) return;
 
@@ -239,6 +254,16 @@ export function applyKnockback(
   const speed = Math.min(force * KNOCKBACK_IMPULSE, Math.max(0, player.maxKnockbackSpeed));
   state.velocityX += (directionX / length) * speed;
   state.velocityY += (directionY / length) * speed;
+
+  // Taken off their feet, so the shove carries instead of being scrubbed off by
+  // the floor. Only for hits landing on somebody standing: a shooter's own
+  // recoil passes lift 0, or firing would hop them with every round.
+  if (lift > 0 && state.onGround) {
+    state.velocityY -= speed * lift;
+  }
+
+  // Whatever the shove is worth, it now decays on its own terms for a while.
+  state.knockbackTimer = Math.max(state.knockbackTimer, player.knockbackRecoveryMs / 1000);
 
   // A hit can lift somebody off the ground; leaving `onGround` set would let them
   // jump again in mid-air off the back of being shot.

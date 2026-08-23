@@ -123,6 +123,7 @@ export class MovementSystem {
     player.onGround = movement.onGround;
     player.facing = movement.facing;
     player.jumpsRemaining = movement.jumpsRemaining;
+    player.knockbackTimer = movement.knockbackTimer;
   }
 }
 

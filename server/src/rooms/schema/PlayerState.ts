@@ -55,6 +55,14 @@ export class PlayerState extends Schema implements SyncedPlayer {
    * server used, or a boosted player would fight their own reconciliation.
    */
   @type("float32") speedMultiplier = 1;
+  /**
+   * Seconds left of the shove-decay window.
+   *
+   * Synced for the same reason as `speedMultiplier`: prediction replays the
+   * movement step, and replaying a knocked-back player without it would use
+   * ordinary friction and manufacture an error the server never had.
+   */
+  @type("float32") knockbackTimer = 0;
 
   /**
    * Whole seconds left on the active speed effect, 0 when none.
