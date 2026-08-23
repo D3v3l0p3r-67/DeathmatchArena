@@ -98,7 +98,8 @@ export class MovementController {
   private hasGoal = false;
 
   private lastProgressAt = 0;
-  private lastX = 0;
+  /** The closest this bot has been to its goal since it took it on. */
+  private bestDistance = Infinity;
   private stuck = false;
   /**
    * Goals given up on, kept briefly so they are not immediately retried.
@@ -293,6 +294,7 @@ export class MovementController {
     this.hasGoal = false;
     this.path = [];
     this.pathIndex = 0;
+    this.bestDistance = Infinity;
   }
 
   /**
@@ -328,7 +330,13 @@ export class MovementController {
     return ABANDON_AFTER_MS / Math.max(0.2, 0.4 + 0.6 * this.navigationSkill);
   }
 
-  setGoal(x: number, y: number, self: SelfContext, now: number): void {
+  setGoal(goalX: number, goalY: number, self: SelfContext, now: number): void {
+    // Nobody walks into the fire on purpose, however good the reason on the
+    // other side of it. A destination inside a trap's reach is moved to the
+    // near edge instead of refused, so chasing somebody who is standing in one
+    // still happens -- it just stops short.
+    const { x, y } = this.graph.clearOfHazards(goalX, goalY);
+
     // A goal that was just abandoned as unreachable is not accepted back until
     // the arena has had a chance to change -- somebody moved, a trap cooled.
     // The refusal is what lets the brain's scoring actually move on.
@@ -352,7 +360,7 @@ export class MovementController {
     // whatever it was stuck on.
     if (moved) {
       this.lastProgressAt = now;
-      this.lastX = self.x;
+      this.bestDistance = Math.hypot(x - self.x, y - self.y);
     }
 
     if (moved || this.path.length === 0 || this.stuck) {
@@ -406,6 +414,22 @@ export class MovementController {
    * even though deciding where to go happens eight times a second.
    */
   steer(self: SelfContext, now: number, hazards: readonly PerceivedTrap[] = []): void {
+    /*
+     * Getting out of what is already burning you comes before everything else,
+     * including the check for having anywhere to go. That order is the whole
+     * fix: hazard handling used to live further down, past `if (!this.hasGoal)
+     * return` and past a test for already walking somewhere -- so a bot that
+     * stopped in a strip of spikes, or whose goal had just been dropped
+     * *because* of a hazard, switched its avoidance off at the exact moment it
+     * was standing in one. Measured in the shipped arenas, that was most of the
+     * damage the arena ever did to a bot.
+     */
+    if (this.escapeHazard(self, hazards)) {
+      this.updateJump(self);
+      this.trackProgress(self, now);
+      return;
+    }
+
     if (!this.hasGoal) return;
 
     const waypoint = this.nextWaypoint(self);
@@ -444,6 +468,53 @@ export class MovementController {
     this.avoidHazards(self, hazards);
     this.updateJump(self);
     this.trackProgress(self, now);
+  }
+
+  /**
+   * Walk out of what you are standing in.
+   *
+   * Out by the nearest edge, and hopped out of when it is something low enough
+   * to hop out of. Returns true when this took over the tick: nothing else
+   * steering wants to do matters while a bot is being hurt for standing still.
+   */
+  private escapeHazard(self: SelfContext, hazards: readonly PerceivedTrap[]): boolean {
+    const standing = this.hazardUnderfoot(self, hazards);
+    if (!standing) return false;
+
+    const toLeftEdge = self.x - standing.x;
+    const toRightEdge = standing.x + standing.width - self.x;
+    this.intent.direction = toLeftEdge <= toRightEdge ? -1 : 1;
+
+    // Low enough to hop out of; anything taller is left on foot, because
+    // jumping into the middle of a tall hazard is how you stay in it.
+    if (self.onGround && standing.height <= HAZARD_CLEARABLE_HEIGHT) this.jump();
+
+    return true;
+  }
+
+  /**
+   * The live hazard this body is inside, if any.
+   *
+   * The same overlap the trap system uses to decide who it is hurting, plus a
+   * margin, so a bot starts leaving as it arrives rather than after the first
+   * tick of damage.
+   */
+  private hazardUnderfoot(
+    self: SelfContext,
+    hazards: readonly PerceivedTrap[],
+  ): PerceivedTrap | null {
+    const margin = 6;
+
+    for (const hazard of hazards) {
+      if (!hazard.hot || !hazard.harmful) continue;
+      if (self.x - PLAYER_HALF_WIDTH >= hazard.x + hazard.width + margin) continue;
+      if (self.x + PLAYER_HALF_WIDTH <= hazard.x - margin) continue;
+      if (self.y - PLAYER_HALF_HEIGHT >= hazard.y + hazard.height + margin) continue;
+      if (self.y + PLAYER_HALF_HEIGHT <= hazard.y - margin) continue;
+      return hazard;
+    }
+
+    return null;
   }
 
   /**
@@ -490,7 +561,8 @@ export class MovementController {
     const bottom = self.y + PLAYER_HALF_HEIGHT;
 
     for (const hazard of hazards) {
-      if (!hazard.hot) continue;
+      // A jump pad is hot for the whole match and perfectly safe to run over.
+      if (!hazard.hot || !hazard.harmful) continue;
       if (hazard.x + hazard.width < left || hazard.x > right) continue;
       if (hazard.y + hazard.height < top || hazard.y > bottom) continue;
       return hazard;
@@ -618,8 +690,20 @@ export class MovementController {
   }
 
   private trackProgress(self: SelfContext, now: number): void {
-    if (Math.abs(self.x - this.lastX) > 12) {
-      this.lastX = self.x;
+    /*
+     * Progress is getting closer to where you are going, not moving.
+     *
+     * This used to ask only whether the bot's x had changed by 12px, which a
+     * bot bouncing on the spot satisfies forever -- so the one behaviour most
+     * in need of being given up on was the one thing that never counted as
+     * stuck. A bot rebounding off a ledge it cannot reach, into the spikes
+     * underneath it, would do that until something killed it.
+     */
+    const distance = Math.hypot(this.goalX - self.x, this.goalY - self.y);
+
+    // Backing up for a run-up is deliberately moving away, and is quick.
+    if (this.runningUp || distance < this.bestDistance - 12) {
+      this.bestDistance = Math.min(this.bestDistance, distance);
       this.lastProgressAt = now;
       this.stuck = false;
       return;

@@ -84,9 +84,11 @@ describe("match lifecycle", () => {
 
     // The room does not start itself: it belongs to whoever got here first, and
     // it waits for them. Alice arrived before Bob, so the room is hers.
-    assert.equal(alice.state.hostId, alice.sessionId, "the first person here owns the room");
+    // Both of these are published by the server, so they arrive on a patch --
+    // not necessarily the same one that carried Bob.
+    await waitFor(() => alice.state.hostId === alice.sessionId, "the room to have an owner");
     assert.equal(alice.state.roomName, "Alice's Room");
-    assert.equal(alice.state.canStart, true, "two players is a match");
+    await waitFor(() => alice.state.canStart, "two players to count as a match");
     assert.equal(alice.state.matchState, MatchState.WAITING, "and it waits to be told");
 
     await startMatch(alice, bob);

@@ -382,3 +382,16 @@ export function trapParamString(resolved: ResolvedTrap, key: string, fallback = 
   const declared = resolved.type.params.find((param) => param.key === key)?.defaultValue;
   return typeof declared === "string" ? declared : fallback;
 }
+
+/**
+ * Does contact with this trap type cost health?
+ *
+ * A jump pad is placed, drawn and simulated as a trap, but it is a *route*: it
+ * throws you, it does not hurt you. Everything that reasons about danger --
+ * what a bot flees, what its routes avoid, what raises its sense of threat --
+ * has to know the difference, or bots spend the match avoiding the shortcuts.
+ */
+export function trapHarms(typeId: string): boolean {
+  const type = trapRegistry.get(typeId);
+  return type ? type.damageMode !== TrapDamageMode.LAUNCH : true;
+}

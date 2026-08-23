@@ -2,6 +2,7 @@ import {
   PLAYER_HALF_HEIGHT,
   PLAYER_HALF_WIDTH,
   getPlayerConfig,
+  trapHarms,
   type ArenaDefinition,
   type CollisionWorld,
   type PlayerConfig,
@@ -165,6 +166,10 @@ export class NavGraph {
   private collectHazards(arena: ArenaDefinition): void {
     for (const trap of arena.traps) {
       if (!trap.enabled) continue;
+      // A jump pad is placed and simulated as a trap and costs nothing to
+      // touch. Costing routes through one would have bots walking around the
+      // shortcuts the arena puts there for them.
+      if (!trapHarms(trap.type)) continue;
       this.hazards.push({
         left: trap.x - HAZARD_MARGIN,
         right: trap.x + trap.width + HAZARD_MARGIN,
@@ -174,6 +179,31 @@ export class NavGraph {
         bottom: trap.y + trap.height + HAZARD_MARGIN,
       });
     }
+  }
+
+  /**
+   * The nearest spot outside any trap's reach, given somewhere to stand.
+   *
+   * Used to keep a *destination* out of a hazard: chasing somebody who is
+   * standing in the fire is reasonable, walking into the fire after them is
+   * not, so the goal is pushed out to the edge rather than refused. Returns the
+   * point unchanged when it was never in one.
+   */
+  clearOfHazards(x: number, y: number): { x: number; y: number } {
+    for (const hazard of this.hazards) {
+      if (x < hazard.left || x > hazard.right) continue;
+      if (y < hazard.top || y > hazard.bottom) continue;
+
+      // Out by whichever side is nearer, and far enough that a body standing
+      // there is outside the reach rather than on its edge.
+      const clearance = PLAYER_HALF_WIDTH + 4;
+      return {
+        x: x - hazard.left <= hazard.right - x ? hazard.left - clearance : hazard.right + clearance,
+        y,
+      };
+    }
+
+    return { x, y };
   }
 
   /** Is this point somewhere a trap can reach? */

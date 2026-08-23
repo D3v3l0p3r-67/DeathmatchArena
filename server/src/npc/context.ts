@@ -80,6 +80,14 @@ export interface PerceivedTrap {
   distance: number;
   /** True while it is dangerous or winding up to be. */
   hot: boolean;
+  /**
+   * Whether contact costs health.
+   *
+   * False for a jump pad, which is a trap in every way except the one that
+   * matters here: it throws you rather than hurting you, and a bot that fled
+   * one would be avoiding a shortcut the arena put there on purpose.
+   */
+  harmful: boolean;
   /** 0..1 by proximity and phase. */
   threat: number;
 }
