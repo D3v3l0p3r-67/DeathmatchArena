@@ -17,6 +17,15 @@ export class PlayerState extends Schema implements SyncedPlayer {
   /** Server-validated display name. Never used as an identifier. */
   @type("string") name = "";
 
+  /**
+   * True for an NPC.
+   *
+   * Synchronised only so the client can label them; nothing about the
+   * simulation branches on it, because a bot is a player in every way that
+   * matters -- same state, same input queue, same limits.
+   */
+  @type("boolean") bot = false;
+
   @type("float32") x = 0;
   @type("float32") y = 0;
   @type("float32") velocityX = 0;

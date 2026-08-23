@@ -17,6 +17,7 @@ import type { GrenadeSystem } from "./GrenadeSystem.js";
 import type { PowerUpSystem } from "./PowerUpSystem.js";
 import type { ProjectileSystem } from "./ProjectileSystem.js";
 import type { TrapSystem } from "./TrapSystem.js";
+import type { NpcSystem } from "../npc/NpcSystem.js";
 import type { WeaponSystem } from "./WeaponSystem.js";
 
 /**
@@ -42,6 +43,19 @@ export class MatchManager {
     private readonly grenades: GrenadeSystem,
     private readonly traps: TrapSystem,
   ) {}
+
+  /**
+   * Told about the bots after construction.
+   *
+   * Set separately rather than injected because the NPC system needs the
+   * movement system, which needs this one -- and a setter is a smaller price
+   * than an indirection nobody else would use.
+   */
+  private npcs: NpcSystem | null = null;
+
+  setNpcSystem(npcs: NpcSystem): void {
+    this.npcs = npcs;
+  }
 
   update(now: number): void {
     switch (this.context.state.matchState) {
@@ -137,6 +151,7 @@ export class MatchManager {
     // Traps start every match from rest, so a crusher left extended by the last
     // one is not already on top of somebody at the countdown.
     this.traps.reset();
+    this.npcs?.onMatchStarted(now);
 
     this.refreshCounters();
     this.context.logger.info("Match started", { players: participants.length, arena: state.arenaId });
@@ -175,6 +190,7 @@ export class MatchManager {
     this.arenaShrink.reset();
     this.grenades.clear();
     this.traps.reset();
+    this.npcs?.onMatchEnded();
 
     const standings = this.buildStandings();
     const payload: MatchResultMessage = {

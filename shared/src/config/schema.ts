@@ -20,6 +20,7 @@
 import {
   PowerUpType,
   WeaponType,
+  type BrainProfile,
   type ConfigValue,
   type GameConfig,
   type PowerUpDefinition,
@@ -168,6 +169,7 @@ const CATEGORY = {
   MATCH: "Match",
   ARENA: "Arena",
   TRAPS: "Traps",
+  NPC: "NPCs",
 } as const;
 
 interface NumberOptions {
@@ -487,6 +489,56 @@ function trapFields(): FieldDescriptor[] {
   ];
 }
 
+// -- NPCs -------------------------------------------------------------------
+
+function npcFields(): FieldDescriptor[] {
+  const { NPC } = CATEGORY;
+  return [
+    boolean("npc.enabled", NPC, "Bots", "Bots enabled", "Off means no NPC ever joins a match, whatever the fill target says."),
+    number("npc.fillToPlayers", NPC, "Bots", "Fill lobbies to", "Top a waiting lobby up to this many participants with bots. 0 leaves matches human-only.", { min: 0, max: 32, step: 1, integer: true }),
+    number("npc.maxBots", NPC, "Bots", "Maximum bots", "Hard cap on bots in one match.", { min: 0, max: 32, step: 1, integer: true }),
+    number("npc.sightRange", NPC, "Bots", "Sight range (px)", "Beyond this a bot simply cannot see an enemy. Raising it makes bots feel omniscient.", { min: 100, max: 4000, step: 50 }),
+    number("npc.thinkIntervalMs", NPC, "Thinking", "Decision interval (ms)", "How often a brain re-decides what it wants. Lower is sharper and more expensive.", { min: 30, max: 2000, step: 5 }),
+    number("npc.perceptionIntervalMs", NPC, "Thinking", "Perception interval (ms)", "How often a bot refreshes what it can sense.", { min: 30, max: 2000, step: 5 }),
+  ];
+}
+
+/**
+ * Fields for one brain profile.
+ *
+ * Generated from the profile itself, so a personality added to the catalogue is
+ * tunable in the admin interface and the debug console without a change here --
+ * which is the point of having no `AggressiveNpc` class to edit instead.
+ */
+function brainProfileFields(profile: BrainProfile): FieldDescriptor[] {
+  const { NPC } = CATEGORY;
+  const group = profile.name || profile.id;
+  const prefix = `npc.profiles.${profile.id}`;
+
+  return [
+    text(`${prefix}.name`, NPC, group, "Display name", "Shown on the bot's own label and in the debug console."),
+
+    percentage(`${prefix}.aggression`, NPC, group, "Aggression", "How much it wants to fight at all."),
+    percentage(`${prefix}.survival`, NPC, group, "Survival", "How much it values staying alive. Weighs against aggression under fire."),
+    percentage(`${prefix}.powerupInterest`, NPC, group, "Power-up interest", "How far it will detour for a crate."),
+    percentage(`${prefix}.grenadeUsage`, NPC, group, "Grenade usage", "How readily it reaches for a grenade."),
+    percentage(`${prefix}.finishWeakEnemies`, NPC, group, "Finish the wounded", "How strongly a hurt enemy pulls it in."),
+    percentage(`${prefix}.chasePersistence`, NPC, group, "Chase persistence", "How long it keeps after something it can no longer see."),
+    number(`${prefix}.preferredDistance`, NPC, group, "Preferred distance (px)", "The range it tries to fight at. A shotgun personality wants this small.", { min: 20, max: 2000, step: 10 }),
+
+    percentage(`${prefix}.aimSkill`, NPC, group, "Aim skill", "0 is hopeless, 100% is perfect. Drives aim error, never damage."),
+    percentage(`${prefix}.predictionSkill`, NPC, group, "Prediction skill", "How well it leads a moving target."),
+    percentage(`${prefix}.dodgeSkill`, NPC, group, "Dodge skill", "How well it gets out of the way of a grenade."),
+    number(`${prefix}.reactionTimeMs`, NPC, group, "Reaction time (ms)", "Delay between noticing something and acting on it.", { min: 0, max: 2000, step: 10 }),
+    number(`${prefix}.memoryDurationMs`, NPC, group, "Memory (ms)", "How long an enemy stays remembered after leaving sight.", { min: 0, max: 30000, step: 100 }),
+
+    number(`${prefix}.currentActionBonus`, NPC, group, "Commitment bonus", "Added to whatever it is already doing, so it does not flicker between two close options.", { min: 0, max: 100, step: 1 }),
+    number(`${prefix}.actionSwitchThreshold`, NPC, group, "Switch threshold", "How much better an alternative must score before it changes its mind.", { min: 0, max: 100, step: 1 }),
+    number(`${prefix}.minimumActionMs`, NPC, group, "Minimum action time (ms)", "How long an action runs before it may be replaced at all.", { min: 0, max: 10000, step: 50 }),
+    number(`${prefix}.decisionNoise`, NPC, group, "Decision noise", "Random spread added to every score. Small on purpose: it should add hesitation, not stupidity.", { min: 0, max: 40, step: 1 }),
+  ];
+}
+
 // ---------------------------------------------------------------------------
 // The registry
 // ---------------------------------------------------------------------------
@@ -516,6 +568,8 @@ export function buildConfigFields(config: GameConfig, baseline: GameConfig = con
     ...crateFields(),
     ...arenaFields(),
     ...trapFields(),
+    ...npcFields(),
+    ...config.npc.profiles.flatMap(brainProfileFields),
   ];
 
   return descriptors.flatMap((descriptor) => {

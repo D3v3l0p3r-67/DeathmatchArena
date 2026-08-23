@@ -45,8 +45,9 @@ Useful server endpoints in development:
 ### Other commands
 
 ```bash
-npm test           # 202 tests: physics, combat, grenades, power-ups, traps, arenas, configuration,
-                   #            administration, presentation, debug access, protocol and a real networked match
+npm test           # 258 tests: physics, combat, grenades, power-ups, traps, arenas, configuration,
+                   #            administration, NPC brains, presentation, debug access, protocol,
+                   #            and real networked matches
 npm run typecheck  # tsc --noEmit across all three packages
 npm run build      # bundles the server and builds the client
 npm start          # runs the built server
@@ -122,6 +123,7 @@ and is imported by both sides — nothing in `client/` or `server/` redefines it
 | `systems/ArenaShrinkSystem.ts` | The closing walls, and the damage they do |
 | `systems/GrenadeSystem.ts` | Throw charging, grenade flight and bounces, fuses and blasts |
 | `systems/TrapSystem.ts` | Trap activation, motion, overlap and damage — generic, with no per-trap code |
+| `npc/*` | The NPC brain: perception, memory, utility scoring, navigation, controllers |
 | `admin/AdminAuthorization.ts` | Who may administer the server; the only place that decides |
 | `admin/ArenaRepository.ts` | Where arenas are stored, behind an interface a database could implement |
 | `admin/ArenaService.ts` | Arena rules: validate, store, publish to the running server |
@@ -429,6 +431,144 @@ apart, and adding a weapon adds it to both at once.
 What differs is scope. A debug change applies to one room until it closes and is never
 stored. An administrator's change is stored and becomes what every room created
 afterwards starts from.
+
+---
+
+## NPCs
+
+Bots that play the game rather than simulate playing it. No LLM, no neural
+network, no external service: perception, a utility brain, a state machine and
+two controllers, which is what game AI has been made of for thirty years and
+what makes it debuggable.
+
+### An NPC is a player
+
+The constraint everything else follows from: a bot gets a `PlayerState` and a
+`PlayerRuntime` like anyone else, its decisions come out as `InputCommand`s, and
+those go into the same queue a browser's inputs go into. It is spawned by the
+same match manager, moved by the same integrator, bounded by the same input
+budget, and shot by the same collision code.
+
+So there is no bot movement code anywhere. If a bot could be moved by anything
+other than an input command it would stop being bound by the rules it is playing
+under, and "the AI cheats" is the one criticism a shooter never recovers from.
+
+### The parts
+
+```
+Perception → Context → Utility scoring → Intent → State machine → Controllers
+```
+
+| File | Responsibility |
+| --- | --- |
+| `npc/Perception.ts` | The only thing that reads the room, and it throws most of it away |
+| `npc/Memory.ts` | Where an enemy went, until it is forgotten |
+| `npc/context.ts` | What a bot believes, normalised to 0..1 |
+| `npc/TargetSelector.ts` | *Who*, scored separately from *what* |
+| `npc/Brain.ts` | Scores registered actions, with hysteresis and noise |
+| `npc/actions/*` | One file per action: a score and a small state machine |
+| `npc/CombatController.ts` | Aim, lead, shoot, throw — deliberately imperfect |
+| `npc/MovementController.ts` | Left, right, jump, double jump, drop, and nothing else |
+| `npc/Navigation.ts` | A graph of standing room, with walk / jump / drop links |
+| `npc/NpcAgent.ts` | One bot: owns the parts and runs them at the right rates |
+| `npc/NpcSystem.ts` | The bots in one room: population, input, debug |
+
+The layering is enforced by what each part is handed. The brain receives a
+context and returns an intent; it holds no reference to the controllers and could
+not move a bot if it wanted to. The controllers receive the intent and have no
+idea why they were asked. Only `NpcAgent` knows both.
+
+### Perception is the honesty boundary
+
+The server knows everything. Perception narrows that to what a bot could
+plausibly sense, and it is the only place with access to the room:
+
+- an enemy behind a wall is not in the result (three rays — head, chest, knees —
+  because one centre-to-centre ray is hidden by a knee-high crate);
+- an enemy beyond the configured sight range is not in the result;
+- **a crate never reports its contents**, because the server does not tell anyone
+  what is inside one, and a bot that knew would be cheating in exactly the way
+  crates exist to prevent.
+
+It runs at the configured perception rate — eight times a second by default,
+faster than a person reacts and a fraction of the cost of doing it per frame.
+
+### Behaviour is scored, not branched
+
+Nine actions ship: attack, chase, retreat, dodge, get power-up, get weapon, throw
+grenade, take position, search. Each is a score built from normalised terms and
+profile weights, and the highest wins:
+
+```ts
+score = lowHealth * danger * profile.survival * 100;
+```
+
+Not `if (health < 20) retreat()`. The same expression makes a Coward leave early
+and a Berserker ignore it, which a threshold cannot, and it can be balanced by
+moving a number rather than rewriting a condition. Even the emergencies are
+scored: a grenade at your feet simply produces a number no ordinary action can
+reach, so a Berserker one shot from a kill will occasionally eat it.
+
+Two mechanisms stop pure scoring from looking insane, both profile-driven:
+whatever a bot is already doing gets a bonus and a challenger must beat it by a
+threshold, and an action cannot be replaced until it has had a minimum time to
+show what it was going to do. Without them, two actions whose scores cross
+produce attack/retreat/attack/retreat several times a second. A small random
+spread on every score does the opposite job: it stops two bots with the same
+profile moving in lockstep.
+
+### Personality is configuration
+
+There is no `AggressiveNpc` class. Every bot runs the same brain and differs only
+by a `BrainProfile` — twelve of them ship (Aggressive, Defensive, Rusher, Hunter,
+Opportunist, Collector, Grenadier, Camper, Trickster, Coward, Berserker,
+Balanced), and every value is editable at `/admin` under **NPCs** or live in the
+debug console. A bot re-reads its profile on every decision, so a change lands on
+its next thought.
+
+The profile is who a bot *is*; the situation bends it into who they are right
+now. Being hurt lowers aggression and raises survival in proportion, a bad weapon
+raises the appetite for a pickup — expressed once, in `deriveEffectiveProfile`,
+so no action's scoring carries an "except when hurt" clause. A hurt Berserker is
+still the most aggressive thing in the room, just less so.
+
+### Being beatable
+
+A weak bot is not one with less health or a damage penalty. It is one that:
+
+- takes longer to notice you (`reactionTimeMs`),
+- swings its aim more slowly (`aimSkill`),
+- misjudges where you are going (`predictionSkill`),
+- and holds its crosshair a little off — a slow drift re-rolled a few times a
+  second, not per-tick noise, which averages to nothing and looks like a
+  vibrating gun.
+
+Targeting is scored separately from acting, so bots do not all converge on
+whoever is nearest: a Hunter peels off after the wounded one across the room
+while a Coward takes what is in front of it.
+
+### Watching one think
+
+The debug console (`Shift`+`D`) gains an **NPC AI** section: every bot's profile,
+current action and state, its target, and every action's score with the winner
+marked, alongside the context that produced them. **Add bot**, **Remove bots** and
+**Watch bot** are ordinary debug commands.
+
+Decision logging is off by default and only ever on for one bot at a time — a
+dozen of them logging at eight hertz is noise nobody can read.
+
+### Running them
+
+```
+npc.enabled          off by default; a server that fills its own lobbies is a surprise
+npc.fillToPlayers    top a waiting lobby up to this many participants
+npc.maxBots          hard cap
+npc.sightRange       raise it and bots start feeling omniscient
+npc.thinkIntervalMs  8Hz by default
+```
+
+Bots are only added and removed between matches: dropping one into a running
+match would give it a free spawn among people who have been fighting.
 
 ---
 
@@ -830,6 +970,13 @@ npm test
 - **`tests/admin.test.ts`** — the administration services: nothing reaches storage
   unvalidated, the last playable arena cannot be deleted, a save publishes to the
   running server, and reset works at every scope while storing only deltas.
+- **`tests/npc.test.ts`** — the bots. That perception throws away what a bot could
+  not sense (walls, range, a crate's contents), that behaviour comes out of scores
+  rather than thresholds, that hysteresis stops the attack/retreat flicker, that
+  targeting is genuinely separate from acting, and that the navigation graph
+  narrows when the configured jump does. Plus whole matches run end to end:
+  bots join a lobby, spawn, move under their own power through the ordinary input
+  queue, choose varied actions, and shoot each other.
 
 ---
 
@@ -842,6 +989,10 @@ The seams are already in place for the obvious next features:
   debug console on its own.
 - **More power-ups** — another entry in the same file. A new *weapon* power-up needs
   no code at all; a genuinely new kind of effect needs one applier in `PowerUpSystem`.
+- **More NPC behaviour** — `brain.registerAction({ id, label, score, execute })`.
+  The brain has no list of its own, so nothing else changes; registering an
+  existing id replaces that behaviour. New personalities are entries in
+  `npc.profiles`, and appear in the admin interface on their own.
 - **More trap types** — register a `TrapTypeDefinition` describing how it moves and
   how it meters damage. The simulation, the validator and the editor all pick it up;
   the server has no per-trap code to add to.

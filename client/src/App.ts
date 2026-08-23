@@ -301,6 +301,7 @@ export class App {
       }
     });
     events.on("debugResult", (result) => this.debugConsole.appendResult(result));
+    events.on("debugNpc", (payload) => this.debugConsole.renderNpcs(payload));
 
     events.on("disconnected", ({ code, reason }) => {
       this.getGameScene()?.teardown();

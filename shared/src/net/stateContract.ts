@@ -17,6 +17,8 @@ import type { MatchStateValue } from "../game/types.js";
 export interface SyncedPlayer {
   readonly sessionId: string;
   readonly name: string;
+  /** True for an NPC. Presentation only -- the simulation treats them alike. */
+  readonly bot: boolean;
   readonly x: number;
   readonly y: number;
   readonly velocityX: number;

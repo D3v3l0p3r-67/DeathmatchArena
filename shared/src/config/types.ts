@@ -393,6 +393,95 @@ export interface TrapConfig {
 }
 
 /**
+ * One NPC personality, expressed entirely as numbers.
+ *
+ * There is deliberately no `AggressiveNpc` class anywhere. Every NPC runs the
+ * same brain and differs only by this record, which is what makes a new
+ * personality a data entry rather than a subclass -- and what lets one be tuned
+ * live while watching it play.
+ *
+ * Everything is 0..1 unless the name says otherwise, so the utility scores stay
+ * comparable and a designer never has to guess what scale a field is on.
+ */
+export interface BrainProfile {
+  /** Stable internal id. */
+  id: string;
+  /** Display name, shown in the debug console and on the bot's own label. */
+  name: string;
+
+  /** How much it wants to fight at all. */
+  aggression: number;
+  /** How much it values staying alive. Weighs against aggression under fire. */
+  survival: number;
+  /** How much it detours for power-ups and crates. */
+  powerupInterest: number;
+  /** How readily it reaches for a grenade. */
+  grenadeUsage: number;
+  /** How strongly a wounded enemy pulls it in. */
+  finishWeakEnemies: number;
+  /** How long it keeps chasing something it can no longer see. */
+  chasePersistence: number;
+
+  /** The range it tries to fight at, in px. A shotgun profile wants this small. */
+  preferredDistance: number;
+
+  /** 0 is hopeless, 1 is perfect. Drives aim error, not damage. */
+  aimSkill: number;
+  /** How well it leads a moving target. */
+  predictionSkill: number;
+  /** How well it gets out of the way of a grenade. */
+  dodgeSkill: number;
+  /** Delay between seeing something and acting on it, in ms. */
+  reactionTimeMs: number;
+
+  /** How long an enemy stays remembered after leaving sight, in ms. */
+  memoryDurationMs: number;
+
+  /**
+   * Decision stability, in score points.
+   *
+   * `currentActionBonus` is added to whatever it is already doing and
+   * `actionSwitchThreshold` is how much better an alternative must be before it
+   * switches. Between them they stop the attack/retreat/attack flicker that an
+   * unsmoothed utility system produces.
+   */
+  currentActionBonus: number;
+  actionSwitchThreshold: number;
+  /** Minimum time an action runs before it may be replaced, in ms. */
+  minimumActionMs: number;
+  /** Random spread added to every score, in points. Small on purpose. */
+  decisionNoise: number;
+}
+
+/**
+ * NPCs: whether they play, how many, and how often they think.
+ *
+ * The thinking rates are here rather than hard-coded because they are the main
+ * lever between "the arena feels alive" and "the server is doing nothing but
+ * running bots".
+ */
+export interface NpcConfig {
+  enabled: boolean;
+  /**
+   * Top the lobby up to this many participants with bots. 0 leaves matches
+   * human-only; anything above the match minimum means a match can start with
+   * one human.
+   */
+  fillToPlayers: number;
+  /** Hard cap on bots in one match, whatever the fill target says. */
+  maxBots: number;
+  /** How often a brain re-decides what it wants, in ms. */
+  thinkIntervalMs: number;
+  /** How often perception refreshes what a bot can sense, in ms. */
+  perceptionIntervalMs: number;
+  /** How far a bot can see, in px. Beyond this an enemy is simply not there. */
+  sightRange: number;
+  /** Names given to bots, cycled through. */
+  names: string[];
+  profiles: BrainProfile[];
+}
+
+/**
  * The complete tunable game configuration.
  *
  * Power-up spawn *points* are deliberately not here: they are part of a map's
@@ -410,4 +499,5 @@ export interface GameConfig {
   arenaShrink: ArenaShrinkConfig;
   grenades: GrenadeConfig;
   traps: TrapConfig;
+  npc: NpcConfig;
 }

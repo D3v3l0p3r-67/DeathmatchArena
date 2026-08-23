@@ -278,6 +278,16 @@
             <h3 class="debug-console__panel-title">Commands</h3>
             <div data-debug-commands></div>
           </div>
+          <!-- What the bots are thinking. Empty, and hidden, until the server
+               streams it -- which it only does for an authorized console. -->
+          <div class="debug-console__panel debug-console__panel--npc" data-debug-npc-panel>
+            <h3 class="debug-console__panel-title">NPC AI</h3>
+            <p class="debug-console__note">
+              Personalities are tuned under Room parameters &rarr; NPCs, and take effect on the bot's next decision.
+            </p>
+            <div data-debug-npc></div>
+          </div>
+
           <div class="debug-console__panel">
             <h3 class="debug-console__panel-title">Room parameters</h3>
             <p class="debug-console__note">

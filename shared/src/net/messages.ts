@@ -3,6 +3,9 @@ import type { GameConfig } from "../config/types.js";
 import type { KillEvent, MatchResultPayload } from "../game/types.js";
 
 export type {
+  DebugNpcPayload,
+  DebugNpcScore,
+  DebugNpcSnapshot,
   DebugAuthRequest,
   DebugCommandRequest,
   DebugCommandResult,
@@ -62,6 +65,8 @@ export const ServerMessage = {
   DEBUG_STATE: "debugState",
   /** Outcome of one debug command. */
   DEBUG_RESULT: "debugResult",
+  /** What the bots are thinking. Streamed only while an authorized console is open. */
+  DEBUG_NPC: "debugNpc",
   /**
    * The room's configuration changed mid-match (only a debug command can do
    * this). Clients predict movement from these values, so they have to be told.

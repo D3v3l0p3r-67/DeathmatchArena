@@ -13,6 +13,7 @@ import {
   type DebugAuthRequest,
   type DebugCommandRequest,
   type DebugCommandResult,
+  type DebugNpcPayload,
   type DebugStatePayload,
   type GrenadeExplodedPayload,
   type InputCommand,
@@ -61,6 +62,8 @@ export interface NetworkEvents {
   /** Server's verdict on debug access, plus the catalogue when granted. */
   debugState: DebugStatePayload;
   debugResult: DebugCommandResult;
+  /** What the bots are thinking. Only arrives while a console is authorized. */
+  debugNpc: DebugNpcPayload;
   crateDestroyed: CrateDestroyedPayload;
   meleeSwing: MeleeSwingPayload;
   grenadeExploded: GrenadeExplodedPayload;
@@ -381,6 +384,9 @@ export class NetworkManager {
     );
     room.onMessage(ServerMessage.DEBUG_RESULT, (payload: DebugCommandResult) =>
       this.events.emit("debugResult", payload),
+    );
+    room.onMessage(ServerMessage.DEBUG_NPC, (payload: DebugNpcPayload) =>
+      this.events.emit("debugNpc", payload),
     );
     room.onMessage(ServerMessage.PONG, (payload: PongPayload) => this.handlePong(payload));
 

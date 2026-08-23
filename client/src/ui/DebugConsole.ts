@@ -2,6 +2,8 @@ import type {
   DebugCommandResult,
   DebugCommandSpec,
   DebugConfigEntry,
+  DebugNpcPayload,
+  DebugNpcSnapshot,
   DebugParamSpec,
   DebugStatePayload,
 } from "@deathmatch/shared";
@@ -29,6 +31,8 @@ export class DebugConsole {
   private readonly logRoot: HTMLElement;
   private readonly statusLabel: HTMLElement;
   private readonly roomLabel: HTMLElement;
+  private readonly npcRoot: HTMLElement;
+  private readonly npcPanel: HTMLElement;
 
   private granted = false;
   private open = false;
@@ -42,6 +46,8 @@ export class DebugConsole {
     this.commandsRoot = this.root.querySelector<HTMLElement>("[data-debug-commands]")!;
     this.configRoot = this.root.querySelector<HTMLElement>("[data-debug-config]")!;
     this.logRoot = this.root.querySelector<HTMLElement>("[data-debug-log]")!;
+    this.npcRoot = this.root.querySelector<HTMLElement>("[data-debug-npc]")!;
+    this.npcPanel = this.root.querySelector<HTMLElement>("[data-debug-npc-panel]")!;
 
     this.root.querySelector<HTMLElement>("[data-debug-close]")?.addEventListener("click", () => {
       this.setOpen(false);
@@ -235,6 +241,85 @@ export class DebugConsole {
    * Grouped and collapsed, because "the same parameters" now means well over a
    * hundred of them, and a flat list of that is not a console.
    */
+  /**
+   * What every bot is thinking.
+   *
+   * Read-only, and deliberately dense: while balancing a personality you want
+   * the scores, the chosen action and the context that produced them on screen
+   * at once, because the interesting question is always why the winner won.
+   */
+  renderNpcs(payload: DebugNpcPayload): void {
+    const npcs = payload.npcs ?? [];
+    toggleClass(this.npcPanel, "is-active", npcs.length > 0);
+    if (npcs.length === 0) {
+      this.npcRoot.replaceChildren();
+      return;
+    }
+
+    const fragment = document.createDocumentFragment();
+    for (const npc of npcs) fragment.append(this.renderNpc(npc));
+    this.npcRoot.replaceChildren(fragment);
+  }
+
+  private renderNpc(npc: DebugNpcSnapshot): HTMLElement {
+    const card = document.createElement("details");
+    card.className = "npc-card";
+    // The watched bot is the one being balanced, so it opens by itself.
+    card.open = npc.watched;
+
+    const summary = document.createElement("summary");
+    summary.innerHTML = "";
+    summary.append(
+      labelled("", `${npc.name}`, "npc-card__name"),
+      labelled("", npc.profileName, "npc-card__profile"),
+      labelled("", `${npc.action} · ${npc.state}`, "npc-card__action"),
+    );
+    card.append(summary);
+
+    const body = document.createElement("div");
+    body.className = "npc-card__body";
+
+    // Scores, highest first, with the chosen one marked.
+    const scores = document.createElement("div");
+    scores.className = "npc-card__scores";
+    for (const entry of [...npc.scores].sort((a, b) => b.score - a.score)) {
+      const row = document.createElement("div");
+      row.className = "npc-score";
+      toggleClass(row, "is-chosen", entry.chosen);
+      row.append(labelled("", entry.label, "npc-score__label"), labelled("", entry.score.toFixed(0), "npc-score__value"));
+      scores.append(row);
+    }
+    body.append(scores);
+
+    const facts = document.createElement("div");
+    facts.className = "npc-card__facts";
+    facts.append(
+      fact("Target", npc.targetName),
+      fact("Danger", npc.danger.toFixed(2)),
+      fact("Health", npc.health.toFixed(2)),
+      fact("Ammo", npc.ammo.toFixed(2)),
+      fact("Weapon fit", npc.weaponEffectiveness.toFixed(2)),
+      fact("Grenade", npc.grenadeDanger.toFixed(2)),
+      fact("Enemy dist", npc.enemyDistance >= 0 ? String(npc.enemyDistance) : "-"),
+      fact("Seen", String(npc.visibleEnemies)),
+    );
+    body.append(facts);
+
+    if (npc.log.length > 0) {
+      const log = document.createElement("div");
+      log.className = "npc-card__log";
+      for (const line of npc.log.slice(-12)) {
+        const row = document.createElement("div");
+        row.textContent = line;
+        log.append(row);
+      }
+      body.append(log);
+    }
+
+    card.append(body);
+    return card;
+  }
+
   private renderConfig(entries: DebugConfigEntry[]): void {
     const fragment = document.createDocumentFragment();
     let currentGroup = "";
@@ -323,4 +408,24 @@ export class DebugConsole {
 
     return row;
   }
+}
+
+function labelled(prefix: string, text: string, className: string): HTMLElement {
+  const element = document.createElement("span");
+  element.className = className;
+  element.textContent = prefix ? `${prefix} ${text}` : text;
+  return element;
+}
+
+function fact(label: string, value: string): HTMLElement {
+  const element = document.createElement("div");
+  element.className = "npc-fact";
+
+  const name = document.createElement("span");
+  name.textContent = label;
+  const number = document.createElement("b");
+  number.textContent = value;
+
+  element.append(name, number);
+  return element;
 }
