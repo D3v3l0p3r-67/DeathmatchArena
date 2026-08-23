@@ -218,9 +218,9 @@ how long the match runs first, how fast the walls travel, how narrow the gap get
 before they stop, and how hard they hurt. The HUD counts down to it and then
 warns while it is happening, both driven by whole seconds the server sends.
 
-Two players are enough to start (configurable via `MIN_PLAYERS`); five is the
-maximum, and the free places are held open for people before bots take them —
-see [NPCs](#npcs).
+A match is always five: at least one person, with bots taking whatever places
+people do not. Nothing starts short-handed, and the free places are held open for
+people before bots take them — see [NPCs](#npcs).
 When a match starts the room locks itself, so Colyseus routes new arrivals into a fresh
 room instead of an ongoing fight. Dead players stay connected as spectators and can
 cycle through the survivors. After the results screen the room recycles itself so the
@@ -561,14 +561,24 @@ dozen of them logging at eight hertz is noise nobody can read.
 
 ### Filling a lobby
 
-An arena seats five. A lobby holds its free places open for **people** first —
-a bot is a consolation prize, and given the choice a match should fill with
-players. Only once the hold expires do bots take what is left.
+**A match is always five, at least one of them a person, and bots take whatever
+people do not.**
+
+Nothing starts short-handed: the minimum and the maximum are the same number, so
+the lobby fills before the countdown rather than beginning with whoever happens
+to be standing there. The free places are held open for **people** first — a bot
+is a consolation prize, and given the choice a match should fill with players —
+and only once the hold expires do bots take what is left.
 
 ```
-1 player joins  ->  "Holding places for other players · 58s"  +  Start now with bots
+1 player joins   ->  "Holding places for other players · 58s"  +  Start now with bots
    ...nobody else arrives...
-hold expires    ->  four bots join, the match starts
+hold expires     ->  four bots join, the match starts        (1 person + 4 bots)
+
+2 players join   ->  still waiting: three seats are still somebody's
+either presses   ->  three bots join, the match starts       (2 people + 3 bots)
+
+5 players join   ->  the match starts, no bots               (5 people)
 ```
 
 The hold starts when the first person arrives and deliberately does **not** reset
@@ -584,6 +594,8 @@ watching. A dropped connection is not the same as leaving — that seat is held 
 the reconnection window.
 
 ```
+match.minPlayers     equal to the maximum, which is what makes "always five" true
+match.maxPlayers     the arena seats this many (5)
 npc.enabled          on by default
 npc.fillToPlayers    top a waiting lobby up to this many participants (5)
 npc.fillAfterMs      how long the places stay open for people (60s)

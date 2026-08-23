@@ -694,7 +694,10 @@ describe("bots in a real match", () => {
   function startMatch(profiles: [string, string]): Harness {
     const config = cloneConfig(getGameConfig());
     config.npc.enabled = true;
+    // A three-player match: one person and two bots. The shipped configuration
+    // seats five, which is more bots than these tests need to watch.
     config.npc.fillToPlayers = 3;
+    config.match.minPlayers = 3;
     // These tests are about bots playing, not about how long a lobby holds its
     // places open for people; that has its own tests below.
     config.npc.fillAfterMs = 0;
@@ -866,11 +869,88 @@ describe("holding a lobby open for people", () => {
     return harness;
   }
 
-  it("ships an arena for five", () => {
-    // Four bots and at least one person: bots never play among themselves.
-    assert.equal(DEFAULT_GAME_CONFIG.match.maxPlayers, 5);
-    assert.equal(DEFAULT_GAME_CONFIG.npc.fillToPlayers, 5);
-    assert.equal(DEFAULT_GAME_CONFIG.npc.maxBots, DEFAULT_GAME_CONFIG.match.maxPlayers - 1);
+  it("ships an arena for five, and never starts one short", () => {
+    // The whole rule in four numbers: always five, at least one of them a
+    // person, bots for the rest, and nothing begins until the arena is full.
+    const { match, npc } = DEFAULT_GAME_CONFIG;
+
+    assert.equal(match.maxPlayers, 5);
+    assert.equal(match.minPlayers, match.maxPlayers, "a match should never start short-handed");
+    assert.equal(npc.fillToPlayers, match.maxPlayers, "bots fill the arena, not part of it");
+    assert.equal(npc.maxBots, match.maxPlayers - 1, "one seat is always a person's");
+  });
+
+  it("fills to five and starts, from one person", () => {
+    const config = cloneConfig(getGameConfig());
+    config.npc.enabled = true;
+    config.npc.fillAfterMs = 0;
+
+    const harness = createHarness();
+    harness.replaceConfig(config);
+    harness.state.matchState = MatchState.WAITING;
+
+    const human = harness.addPlayer("human", 400, 1700);
+    human.connected = true;
+    human.alive = false;
+    human.inMatch = false;
+
+    harness.run(8);
+
+    assert.equal(harness.state.matchState, MatchState.PLAYING);
+    assert.equal(harness.state.startingPlayerCount, 5, "a full arena, every time");
+    assert.equal(harness.npcs.count, 4);
+  });
+
+  it("waits rather than starting with two people and three empty seats", () => {
+    // Two humans used to be enough to begin. Now the seats are held, filled,
+    // and only then does anything start -- which is the point of "always five".
+    const config = cloneConfig(getGameConfig());
+    config.npc.enabled = true;
+    config.npc.fillAfterMs = 30000;
+
+    const harness = createHarness();
+    harness.replaceConfig(config);
+    harness.state.matchState = MatchState.WAITING;
+
+    for (const name of ["one", "two"]) {
+      const player = harness.addPlayer(name, 400, 1700);
+      player.connected = true;
+      player.alive = false;
+      player.inMatch = false;
+    }
+
+    harness.run(5);
+
+    assert.equal(harness.state.matchState, MatchState.WAITING);
+    assert.ok(harness.state.canStartNow, "and either of them can skip the wait");
+
+    harness.npcs.requestImmediateStart("one");
+    harness.run(8);
+
+    assert.equal(harness.state.matchState, MatchState.PLAYING);
+    assert.equal(harness.state.startingPlayerCount, 5);
+  });
+
+  it("leaves no room for a bot when five people turn up", () => {
+    const config = cloneConfig(getGameConfig());
+    config.npc.enabled = true;
+    config.npc.fillAfterMs = 0;
+
+    const harness = createHarness();
+    harness.replaceConfig(config);
+    harness.state.matchState = MatchState.WAITING;
+
+    for (const name of ["a", "b", "c", "d", "e"]) {
+      const player = harness.addPlayer(name, 400, 1700);
+      player.connected = true;
+      player.alive = false;
+      player.inMatch = false;
+    }
+
+    harness.run(3);
+
+    assert.equal(harness.npcs.count, 0, "a full lobby of people needs no bots");
+    assert.equal(harness.state.canStartNow, false, "and nothing to skip");
   });
 
   it("keeps the free places open while the hold runs", () => {

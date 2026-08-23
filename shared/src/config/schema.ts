@@ -464,7 +464,7 @@ function crateFields(): FieldDescriptor[] {
 function matchFields(): FieldDescriptor[] {
   const { MATCH } = CATEGORY;
   return [
-    number("match.minPlayers", MATCH, "Match", "Minimum players", "Players needed before the countdown starts.", { min: 2, max: 32, step: 1, integer: true, mustNotExceed: "match.maxPlayers" }),
+    number("match.minPlayers", MATCH, "Match", "Minimum players", "Participants needed before the countdown starts, bots included. Equal to the maximum means every match is a full arena; lower lets one start short-handed.", { min: 2, max: 32, step: 1, integer: true, mustNotExceed: "match.maxPlayers" }),
     number("match.maxPlayers", MATCH, "Match", "Maximum players", "Hard cap on players in one match. Rooms created afterwards use the new limit.", { min: 2, max: 32, step: 1, integer: true, mustBeAtLeast: "match.minPlayers" }),
     number("match.countdownMs", MATCH, "Match", "Countdown (ms)", "How long the pre-match countdown runs.", { min: 1000, max: 60000, step: 500 }),
     number("match.resultsMs", MATCH, "Match", "Result screen (ms)", "How long the results stay up before the room recycles into a new lobby.", { min: 1000, max: 300000, step: 500 }),

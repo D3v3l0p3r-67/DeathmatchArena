@@ -40,8 +40,10 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   },
 
   match: {
-    // Two so the game is playable in two browser windows.
-    minPlayers: 2,
+    // A match is always five, and the same five as the arena seats: the lobby
+    // holds its places open for people, bots take whatever is left, and only
+    // then does anything start. Lowering this lets matches begin short-handed.
+    minPlayers: 5,
     maxPlayers: 5,
     countdownMs: 5000,
     resultsMs: 12000,
