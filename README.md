@@ -829,6 +829,40 @@ level 5              217ms                     122
 
 ---
 
+### A wall is not a door
+
+The most recognisable form of stuck bot — pressed flat against a solid block,
+leaping on the spot at a goal just the other side of it — turned out to be three
+smaller bugs agreeing with each other, and all three are fixed at the layer that
+owned them.
+
+**The graph linked routes through walls.** Two nodes on the same floor were
+walk-linked whenever they were close, but a wall can stand *on* that floor
+between them — SILO's central column does exactly this — and a route through one
+is a route a bot follows face-first into the wall. Walk links and level hops are
+now corridor-checked: a body-sized box is sampled along the line between the
+nodes, and anything solid on it kills the link. Climbs and drops are deliberately
+not checked, because they arc far above or fall below that line, and checking the
+chord would delete routes a bot can genuinely fly.
+
+**Every wall was answered with a maximum jump.** Something solid ahead used to
+trigger a blind full jump, however tall the something was. Steering now measures
+the obstacle first, probing upward with the same body-sized box against the same
+climb ceiling the graph builds links from: a wall a jump can clear gets a jump
+flown to exactly its top, and a wall no jump can clear gets a replan instead of a
+leap — and if the replan finds nothing, the goal is abandoned on the spot.
+
+**Giving up did not stick.** The brain re-decides eight times a second, and an
+action that wants an enemy's last-seen position hands the goal straight back the
+tick after the controller abandoned it. Worse, replanning restarted the
+no-progress clock, so the "give this up" deadline receded forever while the bot
+ground against the wall. The progress clock now starts with the *goal* rather
+than the plan, and an abandoned goal is remembered for a few seconds and refused
+if it is asked for again — a memory, not a ban, so the same place is worth another
+try once the arena has had a chance to change. Three tests drive the whole loop
+against a wall: over it when a jump can clear it, walking away when nothing can,
+and refusing the goal the brain keeps asking for.
+
 ## Jump pads, and holding a seat open
 
 Two smaller things, both of which reuse a mechanism rather than adding one.

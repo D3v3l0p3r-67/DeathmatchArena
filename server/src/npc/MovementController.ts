@@ -35,6 +35,12 @@ const JUMP_CLEARANCE = 14;
 const STUCK_HOP = 200;
 /** Beyond this, a goal with no route to it is treated as unreachable. */
 const UNREACHABLE_DISTANCE = 220;
+/** How long an abandoned goal stays refused, in ms. */
+const FAILED_GOAL_MS = 3500;
+/** A new goal this close to a recently failed one is the same goal. */
+const FAILED_GOAL_RADIUS = 80;
+/** Walls are re-planned around at most this often, in ms. */
+const REPATH_COOLDOWN_MS = 450;
 /** How far ahead to look for something dangerous, in px. */
 const HAZARD_LOOKAHEAD = 130;
 /** A hazard shorter than this can be jumped over rather than avoided. */
@@ -94,6 +100,17 @@ export class MovementController {
   private lastProgressAt = 0;
   private lastX = 0;
   private stuck = false;
+  /**
+   * Goals given up on, kept briefly so they are not immediately retried.
+   *
+   * The brain re-decides eight times a second, and an action that wants an
+   * enemy's last-seen position will ask for it again on the very next thought.
+   * Without this, "abandon the unreachable goal" lasts an eighth of a second
+   * and a bot spends the rest of the memory window pressed against the wall
+   * between it and a place it cannot get to.
+   */
+  private failedGoals: { x: number; y: number; until: number }[] = [];
+  private lastWallRepathAt = 0;
   /** True while backing away from a ledge to get a run-up at it. */
   private runningUp = false;
   /** 0..1, from this bot's difficulty. See `setNavigationSkill`. */
@@ -117,6 +134,9 @@ export class MovementController {
     this.world = world;
     this.clearGoal();
     this.stop();
+    // Failures were failures *of that arena's geometry*; the coordinates mean
+    // something else entirely in the next one.
+    this.failedGoals.length = 0;
   }
 
   // -------------------------------------------------------------------------
@@ -293,15 +313,54 @@ export class MovementController {
   }
 
   setGoal(x: number, y: number, self: SelfContext, now: number): void {
+    // A goal that was just abandoned as unreachable is not accepted back until
+    // the arena has had a chance to change -- somebody moved, a trap cooled.
+    // The refusal is what lets the brain's scoring actually move on.
+    if (this.isFailedGoal(x, y, now)) {
+      if (this.hasGoal && Math.hypot(this.goalX - x, this.goalY - y) <= FAILED_GOAL_RADIUS) {
+        this.clearGoal();
+        this.stop();
+      }
+      return;
+    }
+
     const moved = !this.hasGoal || Math.hypot(x - this.goalX, y - this.goalY) > 90;
 
     this.goalX = x;
     this.goalY = y;
     this.hasGoal = true;
 
+    // The progress clock starts with the goal, not with the plan. It used to
+    // restart on every replan -- and a stuck bot replans constantly, so the
+    // "give this up" deadline receded forever while the bot ground against
+    // whatever it was stuck on.
+    if (moved) {
+      this.lastProgressAt = now;
+      this.lastX = self.x;
+    }
+
     if (moved || this.path.length === 0 || this.stuck) {
       this.recomputePath(self, now);
     }
+  }
+
+  private rememberFailure(now: number): void {
+    if (!this.hasGoal) return;
+    this.failedGoals.push({ x: this.goalX, y: this.goalY, until: now + FAILED_GOAL_MS });
+    if (this.failedGoals.length > 4) this.failedGoals.shift();
+  }
+
+  private isFailedGoal(x: number, y: number, now: number): boolean {
+    let alive = 0;
+    for (const failed of this.failedGoals) {
+      if (failed.until <= now) continue;
+      this.failedGoals[alive++] = failed;
+    }
+    this.failedGoals.length = alive;
+
+    return this.failedGoals.some(
+      (failed) => Math.hypot(failed.x - x, failed.y - y) <= FAILED_GOAL_RADIUS,
+    );
   }
 
   private recomputePath(self: SelfContext, now: number): void {
@@ -312,15 +371,14 @@ export class MovementController {
     this.pathIndex = 0;
     this.stuck = false;
     this.runningUp = false;
-    this.lastProgressAt = now;
-    this.lastX = self.x;
 
     // No route, and too far to just walk at it. Steering straight at something
     // unreachable is what makes a bot pace back and forth under a ledge for the
-    // rest of the match; dropping the goal lets the brain pick something it can
-    // actually do.
+    // rest of the match; dropping the goal -- and remembering it, so the brain
+    // cannot hand it straight back -- lets it pick something it can actually do.
     const straightLine = Math.hypot(this.goalX - self.x, this.goalY - self.y);
     if (this.path.length === 0 && straightLine > UNREACHABLE_DISTANCE) {
+      this.rememberFailure(now);
       this.clearGoal();
     }
   }
@@ -366,7 +424,7 @@ export class MovementController {
       this.stop();
     }
 
-    this.considerJump(self, waypoint, rise, dx);
+    this.considerJump(self, waypoint, rise, dx, now);
     this.avoidHazards(self, hazards);
     this.updateJump(self);
     this.trackProgress(self, now);
@@ -461,6 +519,7 @@ export class MovementController {
     waypoint: { x: number; y: number; kind: string },
     rise: number,
     dx: number,
+    now: number,
   ): void {
     if (!self.onGround && self.jumpsRemaining <= 0) return;
 
@@ -478,7 +537,13 @@ export class MovementController {
     }
 
     if (this.intent.direction !== 0 && self.onGround && this.blockedAhead(self)) {
-      this.jump();
+      // Measure the wall before jumping at it. A blind maximum jump against
+      // anything solid was the old answer, and against a wall taller than a
+      // jump it produced the most recognisable form of stuck bot there is:
+      // pressed against the face of it, leaping on the spot.
+      const passY = this.clearanceAhead(self);
+      if (passY !== null) this.jumpTo(passY - JUMP_CLEARANCE);
+      else this.routeAroundWall(self, now);
       return;
     }
 
@@ -489,6 +554,51 @@ export class MovementController {
   private blockedAhead(self: SelfContext): boolean {
     const probeX = self.x + this.intent.direction * (PLAYER_HALF_WIDTH + 10);
     return this.world.isBoxBlocked(probeX, self.y - 6, PLAYER_HALF_WIDTH * 0.8, PLAYER_HALF_HEIGHT * 0.6);
+  }
+
+  /**
+   * The height at which the body would pass over what is directly ahead, or
+   * null when no jump can fly that high.
+   *
+   * Probes upward with the same body-sized box `blockedAhead` used, against the
+   * same climb ceiling the navigation graph built its links from -- so what
+   * steering believes it can clear and what routes believe it can clear are the
+   * same physics.
+   */
+  private clearanceAhead(self: SelfContext): number | null {
+    const probeX = self.x + this.intent.direction * (PLAYER_HALF_WIDTH + 10);
+
+    for (let rise = 24; rise <= this.graph.maxClimb; rise += 16) {
+      const y = self.y - rise;
+      if (!this.world.isBoxBlocked(probeX, y, PLAYER_HALF_WIDTH * 0.8, PLAYER_HALF_HEIGHT * 0.6)) {
+        return y;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * The wall ahead cannot be jumped: stop walking into it and find another way.
+   *
+   * Replans from where the bot actually is -- the graph knows routes over and
+   * around -- and when there is none, gives the goal up *and remembers it*, so
+   * the brain's next thought cannot immediately hand the same one back. Without
+   * the memory this is a loop with a one-tick pause in it.
+   */
+  private routeAroundWall(self: SelfContext, now: number): void {
+    if (now - this.lastWallRepathAt < REPATH_COOLDOWN_MS) return;
+    this.lastWallRepathAt = now;
+
+    this.recomputePath(self, now);
+
+    // recomputePath keeps a close pathless goal on the theory that walking
+    // straight at it will do. The wall in front of us is proof it will not.
+    if (this.hasGoal && this.path.length === 0) {
+      this.rememberFailure(now);
+      this.clearGoal();
+      this.stop();
+    }
   }
 
   private trackProgress(self: SelfContext, now: number): void {
@@ -515,6 +625,7 @@ export class MovementController {
     // something else next time it thinks, rather than leaving a bot pressed
     // against the underside of a platform for the rest of the match.
     if (stalled > this.abandonAfterMs) {
+      this.rememberFailure(now);
       this.clearGoal();
       this.stop();
       this.lastProgressAt = now;
@@ -540,6 +651,8 @@ export class MovementController {
 
   reset(): void {
     this.intent = { direction: 0, jump: false, dropping: false };
+    this.failedGoals.length = 0;
+    this.lastWallRepathAt = 0;
     this.jumpPhase = "idle";
     this.jumpButton = false;
     this.airJumpAvailable = false;

@@ -52,11 +52,19 @@ export interface NavLink {
 export class NavGraph {
   readonly nodes: NavNode[] = [];
   readonly links: NavLink[][] = [];
+  /**
+   * How high a full jump -- both of them, flown well -- actually gets, in px.
+   *
+   * The same figure the links are built from, exposed so steering can ask "is
+   * this wall in front of me climbable at all?" against the same physics the
+   * routes were planned with, rather than guessing with a constant.
+   */
+  maxClimb = 0;
 
   /** Trap rectangles, grown by a margin, that routes should avoid. */
   private readonly hazards: { left: number; right: number; top: number; bottom: number }[] = [];
 
-  constructor(arena: ArenaDefinition, world: CollisionWorld, player: PlayerConfig) {
+  constructor(arena: ArenaDefinition, private readonly world: CollisionWorld, player: PlayerConfig) {
     this.collectHazards(arena);
     this.buildNodes(arena, world);
     this.buildLinks(player);
@@ -247,6 +255,7 @@ export class NavGraph {
     const singleRise = (jumpSpeed * jumpSpeed) / (2 * gravity);
     const jumps = Math.max(1, Math.round(player.maxJumps));
     const maxRise = jumps > 1 ? singleRise * (1 + player.airJumpMultiplier ** 2 * 0.55) : singleRise;
+    this.maxClimb = maxRise;
 
     // Roughly how far you travel horizontally over a full jump arc.
     const airtime = (2 * jumpSpeed) / gravity;
@@ -269,7 +278,12 @@ export class NavGraph {
         const rise = a.y - b.y;
 
         if (a.surfaceId === b.surfaceId && Math.abs(rise) < 2 && dx <= 140) {
-          this.links[i]!.push({ to: j, kind: "walk", cost: dx + this.hazardCost(a, b) });
+          // Sharing a surface is not enough: a wall can stand *on* the surface
+          // between two of its nodes, and a walk link through one is a route a
+          // bot will follow face-first into the wall.
+          if (!this.corridorBlocked(a, b)) {
+            this.links[i]!.push({ to: j, kind: "walk", cost: dx + this.hazardCost(a, b) });
+          }
           continue;
         }
 
@@ -288,6 +302,11 @@ export class NavGraph {
         // Level or downwards. A step across a gap still needs a hop.
         if (dx <= maxDropReach && -rise <= 2200) {
           const kind: NavLinkKind = rise < -4 ? "drop" : "jump";
+          // A level hop is flown roughly along the line between the nodes, so
+          // anything solid on that line -- a wall between two floors -- makes
+          // the link a lie. Climbs arc far above the line and drops fall below
+          // it, so only the level case is checked.
+          if (kind === "jump" && this.corridorBlocked(a, b)) continue;
           this.links[i]!.push({
             to: j,
             kind,
@@ -309,6 +328,29 @@ export class NavGraph {
    * a bot will happily walk the length of the arena rather than through the
    * spikes, and will still go through them when there is no other way at all.
    */
+  /**
+   * Is there something solid on the straight line between two standing spots?
+   *
+   * Sampled with a body-sized box every couple of dozen px. Used only for links
+   * that are actually travelled along that line (walking, level hops) -- a
+   * climb's arc and a drop's fall leave the line immediately, and checking the
+   * chord would delete routes a bot can genuinely fly.
+   */
+  private corridorBlocked(a: NavNode, b: NavNode): boolean {
+    const steps = Math.ceil(Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y)) / 24);
+
+    for (let step = 1; step < steps; step++) {
+      const t = step / steps;
+      const x = a.x + (b.x - a.x) * t;
+      const y = a.y + (b.y - a.y) * t;
+      if (this.world.isBoxBlocked(x, y, PLAYER_HALF_WIDTH * 0.8, PLAYER_HALF_HEIGHT * 0.8)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   private hazardCost(a: NavNode, b: NavNode): number {
     let cost = b.hazardous ? HAZARD_STANDING_COST : 0;
     if (this.crossesHazard(a, b)) cost += HAZARD_CROSSING_COST;
