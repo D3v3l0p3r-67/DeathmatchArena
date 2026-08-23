@@ -1,8 +1,10 @@
 import {
   FIXED_DELTA,
   NETWORK,
+  applyKnockback,
   createMovementState,
   distance,
+  getPlayerConfig,
   stepPlayerMovement,
   type CollisionWorld,
   type InputCommand,
@@ -10,6 +12,7 @@ import {
   type SyncedPlayer,
   type WorldBounds,
 } from "@deathmatch/shared";
+import { LocalFireModel, type PredictedShot } from "./LocalFireModel.js";
 
 export interface PredictionDebugInfo {
   /** Distance between the last prediction and the server-corrected result. */
@@ -33,6 +36,13 @@ export interface PredictionDebugInfo {
  *      smoothing offset that decays over a few frames, so a correction reads as a
  *      slight drift rather than a teleport.
  *
+ * Recoil is part of the prediction. The server shoves the shooter when a shot
+ * fires, and a shove the client does not predict becomes a correction on every
+ * single shot -- the stutter you feel when firing on a real connection. So a
+ * local mirror of the fire gate decides "the server will fire here" and applies
+ * the same `applyKnockback` on the same tick, and reconciliation re-applies it
+ * when replaying inputs the server has not seen yet.
+ *
  * The server always wins; the player just never feels the round trip.
  */
 export class PredictionController {
@@ -40,6 +50,7 @@ export class PredictionController {
   readonly movement: MovementState = createMovementState();
 
   private readonly pending: InputCommand[] = [];
+  private readonly fireModel = new LocalFireModel();
 
   /**
    * The playable limits to predict against.
@@ -116,21 +127,47 @@ export class PredictionController {
     this.movement.knockbackTimer = player.knockbackTimer || 0;
     this.previousX = this.movement.x;
     this.previousY = this.movement.y;
+    this.fireModel.reset(player);
     this.initialised = true;
   }
 
-  /** Apply one input locally, ahead of the server. */
-  predict(input: InputCommand): void {
-    if (!this.initialised) return;
+  /**
+   * Apply one input locally, ahead of the server.
+   *
+   * Returns the shot this tick fires, when the fire model says the server will
+   * fire one -- the scene turns that into immediate muzzle feedback.
+   */
+  predict(input: InputCommand): PredictedShot | null {
+    if (!this.initialised) return null;
 
     // Where this step began, so the frames drawn before the next one can be
     // placed between the two rather than all on top of this one.
     this.previousX = this.movement.x;
     this.previousY = this.movement.y;
     stepPlayerMovement(this.movement, input, FIXED_DELTA, this.world, this.bounds);
-    this.pending.push(input);
 
+    // Movement first, then the shot: the server steps the same input before it
+    // processes the weapon, so the recoil lands on the post-step velocity there
+    // and must land on it here.
+    const shot = this.fireModel.advance(input);
+    if (shot) this.applyRecoil(shot);
+
+    this.pending.push(input);
     if (this.pending.length > NETWORK.MAX_QUEUED_INPUTS) this.pending.shift();
+    return shot;
+  }
+
+  /** The same shove the server applies for this shot: backwards along the aim,
+   *  no lift, clamped by the same player configuration. */
+  private applyRecoil(shot: PredictedShot): void {
+    applyKnockback(
+      this.movement,
+      -Math.cos(shot.aimAngle),
+      -Math.sin(shot.aimAngle),
+      shot.recoilForce,
+      getPlayerConfig(),
+      0,
+    );
   }
 
   /**
@@ -150,6 +187,7 @@ export class PredictionController {
     while (this.pending.length > 0 && this.pending[0]!.seq <= player.lastProcessedInput) {
       this.pending.shift();
     }
+    this.fireModel.reconcile(player);
 
     // Rewind to server truth...
     this.movement.x = player.x;
@@ -167,9 +205,17 @@ export class PredictionController {
     // predict a mid-air jump the server never granted.
     this.movement.jumpsRemaining = player.jumpsRemaining;
 
-    // ...and replay whatever it has not seen yet.
+    // ...and replay whatever it has not seen yet -- including the recoil of any
+    // shot predicted on one of those ticks, or the correction would reintroduce
+    // the very error predicting the recoil removed.
+    const shots = this.fireModel.pendingShots;
+    let nextShot = 0;
     for (const input of this.pending) {
       stepPlayerMovement(this.movement, input, FIXED_DELTA, this.world, this.bounds);
+      while (nextShot < shots.length && shots[nextShot]!.seq <= input.seq) {
+        if (shots[nextShot]!.seq === input.seq) this.applyRecoil(shots[nextShot]!);
+        nextShot++;
+      }
     }
 
     const errorX = previousX - this.movement.x;

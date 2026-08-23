@@ -59,6 +59,10 @@ export class PlayerView {
   /** Tracked so the weapon texture is only swapped when it actually changes. */
   private weaponId = "";
   private beltCount = -1;
+  /** What the bar last drew, so a full-health crowd costs no redraws. */
+  private drawnHealth = -1;
+  /** Whether the throw arrow drew anything last frame; a clear is only owed if so. */
+  private throwArrowDrawn = false;
 
   /** Elapsed time in the celebration, in ms. Negative when not celebrating. */
   private celebratingFor = -1;
@@ -218,6 +222,7 @@ export class PlayerView {
   /** Put everything back for a new life. */
   private reviveVisuals(): void {
     this.dyingFor = -1;
+    this.drawnHealth = -1;
     this.container.setVisible(true);
     this.container.setAlpha(1);
     this.body.setRotation(0);
@@ -379,6 +384,11 @@ export class PlayerView {
   }
 
   private drawHealthBar(health: number): void {
+    // Redrawing a Graphics object means re-tessellating it; health changes on
+    // hits, not on frames, so a bar that has not changed is not redrawn.
+    if (health === this.drawnHealth) return;
+    this.drawnHealth = health;
+
     const width = 34;
     const height = 4;
     const ratio = clamp(health / getPlayerConfig().maxHealth, 0, 1);
@@ -416,8 +426,18 @@ export class PlayerView {
    * `progress` is 0..1; anything at or below zero clears it.
    */
   setThrowCharge(progress: number): void {
+    // Nobody charging is the common case, and it should cost nothing: the
+    // arrow is only cleared when there is something drawn to clear.
+    if (progress <= 0) {
+      if (this.throwArrowDrawn) {
+        this.throwArrow.clear();
+        this.throwArrowDrawn = false;
+      }
+      return;
+    }
+
     this.throwArrow.clear();
-    if (progress <= 0) return;
+    this.throwArrowDrawn = true;
 
     const charge = clamp(progress, 0, 1);
     const originX = Math.cos(this.renderedAim) * THROW_ARROW_START;

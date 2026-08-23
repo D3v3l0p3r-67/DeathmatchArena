@@ -194,6 +194,36 @@ client renders at 60+ FPS.
 Physics never depends on frame rate or on packet arrival: both sides advance in exact
 multiples of a fixed 1/60 s step, carrying the remainder in an accumulator.
 
+### Firing is predicted too
+
+Movement prediction alone leaves one seam, and it is exactly where a player is
+looking hardest: the trigger. The server applies recoil when a shot fires, and a
+shove the client does not predict becomes a reconciliation correction on *every
+single shot* — around latency × recoil speed, which on an ordinary Wi-Fi round
+trip is a visible 10–30 px rubber-band per shot. The flash and the bang used to
+wait for the projectile to come back over the wire too, so firing was the one
+action in the game that felt the connection.
+
+The client therefore runs a local mirror of the server's fire gate
+(`LocalFireModel`) for its own player: same weapon definition, same rules —
+ammunition, fire-rate cooldown, reload, fresh trigger pull for semi-automatics —
+advanced one fixed tick per input, exactly as the server drains one input per
+tick. When the model says "the server will fire here", three things happen on
+that tick instead of a round trip later: the same `applyKnockback` recoil lands
+on the predicted movement, the muzzle flash and camera kick play, and the shot
+sound fires. Reconciliation replays the recoil of still-unconfirmed shots when
+it replays pending inputs, so a predicted shot produces no error at all.
+
+Nothing about authority moves. The server still decides what every shot *does* —
+projectiles, damage, ammunition are simulated there and nowhere else — and the
+model is self-healing: each patch it rebuilds its magazine from the server's
+count minus the shots the server has not yet simulated, so a wrong guess (or an
+ammunition refill it cannot see) is corrected within one patch. A misprediction
+costs one smoothed correction, which is what every shot cost before the model
+existed. The one honest limit: the server measures cooldowns on its own clock
+and the model measures them in ticks, so around the edge of a cooldown the two
+can disagree by one tick — a couple of pixels, inside the smoothing threshold.
+
 ### Match flow
 
 ```

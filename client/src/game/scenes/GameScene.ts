@@ -8,7 +8,6 @@ import {
   getGrenadeConfig,
   getCollisionWorld,
   getPowerUp,
-  getWeapon,
   type ArenaDefinition,
   type CollisionWorld,
   type CrateDestroyedPayload,
@@ -29,6 +28,7 @@ import {
 } from "@deathmatch/shared";
 import type { NetworkManager } from "../../net/NetworkManager.js";
 import { PredictionController } from "../../net/PredictionController.js";
+import type { PredictedShot } from "../../net/LocalFireModel.js";
 import { SnapshotBuffer } from "../../net/SnapshotBuffer.js";
 import { ArenaRenderer } from "../ArenaRenderer.js";
 import { CameraController } from "../CameraController.js";
@@ -60,6 +60,13 @@ export interface GameSceneEvents {
   onPowerUpCollected(payload: PowerUpCollectedPayload): void;
   /** A crate has been announced and is on its way to this spot. */
   onCrateIncoming(warning: SyncedPendingCrate): void;
+  /**
+   * The local player fired, as predicted by the client's fire model, with the
+   * muzzle position the flash was drawn at. Fired on the tick of the trigger
+   * pull -- the shell plays the shot sound here so the feedback is immediate
+   * rather than a round trip away.
+   */
+  onLocalShot(shot: PredictedShot, muzzleX: number, muzzleY: number): void;
   /**
    * The kill that ended the match has finished playing out.
    *
@@ -467,15 +474,13 @@ export class GameScene extends Phaser.Scene {
     this.projectileViews.set(projectile.id, new ProjectileView(this, projectile, now));
 
     // A new projectile is the only signal we need for a muzzle flash -- no extra
-    // "shot fired" message has to cross the wire.
+    // "shot fired" message has to cross the wire. Except for our own: those are
+    // predicted, and their flash, kick and sound already played on the tick of
+    // the trigger pull instead of a round trip later.
+    if (projectile.ownerId === this.network.sessionId) return;
+
     const angle = Math.atan2(projectile.velocityY, projectile.velocityX);
     this.effects.muzzleFlash(projectile.x, projectile.y, angle, projectile.weaponId);
-
-    if (projectile.ownerId === this.network.sessionId) {
-      const weapon = getWeapon(projectile.weaponId);
-      const shake = this.effects.shakeFor((weapon.ranged?.pellets ?? 1) > 1 ? "ownShotgun" : "ownShot");
-      this.cameraController.shake(shake.durationMs, shake.intensity);
-    }
   }
 
   private removeProjectileView(projectile: SyncedProjectile): void {
@@ -887,8 +892,9 @@ export class GameScene extends Phaser.Scene {
       if (!canPlay) continue;
 
       // Predict locally, then queue the very same command for the server.
-      this.prediction.predict(input);
+      const shot = this.prediction.predict(input);
       this.network.queueInput(input);
+      if (shot) this.showLocalShot(shot);
     }
 
     if (ticks === MAX_TICKS_PER_FRAME) this.accumulatorMs = 0;
@@ -899,6 +905,29 @@ export class GameScene extends Phaser.Scene {
     // one on any display that is not exactly in step with the simulation.
     this.prediction.setStepProgress(this.accumulatorMs / FIXED_DELTA_MS);
     void now;
+  }
+
+  /**
+   * Immediate muzzle feedback for a predicted shot.
+   *
+   * Drawn from the *rendered* position so the flash sits on the barrel being
+   * drawn this frame, not on the simulation position half a step ahead of it.
+   * The projectile-driven flash stacks once per pellet, so this stacks the same
+   * way -- a shotgun's flash is as bright as the one everybody else sees.
+   */
+  private showLocalShot(shot: PredictedShot): void {
+    const x = this.prediction.renderX + Math.cos(shot.aimAngle) * PLAYER.MUZZLE_OFFSET_X;
+    const y =
+      this.prediction.renderY + PLAYER.AIM_ORIGIN_Y + Math.sin(shot.aimAngle) * PLAYER.MUZZLE_OFFSET_X;
+
+    for (let pellet = 0; pellet < shot.pellets; pellet++) {
+      this.effects.muzzleFlash(x, y, shot.aimAngle, shot.weaponId);
+    }
+
+    const shake = this.effects.shakeFor(shot.pellets > 1 ? "ownShotgun" : "ownShot");
+    this.cameraController.shake(shake.durationMs, shake.intensity);
+
+    this.hooks.onLocalShot(shot, x, y);
   }
 
   private renderLocalPlayer(deltaSeconds: number): void {

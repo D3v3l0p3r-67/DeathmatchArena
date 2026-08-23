@@ -138,3 +138,115 @@ describe("drawing a prediction between steps", () => {
     assert.ok(Math.abs(after - before) < 2, `a small correction should not jump the drawing, ${before} -> ${after}`);
   });
 });
+
+describe("predicting your own recoil", () => {
+  /*
+   * The server shoves the shooter when a shot fires. Before the fire model
+   * existed the client never predicted that shove, so every single shot became
+   * a reconciliation correction -- the stutter you feel when firing over a real
+   * connection. These pin the two halves of the fix: the shove happens on the
+   * tick of the trigger pull, and reconciliation replays it for shots the
+   * server has not confirmed yet.
+   */
+  const armed = () =>
+    serverPlayer({ weaponId: "assault-rifle", ammo: 30, reloading: false } as Partial<SyncedPlayer>);
+
+  function fire(prediction: InstanceType<typeof PredictionController>, seq: number) {
+    const input = createInputCommand(seq);
+    input.fire = true;
+    return prediction.predict(input);
+  }
+
+  it("kicks the shooter backwards on the tick of the trigger pull", () => {
+    const prediction = new PredictionController(world);
+    prediction.reset(armed());
+
+    const shot = fire(prediction, 1);
+
+    assert.ok(shot, "holding the trigger with a full magazine fires");
+    assert.ok(
+      prediction.movement.velocityX < -50,
+      `firing to the right should shove leftwards, got ${prediction.movement.velocityX}`,
+    );
+    assert.ok(prediction.movement.knockbackTimer > 0, "recoil opens the knockback decay window");
+  });
+
+  it("respects the weapon's fire rate", () => {
+    const prediction = new PredictionController(world);
+    prediction.reset(armed());
+
+    let shots = 0;
+    for (let seq = 1; seq <= 60; seq++) if (fire(prediction, seq)) shots++;
+
+    // 115.4ms between shots at 60 ticks/s: one shot, then one per 7 ticks.
+    const expected = 1 + Math.floor((60 - 1) / 7);
+    assert.ok(
+      Math.abs(shots - expected) <= 1,
+      `a second of automatic fire should land about ${expected} shots, got ${shots}`,
+    );
+  });
+
+  it("replays unconfirmed recoil through reconciliation", () => {
+    const prediction = new PredictionController(world);
+    const spawn = armed();
+    prediction.reset(spawn);
+
+    for (let seq = 1; seq <= 6; seq++) fire(prediction, seq);
+
+    // The server has seen none of it: reconciling against the spawn state must
+    // rebuild the same shots on replay, or predicting the recoil would create
+    // the very per-shot error it exists to remove.
+    prediction.reconcile(spawn);
+
+    assert.ok(
+      prediction.getDebugInfo().lastErrorPx < 0.5,
+      `replaying pending shots should reproduce the prediction exactly, error was ${
+        prediction.getDebugInfo().lastErrorPx
+      }px`,
+    );
+  });
+
+  it("stops predicting when the magazine the server knows about is spent", () => {
+    const prediction = new PredictionController(world);
+    prediction.reset(armed());
+
+    // Empty the magazine and keep holding the trigger through the reload:
+    // ~3.4s to spend 30 rounds, a 1.8s reload, then it resumes.
+    let shots = 0;
+    for (let seq = 1; seq <= 60 * 8; seq++) if (fire(prediction, seq)) shots++;
+
+    assert.ok(shots > 30, `the reload should complete and firing resume, got ${shots}`);
+    assert.ok(shots <= 60, `eight seconds of fire cannot spend two full magazines, got ${shots}`);
+  });
+
+  it("adopts the server's weapon on a pickup instead of guessing", () => {
+    const prediction = new PredictionController(world);
+    prediction.reset(armed());
+
+    fire(prediction, 1);
+    // The server re-equipped us (a weapon crate): the model must follow suit.
+    prediction.reconcile(
+      serverPlayer({ weaponId: "shotgun", ammo: 6, reloading: false, lastProcessedInput: 1 } as Partial<SyncedPlayer>),
+    );
+
+    // Release the trigger for a tick -- the new weapon is a semi-automatic, and
+    // the model, like the server, demands a fresh pull.
+    prediction.predict(createInputCommand(2));
+    const shot = fire(prediction, 3);
+    assert.ok(shot, "the fresh weapon fires immediately");
+    assert.equal(shot!.weaponId, "shotgun");
+    assert.equal(shot!.pellets > 1, true, "a shotgun shot carries its pellet count");
+  });
+
+  it("semi-automatics need a fresh trigger pull", () => {
+    const prediction = new PredictionController(world);
+    prediction.reset(
+      serverPlayer({ weaponId: "shotgun", ammo: 6, reloading: false } as Partial<SyncedPlayer>),
+    );
+
+    assert.ok(fire(prediction, 1), "the first pull fires");
+    let shots = 0;
+    for (let seq = 2; seq <= 120; seq++) if (fire(prediction, seq)) shots++;
+    assert.equal(shots, 0, "holding the trigger on a semi-automatic fires nothing more");
+  });
+});
