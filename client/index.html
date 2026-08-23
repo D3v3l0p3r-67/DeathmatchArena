@@ -161,6 +161,23 @@
           </div>
         </div>
 
+        <!-- On-screen controls. Hidden until a touch says they are wanted; see
+             `TouchControls`. Buttons rather than canvas drawing so a finger on a
+             control never reaches the game's own pointer handling, which is what
+             lets you aim and shoot at the same time. -->
+        <div class="touch" id="touch-controls" hidden>
+          <div class="touch__cluster touch__cluster--move">
+            <button class="touch__button" id="touch-left" type="button" aria-label="Move left">&#8592;</button>
+            <button class="touch__button" id="touch-right" type="button" aria-label="Move right">&#8594;</button>
+          </div>
+          <div class="touch__cluster touch__cluster--act">
+            <button class="touch__button touch__button--small" id="touch-reload" type="button" aria-label="Reload">R</button>
+            <button class="touch__button touch__button--small" id="touch-grenade" type="button" aria-label="Grenade">G</button>
+            <button class="touch__button" id="touch-jump" type="button" aria-label="Jump">&#8593;</button>
+            <button class="touch__button touch__button--fire" id="touch-fire" type="button" aria-label="Fire">FIRE</button>
+          </div>
+        </div>
+
         <div class="crosshair" id="crosshair" aria-hidden="true"></div>
         <div class="hitmarker" id="hitmarker" aria-hidden="true"></div>
         <div class="damage-flash" id="damage-flash" aria-hidden="true"></div>

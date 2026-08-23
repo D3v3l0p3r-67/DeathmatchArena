@@ -84,6 +84,29 @@ body {
   border: 1px solid var(--panel-border);
   border-radius: 14px;
   box-shadow: var(--shadow);
+  /*
+   * A landscape phone is under 400px tall, which is less than a lobby full of
+   * players needs. Scroll inside the panel rather than letting the start button
+   * fall off the bottom of the screen.
+   */
+  max-height: 100%;
+  overflow-y: auto;
+}
+
+/* Short screens: give the panel back the space the padding was using. */
+@media (max-height: 520px) {
+  .panel {
+    padding: 20px 24px;
+  }
+
+  .title {
+    font-size: 34px;
+  }
+
+  .tagline,
+  .hint {
+    display: none;
+  }
 }
 
 .panel--menu {
@@ -264,6 +287,78 @@ kbd {
   font-weight: 700;
   letter-spacing: 0.05em;
   color: var(--accent);
+}
+
+/* ----------------------------------------------------------------- touch -- */
+
+/*
+ * On-screen controls.
+ *
+ * Only ever visible on a device that has shown it wants them. Laid over the HUD
+ * with `pointer-events` on the buttons alone, so the space between them is still
+ * the game -- which is where aiming happens.
+ */
+.touch {
+  position: absolute;
+  inset: auto 0 0 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  /* Clear of the health and ammunition strip, which owns the very bottom. */
+  padding: 0 18px 104px;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.touch[hidden] {
+  display: none;
+}
+
+.touch__cluster {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.touch__button {
+  width: 74px;
+  height: 74px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 50%;
+  background: rgba(12, 18, 28, 0.55);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 26px;
+  line-height: 1;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 80ms ease, transform 80ms ease;
+}
+
+.touch__button--small {
+  width: 54px;
+  height: 54px;
+  font-size: 16px;
+  letter-spacing: 0.04em;
+}
+
+.touch__button--fire {
+  width: 96px;
+  height: 96px;
+  font-size: 16px;
+  letter-spacing: 0.14em;
+  border-color: rgba(56, 189, 248, 0.5);
+  background: rgba(56, 189, 248, 0.2);
+  color: var(--accent);
+}
+
+.touch__button.is-held {
+  background: rgba(56, 189, 248, 0.45);
+  transform: scale(0.94);
 }
 
 /* This browser's own record, on the menu. */

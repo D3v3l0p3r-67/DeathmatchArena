@@ -756,6 +756,35 @@ level 5              217ms                     122
 
 ---
 
+## Playing with thumbs
+
+The game is keyboard and mouse, and on a phone that made it unplayable rather
+than merely awkward. There are now on-screen controls — move, jump, fire, reload
+and grenade — and the interesting part is when they appear.
+
+**Only when they are wanted.** A phone gets them immediately; a desktop never
+sees them; a laptop with a touchscreen gets them the moment a finger arrives and
+loses them again the moment a key is pressed. The last input actually used
+decides, rather than a guess made at boot: permanent thumb pads on a machine with
+a keyboard are clutter, and a `Space to jump` hint on a phone is a lie. They also
+follow the HUD in and out, because controls have no business over a menu.
+
+**They are DOM buttons, not painted on the canvas.** That is what makes aiming
+and shooting at the same time work: a finger on a button never reaches the game's
+own pointer handling, so the buttons take their touches, the canvas takes the
+rest, and the browser keeps them apart at no cost. Aiming is unchanged — you
+point at where you want to shoot, exactly as the mouse does.
+
+Nothing here is a new authority. The controls produce the same intent a key
+produces, and the server trusts it exactly as little.
+
+Two things fell out of testing it on a real phone viewport: the lobby panel now
+scrolls inside itself and sheds its decoration below 520px of height, because a
+landscape phone is under 400px tall and the start button was falling off the
+bottom of the screen.
+
+---
+
 ## A record, not a ranking
 
 Every player carries a small career across matches: matches played, matches won,

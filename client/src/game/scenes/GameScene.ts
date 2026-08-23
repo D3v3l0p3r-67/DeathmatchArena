@@ -36,6 +36,7 @@ import { InputController } from "../InputController.js";
 import { ShrinkWallsView } from "../ShrinkWallsView.js";
 import { generateWeaponTextures } from "../TextureFactory.js";
 import { DEFAULT_EFFECTS_SETTINGS, FINALE, type EffectsSettings } from "../fx/effects.js";
+import type { TouchIntent } from "../../ui/TouchControls.js";
 import { CrateView } from "../entities/CrateView.js";
 import { CrateWarningView } from "../entities/CrateWarningView.js";
 import { GrenadeView } from "../entities/GrenadeView.js";
@@ -982,6 +983,17 @@ export class GameScene extends Phaser.Scene {
 
   get grenadeCount(): number {
     return this.grenadeViews.size;
+  }
+
+  /**
+   * What the on-screen controls are asking for.
+   *
+   * Routed through the scene because the input controller belongs to it, and the
+   * controls are DOM the shell owns -- neither should have to know the other
+   * exists.
+   */
+  setTouchIntent(intent: TouchIntent): void {
+    this.inputController?.setTouchIntent(intent);
   }
 
   /** Apply the player's effects preferences. Safe to call before `begin`. */

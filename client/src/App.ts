@@ -24,6 +24,7 @@ import { DebugConsole } from "./ui/DebugConsole.js";
 import { DebugOverlay } from "./ui/DebugOverlay.js";
 import { HUD } from "./ui/HUD.js";
 import { KillFeed } from "./ui/KillFeed.js";
+import { TouchControls } from "./ui/TouchControls.js";
 import { UIManager } from "./ui/UIManager.js";
 
 /** HUD text does not need to change 60 times a second. */
@@ -160,6 +161,8 @@ export class App {
    */
   private pendingResult: MatchResultMessage | null = null;
 
+  /** On-screen controls, shown only on a device that has asked for them. */
+  private touch!: TouchControls;
   /** The rung this player last added a bot at, remembered between sessions. */
   private botPreference = loadBotPreference();
 
@@ -192,6 +195,10 @@ export class App {
       onRemoveBot: (sessionId) => this.network.removeBot(sessionId),
       onPlayAgain: () => this.handlePlayAgain(),
       onBackToMenu: () => void this.returnToMenu(),
+    });
+
+    this.touch = new TouchControls({
+      onIntent: (intent) => this.getGameScene()?.setTouchIntent(intent),
     });
 
     this.restoreStoredName();
@@ -438,6 +445,10 @@ export class App {
   }
 
   private onMatchStateChanged(matchState: MatchStateValue): void {
+    // The on-screen controls belong to the match, not to the menus: they follow
+    // the HUD exactly.
+    this.touch.setInMatch(matchState === MatchState.PLAYING);
+
     switch (matchState) {
       case MatchState.WAITING:
         this.hud.setVisible(false);
