@@ -3,7 +3,6 @@ import {
   DEFAULT_ARENA_ID,
   MatchState,
   getMatchConfig,
-  getNpcConfig,
   type MatchStateValue,
   type SyncedGameState,
 } from "@deathmatch/shared";
@@ -76,28 +75,22 @@ export class GameState extends Schema implements SyncedGameState {
   @type("uint8") maxPlayers: number = getMatchConfig().maxPlayers;
 
   /**
-   * Whole seconds until bots take the lobby's free places; 0 when nothing is
-   * waiting. The client shows it and offers to skip it -- but only the server
-   * decides when bots actually arrive.
-   */
-  @type("uint16") botFillSeconds = 0;
-  /** True while the wait could be skipped. Purely so the client knows to offer. */
-  @type("boolean") canStartNow = false;
-
-  /**
-   * The lobby's bot settings.
+   * Whose room this is.
    *
-   * Synchronised rather than kept per-client because they belong to the *lobby*:
-   * everybody waiting is going to play the same match, so everybody has to see
-   * the same answer to "how many bots, and how good". A client may ask to change
-   * them; only these values decide anything.
+   * The host adds and removes bots and decides when the match begins -- the room
+   * waits for a person rather than for a number. It is whoever has been here
+   * longest, and it passes on when they leave.
    */
-  @type("uint8") botCount: number = getNpcConfig().defaultBotCount;
-  @type("uint8") botDifficulty: number = getNpcConfig().defaultDifficulty;
-  /** Name of that rung, so the lobby need not carry a copy of the ladder. */
-  @type("string") botDifficultyName = "";
-  /** The most bots this lobby may currently be asked for. */
-  @type("uint8") maxBots: number = getNpcConfig().maxBots;
+  @type("string") hostId = "";
+  /** "Ada's Room". Rebuilt whenever the host changes. */
+  @type("string") roomName = "";
+  /**
+   * Whether a match could begin right now.
+   *
+   * Computed here rather than in the client so the button and the server can
+   * never disagree about what pressing it would do.
+   */
+  @type("boolean") canStart = false;
 
   /**
    * The playable width, narrowed by the closing walls.

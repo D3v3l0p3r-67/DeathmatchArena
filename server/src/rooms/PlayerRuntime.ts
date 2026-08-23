@@ -26,6 +26,14 @@ export class PlayerRuntime {
    * simulates a player against the shipped one.
    */
   readonly movement: MovementState = createMovementState();
+  /**
+   * When this player arrived, as a counter rather than a clock.
+   *
+   * Only used to decide whose room it is: the person with the lowest number is
+   * the host, so a handover goes to whoever has been here longest rather than to
+   * whoever a map iterator happens to yield first.
+   */
+  joinOrder = 0;
 
   /** Inputs received but not yet simulated, ordered by sequence number. */
   readonly inputQueue: InputCommand[] = [];

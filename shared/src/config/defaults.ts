@@ -45,11 +45,10 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   },
 
   match: {
-    // A match is always five, and the same five as the arena seats: the lobby
-    // holds its places open for people, bots take whatever is left, and only
-    // then does anything start. Lowering this lets matches begin short-handed.
-    minPlayers: 5,
-    maxPlayers: 5,
+    // Two is a match. The room does not wait to be full: it stays open for
+    // whoever wants to join until the host starts it, or until it fills.
+    minPlayers: 2,
+    maxPlayers: 10,
     countdownMs: 5000,
     resultsMs: 12000,
     maxDurationMs: 10 * 60 * 1000,
@@ -303,9 +302,8 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   // person: bots never play among themselves.
   npc: {
     enabled: true,
-    fillAfterMs: 60000,
     // One place is always kept for a person: bots never play among themselves.
-    maxBots: 4,
+    maxBots: 9,
     // 8Hz. Fast enough to react inside a firefight, slow enough that a dozen
     // bots cost a fraction of a tick.
     thinkIntervalMs: 125,
@@ -316,9 +314,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
       "Pike", "Wren", "Cyrus", "Mara", "Drift", "Halo",
     ],
 
-    // Fill the arena by default -- a lobby nobody else joins still becomes a
-    // match -- while leaving a human-only game one step away on the dial.
-    defaultBotCount: 4,
+    // The rung the "add bot" picker starts on.
     defaultDifficulty: 3,
 
     /*

@@ -59,44 +59,28 @@
       <!-- =========================== WAITING ROOM ============================ -->
       <section class="screen screen--lobby" data-screen="lobby">
         <div class="panel">
+          <p class="panel__eyebrow" id="lobby-room-name">Room</p>
           <h2 class="panel__title">Waiting for players</h2>
-          <p class="counter" id="lobby-count">Players: 0 / 5</p>
-          <p class="panel__subtitle" id="lobby-hint">Need 2 players to start</p>
+          <p class="counter" id="lobby-count">Players: 0 / 10</p>
+          <p class="panel__subtitle" id="lobby-hint">Waiting for players...</p>
+
           <ul class="player-list" id="lobby-players"></ul>
 
-          <!-- The lobby's bot settings. The server owns them: this only asks,
-               and every value shown here comes back from the room state. -->
-          <div class="botsetup" id="bot-setup">
-            <div class="botsetup__row">
-              <span class="botsetup__label">Bots</span>
-              <div class="stepper">
-                <button class="stepper__button" id="bots-less" type="button" aria-label="Fewer bots">&minus;</button>
-                <b class="stepper__value" id="bots-value">0</b>
-                <button class="stepper__button" id="bots-more" type="button" aria-label="More bots">+</button>
-              </div>
-            </div>
+          <!-- Host only. The server enforces that; this only asks. -->
+          <button class="button button--ghost lobby__add" id="add-bot" type="button">+ Add bot</button>
 
-            <!-- Hidden while there are no bots to be difficult. -->
-            <div class="botsetup__row botsetup__row--difficulty" id="bot-difficulty-row">
-              <span class="botsetup__label">
-                Bot difficulty
-                <small id="bot-difficulty-name">Normal</small>
-              </span>
-              <div class="difficulty" id="bot-difficulty"></div>
-            </div>
+          <!-- The difficulty picker, shown when "add bot" is pressed. Choosing a
+               rung adds the bot; there is no separate confirmation. -->
+          <div class="difficulty-picker" id="bot-picker">
+            <p class="difficulty-picker__title">Bot difficulty</p>
+            <div class="difficulty-picker__options" id="bot-picker-options"></div>
+            <button class="button button--ghost" id="bot-picker-cancel" type="button">Cancel</button>
           </div>
 
-          <!-- Shown only while the lobby is holding places open for people. The
-               server decides whether the offer means anything; this only asks. -->
-          <div class="lobby__hold" id="lobby-hold">
-            <p class="lobby__hold-text">
-              Holding places for other players &middot;
-              <b id="lobby-hold-timer">1:00</b>
-            </p>
-            <button class="button button--primary" id="start-now" type="button">Start now</button>
+          <div class="lobby__actions">
+            <button class="button button--ghost" id="leave-lobby" type="button">Leave</button>
+            <button class="button button--primary" id="start-match" type="button">Start</button>
           </div>
-
-          <button class="button button--ghost" id="leave-lobby" type="button">Leave</button>
         </div>
       </section>
 

@@ -423,7 +423,12 @@ export interface PlayerConfig {
 
 /** Match pacing and size. */
 export interface MatchConfig {
-  /** Players needed before the countdown begins. */
+  /**
+   * The fewest players a match may start with, host or no host.
+   *
+   * Two: one of them has to have somebody to fight. The room does not wait to
+   * reach `maxPlayers` -- the host decides when to begin.
+   */
   minPlayers: number;
   /** Hard cap on players in one match. */
   maxPlayers: number;
@@ -576,16 +581,6 @@ export interface BotDifficultyLevel {
  */
 export interface NpcConfig {
   enabled: boolean;
-  /**
-   * How long a lobby holds its free places open for people before bots take
-   * them, in ms.
-   *
-   * The point of the delay is that a bot is a consolation prize: given the
-   * choice, a lobby should fill with people. It starts when the first person
-   * arrives and does not reset, so the wait is predictable -- and whoever is
-   * waiting can always skip it and start immediately.
-   */
-  fillAfterMs: number;
   /** Hard cap on bots in one match, whatever the fill target says. */
   maxBots: number;
   /** How often a brain re-decides what it wants, in ms. */
@@ -598,14 +593,7 @@ export interface NpcConfig {
   names: string[];
   profiles: BrainProfile[];
 
-  /**
-   * How many bots a lobby offers before anybody touches the control.
-   *
-   * A player may pick anything from 0 up, and their choice is remembered; this
-   * is only the starting position of the dial.
-   */
-  defaultBotCount: number;
-  /** Difficulty a lobby offers before anybody touches the control, 1..5. */
+  /** The rung the "add bot" picker starts on, 1..5. */
   defaultDifficulty: number;
   /** The difficulty ladder itself. Levels are matched by `level`. */
   difficulties: BotDifficultyLevel[];

@@ -218,9 +218,9 @@ how long the match runs first, how fast the walls travel, how narrow the gap get
 before they stop, and how hard they hurt. The HUD counts down to it and then
 warns while it is happening, both driven by whole seconds the server sends.
 
-A match is always five: at least one person, with bots taking whatever places
-people do not. Nothing starts short-handed, and the free places are held open for
-people before bots take them — see [NPCs](#npcs).
+A room seats ten and starts at two, one of whom must be a person. It belongs to
+its host, who adds bots at whatever difficulty they like and decides when to
+begin — the room never waits for a number — see [NPCs](#npcs).
 When a match starts the room locks itself, so Colyseus routes new arrivals into a fresh
 room instead of an ongoing fight. Dead players stay connected as spectators and can
 cycle through the survivors. After the results screen the room recycles itself so the
@@ -559,70 +559,77 @@ marked, alongside the context that produced them. **Add bot**, **Remove bots** a
 Decision logging is off by default and only ever on for one bot at a time — a
 dozen of them logging at eight hertz is noise nobody can read.
 
-### Filling a lobby
+### The room, and whose it is
 
-**The lobby decides how many bots it wants; the free places are held open for
-people first; and there is always at least one person.**
-
-Every lobby carries two settings, and they belong to the *room* rather than to
-whoever set them — everybody waiting is going to play the same match, so
-everybody sees the same answer:
+**A room belongs to a person, not to a number.** It seats ten, it starts at two,
+and it never starts itself — the host decides when, with whoever is standing
+there.
 
 ```
-Bots            [ - ]  4  [ + ]        0 .. maxPlayers - 1
-Bot difficulty  [1] [2] [3] [4] [5]    hidden while Bots is 0
+Room: Ada's Room
+WAITING FOR PLAYERS
+Players: 3 / 10
+
+  ● Ada (you)        HOST
+  ● Blaz
+  ● Vex - Easy       BOT   x
+  ● Rook - Hard      BOT   x
+
+           [ + Add bot ]
+      [ Leave ]    [ Start ]
 ```
 
-A client only *asks*. The server clamps the count to what the arena can seat and
-the cap allows, refuses a difficulty its ladder does not have, ignores the
-message outside a waiting lobby and from anybody who is not a person in it, and
-publishes the result — which is what every client's controls then display. The
-choice is remembered in `localStorage` and carried into the next lobby, but only
-when nobody else is there to disagree with it.
+The host is whoever has been in the room longest. Only they may add a bot, remove
+one, or start the match; everybody else waits and may leave. When the host leaves
+the room passes to the next-longest-present person, and its name goes with it —
+`joinOrder` is what makes that handover predictable rather than whichever entry a
+map iterator happens to yield first. A dropped connection does not hand the room
+over while the seat is being held, because the host of a room nobody can talk to
+would be a room nobody can start.
 
-The places are held open for **people** first — a bot is a consolation prize, and
-given the choice a match should fill with players — and only once the hold
-expires, or somebody skips it, do the requested bots arrive. A match starts when
-the lobby is everybody it is going to be:
+Adding a bot opens a picker, and choosing a rung *is* the confirmation:
 
 ```
-1 player, 4 bots  ->  "Holding places for other players · 58s"  +  Start now
-    ...nobody else arrives...
-hold expires      ->  four bots join, the match starts        (1 person + 4 bots)
-
-2 players, 3 bots ->  either presses Start now                (2 people + 3 bots)
-
-2 players, 0 bots ->  hold expires or Start now               (2 people, no bots)
-
-1 player,  0 bots ->  waits. A match of one is over on the tick it begins, so
-                      with no bots asked for, an opponent has to be somebody.
-
-5 players         ->  the match starts, no bots               (5 people)
+BOT DIFFICULTY
+  [1] Very Easy   [2] Easy   [3] Normal   [4] Hard   [5] Very Hard
+  [ Cancel ]
 ```
 
-The hold starts when the first person arrives and deliberately does **not** reset
-when more do: a wait that keeps restarting is a wait nobody can plan around.
-Whoever is waiting can skip it at any point with **Start now with bots** — the
-client only asks, and the server checks that the request comes from a person in a
-lobby that is actually holding places open.
+Each bot carries its own difficulty, so a room can hold an Easy one and a Hard
+one at once — the level lives on the player rather than on the room, which is
+what makes that possible. Bots share the roster with everybody else, because they
+are playing the same match, and they say what they are.
 
-There is always at least one person. Bots never play among themselves: an empty
-lobby stays empty, and if everybody leaves mid-match the bots are cleared, which
-ends the match rather than leaving a server simulating a fight nobody is
-watching. A dropped connection is not the same as leaving — that seat is held for
-the reconnection window.
+Two conditions decide whether a match may begin, and there is no third:
 
 ```
-match.maxPlayers      the arena seats this many (5)
-match.minPlayers      a full arena starts without waiting out the hold (5)
-npc.enabled           on by default
-npc.defaultBotCount   where the lobby's dial starts (4: one person plus four bots)
-npc.defaultDifficulty which rung it starts on (3, Normal)
-npc.fillAfterMs       how long the places stay open for people (60s)
-npc.maxBots           hard cap (4, so one seat is always a person's)
-npc.sightRange        raise it and bots start feeling omniscient
-npc.thinkIntervalMs   8Hz by default
+totalPlayers >= 2        somebody to fight
+humanPlayers >= 1        somebody to fight for
 ```
+
+`canStart` is computed on the server and synchronised, so the host's button and
+the server cannot disagree about what pressing it would do. Everything the client
+could get wrong is decided server-side anyway: that the asker is the host, that
+the room is between matches, that a place is free, and which rung of the ladder a
+requested difficulty lands on. A client sending `addBot` by hand gets exactly
+nothing.
+
+The one thing that starts a room without being told is a full one — at ten
+players there is nobody left it could be waiting for.
+
+```
+1 person              ->  waits. Start is disabled: a match of one is over on
+                          the tick it begins.
+1 person + 1 bot      ->  Start                               (2 players)
+2 people              ->  Start                               (2 players)
+3 people + 2 bots     ->  Start                               (5 players)
+1 person + 9 bots     ->  Start                               (10 players)
+10 people             ->  starts by itself; the room is full
+```
+
+There is no hold, no countdown to a full room, and no "waiting for 4 more
+players". A room is open until its host starts it or it fills, and the only thing
+the lobby says is that it is waiting.
 
 Bots are only added and removed between matches: dropping one into a running
 match would give it a free spawn among people who have been fighting, and the

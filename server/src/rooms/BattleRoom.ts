@@ -28,7 +28,8 @@ import {
   type NoticePayload,
   type PingPayload,
   type PongPayload,
-  type SetBotsRequest,
+  type AddBotRequest,
+  type RemoveBotRequest,
   type WelcomePayload,
 } from "@deathmatch/shared";
 import { serverConfig } from "../config.js";
@@ -92,6 +93,8 @@ export class BattleRoom extends Room<{ state: GameState }> {
   private npcSystem!: NpcSystem;
 
   private readonly runtimes = new Map<string, PlayerRuntime>();
+  /** Hands out `PlayerRuntime.joinOrder`, which decides the host. */
+  private nextJoinOrder = 1;
   private readonly clientsBySession = new Map<string, Client>();
 
   /**
@@ -156,9 +159,12 @@ export class BattleRoom extends Room<{ state: GameState }> {
 
     // Bots feed the movement system the same input commands a browser sends, so
     // they are created after it and go through no other door.
-    this.npcSystem = new NpcSystem(this.context, this.movementSystem, hashString(this.roomId), () =>
-      this.debugCommands?.refreshAll(),
-    );
+    this.npcSystem = new NpcSystem(this.context, this.movementSystem, hashString(this.roomId), () => {
+      // A bot is a player: adding or removing one changes the room's headcount,
+      // and the lobby is showing that number.
+      this.matchManager.refreshCounters();
+      this.debugCommands?.refreshAll();
+    });
     this.matchManager.setNpcSystem(this.npcSystem);
 
     // Build the hazards this arena defines. An arena is data, so a room simply
@@ -237,6 +243,11 @@ export class BattleRoom extends Room<{ state: GameState }> {
       this.sendNotice(client.sessionId, "MATCH_IN_PROGRESS", "Match in progress - you are spectating.");
     }
 
+    // Somebody has to own the room, and the first person here is the obvious
+    // candidate. `joinOrder` is what makes the handover deterministic later.
+    runtime.joinOrder = this.nextJoinOrder++;
+    this.refreshHost();
+
     this.matchManager.onPlayerJoined();
     this.logger.info("Player joined", { sessionId: client.sessionId, name, players: this.state.playerCount });
   }
@@ -269,6 +280,9 @@ export class BattleRoom extends Room<{ state: GameState }> {
 
     this.clientsBySession.set(client.sessionId, client);
     player.connected = true;
+    // They may get their room back: `refreshHost` decides by join order, and
+    // theirs is still the earliest.
+    this.refreshHost();
     this.matchManager.refreshCounters();
     this.logger.info("Player reconnected", { sessionId: client.sessionId, name: player.name });
   }
@@ -278,6 +292,55 @@ export class BattleRoom extends Room<{ state: GameState }> {
     this.handleDisconnect(client.sessionId);
     this.removePlayer(client.sessionId);
     this.logger.info("Player left", { sessionId: client.sessionId, players: this.state.playerCount });
+  }
+
+  /**
+   * Decide whose room this is.
+   *
+   * The person who has been here longest, so a handover is predictable rather
+   * than whoever the map iterator happened to yield first. Called after every
+   * arrival and departure; usually it changes nothing.
+   *
+   * A disconnected player keeps the room only while their seat is being held --
+   * the host of a room nobody can talk to would be a room nobody can start.
+   */
+  private refreshHost(): void {
+    let host: PlayerState | null = null;
+    let bestOrder = Number.POSITIVE_INFINITY;
+
+    for (const player of this.state.players.values()) {
+      if (player.bot || !player.connected) continue;
+      const order = this.runtimes.get(player.sessionId)?.joinOrder ?? Number.POSITIVE_INFINITY;
+      if (order < bestOrder) {
+        bestOrder = order;
+        host = player;
+      }
+    }
+
+    const hostId = host?.sessionId ?? "";
+    if (this.state.hostId === hostId) return;
+
+    this.state.hostId = hostId;
+    this.state.roomName = host ? `${host.name}'s Room` : "";
+    if (host) this.logger.info("Room host", { sessionId: hostId, name: host.name });
+  }
+
+  /** Is this session the one allowed to change the line-up and start the match? */
+  private isHost(sessionId: string): boolean {
+    return this.state.hostId !== "" && this.state.hostId === sessionId;
+  }
+
+  /**
+   * Gate for every lobby message: rate limit, then host.
+   *
+   * Host is checked here rather than only in the systems below so that a client
+   * sending these messages by hand gets nothing at all -- the same rule the
+   * debug commands follow.
+   */
+  private allowLobbyAction(sessionId: string): boolean {
+    const runtime = this.runtimes.get(sessionId);
+    if (runtime && !runtime.rateLimiters.allow("chatOrMisc", Date.now())) return false;
+    return this.isHost(sessionId);
   }
 
   /**
@@ -295,6 +358,8 @@ export class BattleRoom extends Room<{ state: GameState }> {
     player.connected = false;
     runtime.clearInputs();
     this.clientsBySession.delete(sessionId);
+    // The room may have just lost its host.
+    this.refreshHost();
 
     if (this.state.matchState === MatchState.PLAYING && player.alive) {
       this.matchManager.eliminate(player, null, player.weaponId);
@@ -384,38 +449,34 @@ export class BattleRoom extends Room<{ state: GameState }> {
     });
 
     /**
-     * "Do not wait for anyone else."
+     * "Begin, with whoever is here."
      *
-     * The client only asks; the NPC system decides whether the lobby is in a
-     * state where that means anything, so a fabricated message achieves nothing
-     * beyond spending this connection's rate budget.
+     * Host only. The client asks; the room checks who is asking and the match
+     * manager checks whether starting is a thing that could happen, so a
+     * fabricated message achieves nothing beyond spending this connection's
+     * rate budget.
      */
-    this.onMessage(ClientMessage.START_NOW, (client) => {
-      const runtime = this.runtimes.get(client.sessionId);
-      const now = Date.now();
-      if (runtime && !runtime.rateLimiters.allow("chatOrMisc", now)) return;
-      this.npcSystem.requestImmediateStart(client.sessionId);
+    this.onMessage(ClientMessage.START_MATCH, (client) => {
+      if (!this.allowLobbyAction(client.sessionId)) return;
+      if (!this.isHost(client.sessionId)) return;
+      this.matchManager.requestStart();
     });
 
     /**
-     * "This many bots, this good."
+     * "Add a bot, this good."
      *
-     * The lobby's settings belong to the room, not to the client that sent
-     * them: the count is clamped to what the arena can seat, the difficulty to a
-     * rung the ladder actually has, and the whole message is ignored outside a
-     * waiting lobby or from a session that is not a person in it.
+     * Host only, between matches only, and only while there is a place free.
+     * The difficulty is clamped to a rung the ladder actually has.
      */
-    this.onMessage(ClientMessage.SET_BOTS, (client, payload: Partial<SetBotsRequest>) => {
-      const runtime = this.runtimes.get(client.sessionId);
-      const now = Date.now();
-      if (runtime && !runtime.rateLimiters.allow("chatOrMisc", now)) return;
-      if (!payload || typeof payload !== "object") return;
+    this.onMessage(ClientMessage.ADD_BOT, (client, payload: Partial<AddBotRequest>) => {
+      if (!this.allowLobbyAction(client.sessionId)) return;
+      this.npcSystem.addBot(client.sessionId, Number(payload?.difficulty));
+    });
 
-      this.npcSystem.setLobbyBots(
-        client.sessionId,
-        Number(payload.count),
-        Number(payload.difficulty),
-      );
+    /** "Remove that bot." Host only, and only a bot: people leave by leaving. */
+    this.onMessage(ClientMessage.REMOVE_BOT, (client, payload: Partial<RemoveBotRequest>) => {
+      if (!this.allowLobbyAction(client.sessionId)) return;
+      this.npcSystem.removeBot(client.sessionId, String(payload?.sessionId ?? ""));
     });
 
     /**
@@ -593,6 +654,7 @@ export class BattleRoom extends Room<{ state: GameState }> {
     this.trapSystem.onPlayerRemoved(sessionId);
     // A grant belongs to a session, so it dies with it.
     this.debugAuthorization.revoke(sessionId);
+    this.refreshHost();
   }
 }
 

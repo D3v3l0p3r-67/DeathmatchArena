@@ -12,13 +12,12 @@ import { query, requireElement, setText, toggleClass } from "./dom.js";
 export type ScreenName = "menu" | "matchmaking" | "lobby" | "countdown" | "results" | "none";
 
 export interface UICallbacks {
-  /** The player would rather not wait for anyone else. */
-  onStartNow(): void;
-  /**
-   * The lobby's bot settings were changed here. A request, not a decision: the
-   * server clamps both values and everybody's controls follow what it says.
-   */
-  onBotsChanged(count: number, difficulty: number): void;
+  /** The host would like to begin, with whoever is in the room. */
+  onStartMatch(): void;
+  /** The host asked for another bot at this difficulty. */
+  onAddBot(difficulty: number): void;
+  /** The host asked for this bot to go. */
+  onRemoveBot(sessionId: string): void;
   onPlay(name: string): void;
   onCancelMatchmaking(): void;
   onLeaveLobby(): void;
@@ -46,28 +45,15 @@ export class UIManager {
   private readonly lobbyCount = requireElement("lobby-count");
   private readonly lobbyHint = requireElement("lobby-hint");
   private readonly lobbyPlayers = requireElement<HTMLUListElement>("lobby-players");
-  private readonly lobbyHold = requireElement("lobby-hold");
-  private readonly lobbyHoldTimer = requireElement("lobby-hold-timer");
-  private readonly startNow = requireElement("start-now");
 
-  private readonly botSetup = requireElement("bot-setup");
-  private readonly botsValue = requireElement("bots-value");
-  private readonly botsLess = requireElement<HTMLButtonElement>("bots-less");
-  private readonly botsMore = requireElement<HTMLButtonElement>("bots-more");
-  private readonly difficultyRow = requireElement("bot-difficulty-row");
-  private readonly difficultyName = requireElement("bot-difficulty-name");
-  private readonly difficultyButtons = requireElement("bot-difficulty");
+  private readonly roomName = requireElement("lobby-room-name");
+  private readonly addBotButton = requireElement<HTMLButtonElement>("add-bot");
+  private readonly botPicker = requireElement("bot-picker");
+  private readonly botPickerOptions = requireElement("bot-picker-options");
+  private readonly startButton = requireElement<HTMLButtonElement>("start-match");
 
-  /**
-   * What this client last asked for.
-   *
-   * The room state is the truth, and these are only what the buttons act on
-   * between asking and being told. Without them, clicking "+" twice quickly
-   * would send the same number twice: the second click would still be reading
-   * the count from before the first one came back.
-   */
-  private wantedBots = 0;
-  private wantedDifficulty = 3;
+  /** Whether this client owns the room, from the last patch. */
+  private isHost = false;
 
   private readonly countdownValue = requireElement("countdown-value");
 
@@ -94,93 +80,63 @@ export class UIManager {
 
     requireElement("cancel-matchmaking").addEventListener("click", () => this.callbacks.onCancelMatchmaking());
     requireElement("leave-lobby").addEventListener("click", () => this.callbacks.onLeaveLobby());
-    this.startNow.addEventListener("click", () => this.callbacks.onStartNow());
+    this.startButton.addEventListener("click", () => this.callbacks.onStartMatch());
     requireElement("play-again").addEventListener("click", () => this.callbacks.onPlayAgain());
     requireElement("back-to-menu").addEventListener("click", () => this.callbacks.onBackToMenu());
 
     this.nameInput.addEventListener("input", () => this.clearNameError());
-    this.buildBotControls();
+    this.buildBotPicker();
   }
 
-  // ---------------------------------------------------------------- bot setup
+  // --------------------------------------------------------------- adding bots
 
   /**
-   * Wire the bot controls once.
+   * Build the difficulty picker once.
    *
-   * The difficulty buttons are built from the ladder's own bounds rather than
-   * written out in the markup, so a sixth rung added to the configuration turns
-   * up here without an edit.
+   * Generated from the ladder's own bounds rather than written out in the
+   * markup, so a sixth rung added to the configuration turns up here without an
+   * edit. Choosing a rung adds the bot -- there is no separate confirmation,
+   * because picking one *is* the confirmation.
    */
-  private buildBotControls(): void {
-    this.botsLess.addEventListener("click", () => this.requestBots(this.wantedBots - 1));
-    this.botsMore.addEventListener("click", () => this.requestBots(this.wantedBots + 1));
+  private buildBotPicker(): void {
+    this.addBotButton.addEventListener("click", () => this.toggleBotPicker(true));
+    requireElement("bot-picker-cancel").addEventListener("click", () => this.toggleBotPicker(false));
 
     for (let level = MIN_BOT_DIFFICULTY; level <= MAX_BOT_DIFFICULTY; level++) {
       const button = document.createElement("button");
       button.type = "button";
-      button.className = "difficulty__button";
+      button.className = "difficulty-option";
       button.dataset.level = String(level);
-      button.textContent = String(level);
-      button.addEventListener("click", () => this.requestDifficulty(level));
-      this.difficultyButtons.appendChild(button);
+
+      const number = document.createElement("b");
+      number.textContent = String(level);
+      const label = document.createElement("span");
+      label.textContent = DIFFICULTY_NAMES[level] ?? `Level ${level}`;
+
+      button.append(number, label);
+      button.addEventListener("click", () => {
+        this.toggleBotPicker(false);
+        this.callbacks.onAddBot(level);
+      });
+      this.botPickerOptions.appendChild(button);
     }
   }
 
-  /** Ask for a different number of bots. The server decides what it gets. */
-  private requestBots(count: number): void {
-    const wanted = Math.max(0, Math.min(this.maxBots, Math.round(count)));
-    if (wanted === this.wantedBots) return;
-    this.wantedBots = wanted;
-    this.renderBotSetup();
-    this.callbacks.onBotsChanged(wanted, this.wantedDifficulty);
-  }
-
-  private requestDifficulty(level: number): void {
-    if (level === this.wantedDifficulty) return;
-    this.wantedDifficulty = level;
-    this.renderBotSetup();
-    this.callbacks.onBotsChanged(this.wantedBots, level);
-  }
-
-  /** The ceiling the server last published. */
-  private maxBots = 0;
-
-  /**
-   * Take the server's word for the lobby's settings.
-   *
-   * Everyone waiting plays the same match, so the settings belong to the room
-   * rather than to a client: somebody else changing them moves these controls
-   * here too, and a value this client asked for that the server would not give
-   * is corrected on the next patch.
-   */
-  private syncBotSetup(state: SyncedGameState): void {
-    this.maxBots = state.maxBots;
-    this.wantedBots = Math.min(state.botCount, state.maxBots);
-    this.wantedDifficulty = state.botDifficulty;
-    setText(this.difficultyName, state.botDifficultyName);
-    this.renderBotSetup();
+  private toggleBotPicker(open: boolean): void {
+    toggleClass(this.botPicker, "is-active", open);
   }
 
   /**
-   * Paint the controls.
+   * Mark the rung this player last used.
    *
-   * Called both when this client changes something -- so the buttons respond
-   * without waiting for a round trip -- and from every patch, which is what
-   * corrects them when the server disagrees or somebody else changes the
-   * setting.
+   * The only thing remembered between sessions: a bot is never added on
+   * somebody's behalf, so all a preference can do is say which one they reached
+   * for last time.
    */
-  private renderBotSetup(): void {
-    setText(this.botsValue, String(this.wantedBots));
-    this.botsLess.disabled = this.wantedBots <= 0;
-    this.botsMore.disabled = this.wantedBots >= this.maxBots;
-
-    // A room that cannot seat a bot at all has nothing to configure.
-    toggleClass(this.botSetup, "is-hidden", this.maxBots <= 0);
-    toggleClass(this.difficultyRow, "is-active", this.wantedBots > 0);
-
-    for (const button of this.difficultyButtons.children) {
-      const level = Number((button as HTMLElement).dataset.level);
-      button.classList.toggle("is-selected", level === this.wantedDifficulty);
+  setPreferredDifficulty(level: number): void {
+    for (const option of this.botPickerOptions.children) {
+      const value = Number((option as HTMLElement).dataset.level);
+      option.classList.toggle("is-preferred", value === level);
     }
   }
 
@@ -240,39 +196,47 @@ export class UIManager {
   // ------------------------------------------------------------------ lobby
 
   updateLobby(state: SyncedGameState, localSessionId: string): void {
+    this.isHost = state.hostId === localSessionId;
+
+    setText(this.roomName, state.roomName || "Room");
     setText(this.lobbyCount, `Players: ${state.playerCount} / ${state.maxPlayers}`);
-    this.syncBotSetup(state);
 
-    const people = countPeople(state);
-    const expected = Math.min(state.maxPlayers, people + state.botCount);
-    const missing = Math.max(0, expected - state.playerCount);
-
+    // No countdown to a full room and no number to reach: the room stays open
+    // until its host starts it, so all there is to say is that it is open.
     setText(
       this.lobbyHint,
-      // With no bots asked for, an opponent has to be a person -- so say that
-      // rather than counting towards a roster nobody is going to fill.
-      state.botCount === 0
-        ? people < 2
-          ? "Waiting for another player - or add a bot"
-          : "Ready - starting soon"
-        : missing > 0
-          ? `${missing} place${missing === 1 ? "" : "s"} open - bots will take what is left`
-          : "Ready - starting soon",
+      this.isHost
+        ? state.canStart
+          ? "Waiting for players... start whenever you like"
+          : "Waiting for players... add a bot to start on your own"
+        : "Waiting for players... the host decides when to start",
     );
 
-    // Both come from the server: it decides how long the places stay open and
-    // whether skipping the wait is currently a thing that can happen.
-    toggleClass(this.lobbyHold, "is-active", state.canStartNow);
-    if (state.canStartNow) {
-      setText(this.lobbyHoldTimer, formatWait(state.botFillSeconds));
-      // Says what pressing it will actually do, which depends on whether any
-      // bots were asked for.
-      setText(this.startNow, state.botCount > 0 ? "Start now with bots" : "Start now");
-    }
+    this.addBotButton.disabled = !this.isHost || state.playerCount >= state.maxPlayers;
+    this.addBotButton.hidden = !this.isHost;
+    this.startButton.disabled = !this.isHost || !state.canStart;
+    this.startButton.hidden = !this.isHost;
+    if (!this.isHost) this.toggleBotPicker(false);
 
-    // Rebuild only when the roster actually changed; this runs on every patch.
-    const names = Array.from(state.players.values()).map((player) => player.name);
-    const signature = names.join("|");
+    this.renderRoster(state, localSessionId);
+  }
+
+  /**
+   * Draw the room's line-up.
+   *
+   * Bots share the list with everybody else -- they are playing the same match
+   * -- but say what they are and how good they are, and the host gets a button
+   * to send one away again.
+   *
+   * Rebuilt only when something actually changed: this runs on every patch, and
+   * replacing the list under the cursor would swallow the click that is halfway
+   * through happening.
+   */
+  private renderRoster(state: SyncedGameState, localSessionId: string): void {
+    const signature = Array.from(state.players.values())
+      .map((player) => `${player.name}:${player.botDifficulty}`)
+      .join("|") + `:${this.isHost}:${state.hostId}`;
+
     if (this.lobbyPlayers.dataset.signature === signature) return;
     this.lobbyPlayers.dataset.signature = signature;
 
@@ -280,13 +244,44 @@ export class UIManager {
     for (const [sessionId, player] of state.players) {
       const item = document.createElement("li");
       if (sessionId === localSessionId) item.classList.add("is-you");
+      if (player.bot) item.classList.add("is-bot");
 
       const dot = document.createElement("span");
       dot.className = "dot";
+
       const label = document.createElement("span");
-      label.textContent = sessionId === localSessionId ? `${player.name} (you)` : player.name;
+      label.className = "player-name";
+      label.textContent = player.bot
+        ? `${player.name} - ${player.botDifficultyName}`
+        : sessionId === localSessionId
+          ? `${player.name} (you)`
+          : player.name;
 
       item.append(dot, label);
+
+      if (player.bot) {
+        const badge = document.createElement("span");
+        badge.className = "badge";
+        badge.textContent = "Bot";
+        item.append(badge);
+      } else if (sessionId === state.hostId) {
+        const badge = document.createElement("span");
+        badge.className = "badge";
+        badge.textContent = "Host";
+        item.append(badge);
+      }
+
+      if (player.bot && this.isHost) {
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "player-remove";
+        remove.title = `Remove ${player.name}`;
+        remove.setAttribute("aria-label", `Remove ${player.name}`);
+        remove.textContent = "x";
+        remove.addEventListener("click", () => this.callbacks.onRemoveBot(sessionId));
+        item.append(remove);
+      }
+
       this.lobbyPlayers.appendChild(item);
     }
   }
@@ -372,18 +367,18 @@ export class UIManager {
   }
 }
 
-/** How many of the players in a lobby are people. */
-function countPeople(state: SyncedGameState): number {
-  let people = 0;
-  for (const player of state.players.values()) {
-    if (!player.bot) people++;
-  }
-  return people;
-}
+/**
+ * What each rung is called, for the picker.
+ *
+ * Written here rather than read from the ladder because the picker is built
+ * once, before any room state has arrived. The server's own names ride on each
+ * bot, so what the list shows is always the configuration's.
+ */
+const DIFFICULTY_NAMES: Record<number, string> = {
+  1: "Very Easy",
+  2: "Easy",
+  3: "Normal",
+  4: "Hard",
+  5: "Very Hard",
+};
 
-/** `m:ss`, so a minute-long wait reads as a minute rather than as 60. */
-function formatWait(seconds: number): string {
-  const safe = Math.max(0, Math.round(seconds));
-  const minutes = Math.floor(safe / 60);
-  return minutes > 0 ? `${minutes}:${String(safe % 60).padStart(2, "0")}` : `${safe}s`;
-}

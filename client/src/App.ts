@@ -9,7 +9,6 @@ import {
   getGrenadeConfig,
   getNpcConfig,
   type PowerUpCollectedPayload,
-  type SyncedGameState,
 } from "@deathmatch/shared";
 import { AudioEngine, DEFAULT_AUDIO_SETTINGS } from "./audio/AudioEngine.js";
 import { SoundController } from "./audio/SoundController.js";
@@ -33,30 +32,25 @@ const HUD_UPDATE_INTERVAL_MS = 80;
 const BOT_PREFERENCE_KEY = "deathmatch-arena:bots";
 
 interface BotPreference {
-  count: number;
+  /** The rung this player last added a bot at. */
   difficulty: number;
 }
 
 /**
- * The bot setup this player last chose.
+ * The difficulty this player last added a bot at.
  *
- * Falls back to the shipped defaults, and treats anything unreadable as absent:
- * a corrupt entry should mean "no preference", never a broken lobby. The server
- * clamps whatever comes out of here in any case.
+ * Falls back to the shipped default, and treats anything unreadable as absent:
+ * a corrupt entry should mean "no preference", never a broken lobby. It only
+ * marks a rung in the picker -- bots are never added on somebody's behalf.
  */
 function loadBotPreference(): BotPreference {
-  const npc = getNpcConfig();
-  const fallback: BotPreference = {
-    count: npc.defaultBotCount,
-    difficulty: npc.defaultDifficulty,
-  };
+  const fallback: BotPreference = { difficulty: getNpcConfig().defaultDifficulty };
 
   try {
     const raw = window.localStorage.getItem(BOT_PREFERENCE_KEY);
     if (!raw) return fallback;
     const parsed = JSON.parse(raw) as Partial<BotPreference>;
     return {
-      count: Number.isFinite(parsed.count) ? Number(parsed.count) : fallback.count,
       difficulty: Number.isFinite(parsed.difficulty)
         ? Number(parsed.difficulty)
         : fallback.difficulty,
@@ -130,10 +124,8 @@ export class App {
    */
   private pendingResult: MatchResultMessage | null = null;
 
-  /** The bot setup this player last chose, remembered between sessions. */
+  /** The rung this player last added a bot at, remembered between sessions. */
   private botPreference = loadBotPreference();
-  /** Whether this lobby has been told about it. Reset when a room is joined. */
-  private botPreferenceSent = false;
 
   constructor() {
     this.killFeed = new KillFeed(() => this.network.sessionId);
@@ -153,17 +145,21 @@ export class App {
       onLeaveLobby: () => void this.returnToMenu(),
       // Asking only. The server decides whether the lobby is in a state where
       // this means anything.
-      onStartNow: () => this.network.requestImmediateStart(),
-      onBotsChanged: (count, difficulty) => {
-        this.botPreference = { count, difficulty };
+      onStartMatch: () => this.network.requestStart(),
+      onAddBot: (difficulty) => {
+        // Remembered so the picker marks the rung this player reached for last.
+        this.botPreference = { difficulty };
         saveBotPreference(this.botPreference);
-        this.network.setBots(count, difficulty);
+        this.ui.setPreferredDifficulty(difficulty);
+        this.network.addBot(difficulty);
       },
+      onRemoveBot: (sessionId) => this.network.removeBot(sessionId),
       onPlayAgain: () => this.handlePlayAgain(),
       onBackToMenu: () => void this.returnToMenu(),
     });
 
     this.restoreStoredName();
+    this.ui.setPreferredDifficulty(this.botPreference.difficulty);
     this.subscribeToNetwork();
     this.sound.attach();
     this.bindDebugConsoleKey();
@@ -264,9 +260,6 @@ export class App {
       window.localStorage.setItem(clientConfig.nameStorageKey, validation.name);
       const welcome = await this.network.join(validation.name);
 
-      // A new room has its own lobby settings; this client's preference has not
-      // been offered to it yet.
-      this.botPreferenceSent = false;
       this.ui.setMatchmakingStatus(`Joined room ${welcome.roomId}`);
       this.beginGameScene();
       this.ui.showScreen("lobby");
@@ -536,31 +529,7 @@ export class App {
     const state = this.network.state;
     if (!state || this.ui.currentScreen !== "lobby") return;
 
-    this.applyBotPreference(state);
     this.ui.updateLobby(state, this.network.sessionId);
-  }
-
-  /**
-   * Carry the last choice into a new lobby.
-   *
-   * Only when nobody else is here to disagree: the settings belong to the room,
-   * and quietly overwriting somebody else's choice on arrival would be a strange
-   * thing for joining a lobby to do. Once per room, so a player who then changes
-   * their mind is not argued with by their own preference.
-   */
-  private applyBotPreference(state: SyncedGameState): void {
-    if (this.botPreferenceSent) return;
-
-    let people = 0;
-    for (const player of state.players.values()) {
-      if (!player.bot) people++;
-    }
-    if (people !== 1) return;
-
-    this.botPreferenceSent = true;
-    const { count, difficulty } = this.botPreference;
-    if (count === state.botCount && difficulty === state.botDifficulty) return;
-    this.network.setBots(count, difficulty);
   }
 
   private updateResultsCountdown(now: number): void {

@@ -473,8 +473,8 @@ function crateFields(): FieldDescriptor[] {
 function matchFields(): FieldDescriptor[] {
   const { MATCH } = CATEGORY;
   return [
-    number("match.minPlayers", MATCH, "Match", "Minimum players", "Participants needed before the countdown starts, bots included. Equal to the maximum means every match is a full arena; lower lets one start short-handed.", { min: 2, max: 32, step: 1, integer: true, mustNotExceed: "match.maxPlayers" }),
-    number("match.maxPlayers", MATCH, "Match", "Maximum players", "Hard cap on players in one match. Rooms created afterwards use the new limit.", { min: 2, max: 32, step: 1, integer: true, mustBeAtLeast: "match.minPlayers" }),
+    number("match.minPlayers", MATCH, "Match", "Minimum players", "The fewest participants a match may start with, bots included. The room does not wait to be full -- the host starts it.", { min: 2, max: 32, step: 1, integer: true, mustNotExceed: "match.maxPlayers" }),
+    number("match.maxPlayers", MATCH, "Match", "Maximum players", "Hard cap on players in one room, people and bots together. A room that reaches it starts by itself. Rooms created afterwards use the new limit.", { min: 2, max: 32, step: 1, integer: true, mustBeAtLeast: "match.minPlayers" }),
     number("match.countdownMs", MATCH, "Match", "Countdown (ms)", "How long the pre-match countdown runs.", { min: 1000, max: 60000, step: 500 }),
     number("match.resultsMs", MATCH, "Match", "Result screen (ms)", "How long the results stay up before the room recycles into a new lobby.", { min: 1000, max: 300000, step: 500 }),
     number("match.maxDurationMs", MATCH, "Match", "Maximum match length (ms)", "Safety valve: a match can never run longer than this.", { min: 30000, max: 3600000, step: 10000 }),
@@ -512,13 +512,11 @@ function npcFields(): FieldDescriptor[] {
   return [
     boolean("npc.enabled", NPC, "Bots", "Bots enabled", "Off means no NPC ever joins a match, whatever the fill target says."),
     number("npc.maxBots", NPC, "Bots", "Maximum bots", "Hard cap on bots in one match.", { min: 0, max: 32, step: 1, integer: true }),
-    number("npc.fillAfterMs", NPC, "Bots", "Hold places open for (ms)", "How long a lobby waits for people before bots take the free places. Whoever is waiting can always start sooner.", { min: 0, max: 600000, step: 1000 }),
     number("npc.sightRange", NPC, "Bots", "Sight range (px)", "Beyond this a bot simply cannot see an enemy. Raising it makes bots feel omniscient.", { min: 100, max: 4000, step: 50 }),
     number("npc.thinkIntervalMs", NPC, "Thinking", "Decision interval (ms)", "How often a brain re-decides what it wants. Lower is sharper and more expensive.", { min: 30, max: 2000, step: 5 }),
     number("npc.perceptionIntervalMs", NPC, "Thinking", "Perception interval (ms)", "How often a bot refreshes what it can sense.", { min: 30, max: 2000, step: 5 }),
 
-    number("npc.defaultBotCount", NPC, "Bots", "Default bot count", "How many bots a lobby offers before anybody touches the control. Players may pick anything from 0 up, and their choice is remembered.", { min: 0, max: 32, step: 1, integer: true }),
-    number("npc.defaultDifficulty", NPC, "Bots", "Default difficulty", "The rung a lobby starts on, 1 (Very Easy) to 5 (Very Hard).", { min: 1, max: 5, step: 1, integer: true }),
+    number("npc.defaultDifficulty", NPC, "Bots", "Default difficulty", "The rung the lobby's \"add bot\" picker starts on, 1 (Very Easy) to 5 (Very Hard).", { min: 1, max: 5, step: 1, integer: true }),
   ];
 }
 

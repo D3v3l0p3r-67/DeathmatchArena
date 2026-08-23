@@ -19,6 +19,10 @@ export interface SyncedPlayer {
   readonly name: string;
   /** True for an NPC. Presentation only -- the simulation treats them alike. */
   readonly bot: boolean;
+  /** For a bot, the rung it plays at, 1..5. Zero for a person. */
+  readonly botDifficulty: number;
+  /** For a bot, the name of that rung, e.g. "Normal". Empty for a person. */
+  readonly botDifficultyName: string;
   readonly x: number;
   readonly y: number;
   readonly velocityX: number;
@@ -162,20 +166,21 @@ export interface SyncedGameState {
   readonly minPlayersToStart: number;
   readonly maxPlayers: number;
   /**
-   * Whole seconds until bots take the lobby's free places; 0 when nothing is
-   * waiting. Whole seconds so it changes once a second rather than every patch.
+   * Whose room this is.
+   *
+   * The host adds and removes bots and decides when the match begins. It is the
+   * person who has been here longest; when they leave it passes to the next.
+   * Empty only while the room holds nobody at all.
    */
-  readonly botFillSeconds: number;
-  /** True while somebody could skip that wait and start now. */
-  readonly canStartNow: boolean;
-  /** How many bots this lobby is set to fill with. 0 means a human-only match. */
-  readonly botCount: number;
-  /** Which rung of the difficulty ladder those bots play at, 1..5. */
-  readonly botDifficulty: number;
-  /** Name of that rung, e.g. "Normal". Sent so the client need not own the ladder. */
-  readonly botDifficultyName: string;
-  /** The most bots this lobby may be asked for, given the arena and the roster. */
-  readonly maxBots: number;
+  readonly hostId: string;
+  /** "Ada's Room". Built from the host's name, so it follows the handover. */
+  readonly roomName: string;
+  /**
+   * Whether the room could start right now: at least two players, at least one
+   * of them a person. The server's verdict, so the host's button and the server
+   * cannot disagree about what would happen.
+   */
+  readonly canStart: boolean;
 
   /**
    * Current playable width, as the closing walls define it.

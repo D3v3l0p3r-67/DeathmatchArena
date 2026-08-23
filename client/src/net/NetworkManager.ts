@@ -25,7 +25,8 @@ import {
   type PingPayload,
   type PongPayload,
   type PowerUpCollectedPayload,
-  type SetBotsRequest,
+  type AddBotRequest,
+  type RemoveBotRequest,
   type SyncedCrate,
   type SyncedGameState,
   type SyncedGrenade,
@@ -157,26 +158,31 @@ export class NetworkManager {
   }
 
   /**
-   * Ask the server not to wait for more players.
+   * Ask to begin, with whoever is in the room.
    *
-   * A request, not an instruction: the server checks that this session is a
-   * person in a lobby that is actually holding places open, so sending it at any
-   * other moment achieves nothing.
+   * A request, not an instruction: the server checks that this session is the
+   * room's host and that a match could start at all, so sending it at any other
+   * moment achieves nothing.
    */
-  requestImmediateStart(): void {
-    this.room?.send(ClientMessage.START_NOW, {});
+  requestStart(): void {
+    this.room?.send(ClientMessage.START_MATCH, {});
   }
 
   /**
-   * Ask the lobby for this many bots, this good.
+   * Ask for another bot at this difficulty.
    *
-   * A request like every other: the server clamps both numbers to what the room
-   * can actually field and publishes the result, which is what the controls then
-   * display.
+   * A request like every other: only the host's asking counts, only between
+   * matches, and only while the room has a place free.
    */
-  setBots(count: number, difficulty: number): void {
-    const payload: SetBotsRequest = { count, difficulty };
-    this.room?.send(ClientMessage.SET_BOTS, payload);
+  addBot(difficulty: number): void {
+    const payload: AddBotRequest = { difficulty };
+    this.room?.send(ClientMessage.ADD_BOT, payload);
+  }
+
+  /** Ask for a bot to be removed. Only the host's asking means anything. */
+  removeBot(sessionId: string): void {
+    const payload: RemoveBotRequest = { sessionId };
+    this.room?.send(ClientMessage.REMOVE_BOT, payload);
   }
 
   /** Approximate server clock, used only for debug output and trail fading. */

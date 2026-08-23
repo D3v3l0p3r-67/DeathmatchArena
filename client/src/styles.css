@@ -266,130 +266,103 @@ kbd {
   color: var(--accent);
 }
 
-/* The lobby's bot settings. */
-.botsetup {
-  display: grid;
-  gap: 10px;
-  margin: 18px 0 4px;
-  padding: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
-  background: rgba(0, 0, 0, 0.2);
-}
-
-.botsetup__row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.botsetup.is-hidden {
-  display: none;
-}
-
-/* Nothing to be difficult about with no bots in the lobby. */
-.botsetup__row--difficulty {
-  display: none;
-}
-
-.botsetup__row--difficulty.is-active {
-  display: flex;
-}
-
-.botsetup__label {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: 13px;
-  letter-spacing: 0.08em;
+/* "Ada's Room", above the panel title. */
+.panel__eyebrow {
+  margin: 0 0 4px;
+  font-size: 12px;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--text-dim);
 }
 
-.botsetup__label small {
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  text-transform: none;
+.panel__eyebrow b {
   color: var(--accent);
+  letter-spacing: 0.1em;
 }
 
-.stepper {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+.lobby__add {
+  width: 100%;
+  margin-top: 12px;
 }
 
-.stepper__button,
-.difficulty__button {
-  min-width: 32px;
-  height: 32px;
-  padding: 0 8px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--text);
-  font-family: inherit;
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
-}
-
-.stepper__button:hover:not(:disabled),
-.difficulty__button:hover:not(.is-selected) {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.24);
-}
-
-.stepper__button:disabled {
-  opacity: 0.35;
+.lobby__add:disabled {
+  opacity: 0.4;
   cursor: default;
 }
 
-.stepper__value {
-  min-width: 34px;
-  font-family: var(--mono);
-  font-size: 18px;
-  text-align: center;
-}
-
-.difficulty {
-  display: flex;
-  gap: 4px;
-}
-
-.difficulty__button.is-selected {
-  border-color: var(--accent);
-  background: rgba(56, 189, 248, 0.18);
-  color: var(--accent);
-}
-
-/* Shown only while the server says the lobby is holding places open. */
-.lobby__hold {
+/* Shown only once "add bot" is pressed. */
+.difficulty-picker {
   display: none;
-  flex-direction: column;
-  gap: 10px;
-  margin: 4px 0 14px;
+  gap: 6px;
+  margin-top: 12px;
   padding: 14px;
   border: 1px solid rgba(120, 200, 255, 0.18);
   border-radius: 10px;
   background: rgba(0, 0, 0, 0.25);
 }
 
-.lobby__hold.is-active {
-  display: flex;
+.difficulty-picker.is-active {
+  display: grid;
 }
 
-.lobby__hold-text {
-  margin: 0;
-  font-size: 13px;
+.difficulty-picker__title {
+  margin: 0 0 4px;
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
   color: var(--text-dim);
 }
 
-.lobby__hold-text b {
+.difficulty-picker__options {
+  display: grid;
+  gap: 4px;
+}
+
+.difficulty-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.difficulty-option:hover {
+  background: rgba(56, 189, 248, 0.14);
+  border-color: var(--accent);
+}
+
+/* The rung this player reached for last time. */
+.difficulty-option.is-preferred {
+  border-color: rgba(56, 189, 248, 0.5);
+}
+
+.difficulty-option b {
   font-family: var(--mono);
-  color: var(--warn);
+  color: var(--accent);
+}
+
+/* Leave and Start, side by side. */
+.lobby__actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.lobby__actions .button {
+  flex: 1;
+}
+
+.lobby__actions .button:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .player-list {
@@ -420,6 +393,46 @@ kbd {
   height: 9px;
   border-radius: 50%;
   background: var(--good);
+  flex: none;
+}
+
+/* A bot is in the same list as everybody else, and says so. */
+.player-list li.is-bot .dot {
+  background: var(--warn);
+}
+
+.player-list li .player-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.player-list .badge {
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: rgba(255, 200, 87, 0.16);
+  color: var(--warn);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.player-list .player-remove {
+  padding: 2px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.player-list .player-remove:hover {
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
 /* ------------------------------------------------------------- countdown -- */
