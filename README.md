@@ -706,6 +706,49 @@ from, so difficulty owns them outright:
 - **decision interval** — how often it reconsiders at all, so a fight turning
   against a poor bot takes longer to register.
 
+### How a bot flies a jump
+
+A jump is not a button press. Its height comes from *how long the button is
+held*, and the mid-air jump needs a fresh press, which means a release first. The
+movement controller used to script that as a fixed list of ticks —
+`[press, release]` — which is exactly the input the variable-jump-height rule
+cuts short. **Every bot jump was a 35px hop.** Meanwhile the navigation graph was
+linking ledges 138px up, and pairs of jumps reaching 237px, so bots were
+confidently planning routes they physically could not fly. That is where the
+pacing under platforms, the run-ups and the abandoned goals were coming from.
+
+It is now a small state machine over what the body is actually doing, which needs
+no knowledge of gravity or jump strength:
+
+```
+rising      hold while still going up and still below the target
+apex        release -- and if the target is still out of reach, this is the
+            moment the second jump is worth spending
+airRising   hold again, release at the top
+```
+
+Releasing at the apex costs nothing, because there is no ascent left to cut, and
+it is the only moment the mid-air jump is worth its full value: it *replaces* the
+current upward speed rather than adding to it, so pressing it early throws away
+most of what the first jump bought.
+
+Measured by asking a bot to climb a ledge and watching whether it ends up
+standing on it:
+
+```
+              before   after
+ 40px ledge   climbed  climbed
+ 80px ledge      —     climbed
+120px ledge      —     climbed
+170px ledge      —     climbed     (the second jump earns its keep here)
+200px ledge      —     climbed
+260px ledge      —        —        (and it does not pretend otherwise)
+```
+
+The graph's reach was tightened to match — 237px of theory became ~200px of
+practice — because a link a bot cannot fly is how a route turns into a bot
+pressed against the underside of a platform.
+
 ### Hazards, and when a grenade is the right answer
 
 **A bot routes around the spikes.** The navigation graph prices every trap the

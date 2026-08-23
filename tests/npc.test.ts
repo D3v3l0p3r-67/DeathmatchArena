@@ -17,6 +17,11 @@ import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 import {
   CollisionWorld,
+  createInputCommand,
+  createMovementState,
+  stepPlayerMovement,
+  FIXED_DELTA,
+  PLAYER_HALF_HEIGHT,
   DEFAULT_GAME_CONFIG,
   MAX_BOT_DIFFICULTY,
   MIN_BOT_DIFFICULTY,
@@ -45,6 +50,7 @@ const { Perception } = await import("../server/src/npc/Perception.js");
 const { TargetSelector } = await import("../server/src/npc/TargetSelector.js");
 const { CombatController } = await import("../server/src/npc/CombatController.js");
 const { NavGraph } = await import("../server/src/npc/Navigation.js");
+const { MovementController } = await import("../server/src/npc/MovementController.js");
 const actions = await import("../server/src/npc/actions/index.js");
 
 type BrainContext = import("../server/src/npc/context.js").BrainContext;
@@ -1699,5 +1705,109 @@ describe("asking for another match", () => {
     harness.matchManager.requestRequeue("human", clock.now);
     harness.run(0.2);
     assert.equal(harness.state.matchState, MatchState.WAITING);
+  });
+});
+
+describe("how a bot flies a jump", () => {
+  /**
+   * Put a bot on a floor and ask it to reach a ledge `rise` px above it.
+   *
+   * The whole loop, deliberately: the controller decides, the buttons it
+   * produces go through the same movement step a browser's do, and the answer is
+   * whether the bot is standing on the ledge at the end. Nothing here inspects
+   * the jump -- only whether it worked.
+   */
+  function climbs(rise: number, seconds = 12): boolean {
+    const arena = createEmptyArena("climb", "Climb", 1600, 1200);
+    arena.elements.push(
+      { id: "floor", type: "floor", x: 0, y: 1000, width: 1600, height: 40 },
+      { id: "ledge", type: "platform", x: 700, y: 1000 - rise, width: 400, height: 20 },
+    );
+
+    const world = new CollisionWorld(arena);
+    const graph = new NavGraph(arena, world, getPlayerConfig());
+    const controller = new MovementController(graph, world);
+
+    const state = createMovementState(400, 1000 - PLAYER_HALF_HEIGHT);
+    state.onGround = true;
+    const input = createInputCommand();
+
+    for (let tick = 0; tick < 60 * seconds; tick++) {
+      const self = {
+        x: state.x,
+        y: state.y,
+        velocityX: state.velocityX,
+        velocityY: state.velocityY,
+        onGround: state.onGround,
+        jumpsRemaining: state.jumpsRemaining,
+        health: 1,
+        ammo: 1,
+        reloading: false,
+        grenades: 0,
+        weapon: null,
+      } as never;
+
+      controller.setGoal(900, 1000 - rise - PLAYER_HALF_HEIGHT, self, tick * 16.67);
+      controller.steer(self, tick * 16.67);
+      const buttons = controller.takeButtons();
+
+      input.seq = tick + 1;
+      input.moveLeft = buttons.moveLeft;
+      input.moveRight = buttons.moveRight;
+      input.jump = buttons.jump;
+      stepPlayerMovement(state, input, FIXED_DELTA, world);
+
+      if (state.onGround && state.y < 1000 - rise) return true;
+    }
+    return false;
+  }
+
+  it("climbs a ledge that needs a full jump", () => {
+    // The failure this pins, which stood for a long time: the jump was scripted
+    // as press-then-release-next-tick, which is exactly the input the
+    // variable-jump-height rule cuts short. Every bot jump was a 35px hop, and
+    // 80px was out of reach.
+    assert.equal(climbs(80), true);
+    assert.equal(climbs(120), true);
+  });
+
+  it("spends the mid-air jump on a ledge one jump cannot reach", () => {
+    // A single held jump is about 138px at the shipped tuning. Anything above
+    // that is the second jump doing the work, or it does not happen at all.
+    assert.equal(climbs(170), true);
+    assert.equal(climbs(200), true);
+  });
+
+  it("does not pretend to reach what it cannot", () => {
+    assert.equal(climbs(260, 6), false);
+  });
+
+  it("only plans jumps it can actually fly", () => {
+    // The other half of the same bug: the graph was linking ledges 237px up
+    // while the controller could manage 35, so bots routed themselves under
+    // platforms and stayed there. Whatever the graph plans has to be flyable.
+    const arena = createEmptyArena("reach", "Reach", 1600, 1400);
+    arena.elements.push({ id: "floor", type: "floor", x: 0, y: 1200, width: 1600, height: 40 });
+    for (let step = 1; step <= 10; step++) {
+      arena.elements.push({
+        id: `ledge-${step}`,
+        type: "platform",
+        x: 700,
+        y: 1200 - step * 30,
+        width: 200,
+        height: 10,
+      });
+    }
+
+    const graph = new NavGraph(arena, new CollisionWorld(arena), getPlayerConfig());
+    const rises = graph.links.flatMap((links, from) =>
+      links
+        .filter((link) => link.kind === "jump")
+        .map((link) => graph.nodes[from]!.y - graph.nodes[link.to]!.y),
+    );
+
+    const highest = Math.max(0, ...rises);
+    assert.ok(highest > 100, `the graph should still plan real climbs, got ${highest}`);
+    assert.ok(highest <= 210, `the graph plans a ${Math.round(highest)}px climb a bot cannot fly`);
   });
 });

@@ -234,10 +234,19 @@ export class NavGraph {
     const gravity = Math.max(1, player.gravity);
     const jumpSpeed = Math.abs(player.jumpVelocity);
 
-    // How high one jump gets, and how high the mid-air jump adds on top.
+    /*
+     * How high one jump gets, and how much the mid-air jump adds on top.
+     *
+     * Deliberately short of the theoretical maximum. The second jump *replaces*
+     * the current upward speed rather than adding to it, so its full value is
+     * only available exactly at the apex -- and a bot flying a real arc, with a
+     * tick of release in between, lands a little under that. Measured at 200px
+     * against 138 for one jump; linking anything a bot cannot actually fly is
+     * how a route becomes a bot pressed against the underside of a ledge.
+     */
     const singleRise = (jumpSpeed * jumpSpeed) / (2 * gravity);
     const jumps = Math.max(1, Math.round(player.maxJumps));
-    const maxRise = jumps > 1 ? singleRise * (1 + player.airJumpMultiplier ** 2 * 0.85) : singleRise;
+    const maxRise = jumps > 1 ? singleRise * (1 + player.airJumpMultiplier ** 2 * 0.55) : singleRise;
 
     // Roughly how far you travel horizontally over a full jump arc.
     const airtime = (2 * jumpSpeed) / gravity;
