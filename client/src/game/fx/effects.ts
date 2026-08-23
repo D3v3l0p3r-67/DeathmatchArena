@@ -88,17 +88,55 @@ export const FINALE = {
   /** Dropping into slow motion, in ms of real time. */
   easeInMs: 140,
   /** How long it stays there. */
-  holdMs: 720,
+  holdMs: 900,
   /** Coming back to normal speed. */
   easeOutMs: 900,
+
+  /**
+   * The camera's part, in ms of real time from the last kill.
+   *
+   * Two beats. First the body: the camera pushes in on whoever just died, which
+   * is the moment the slow motion exists to show. Then the survivor, because the
+   * question the arena is asking by then is "who won", and an answer you watch
+   * is worth more than a line on a menu.
+   */
+  victimZoom: 1.9,
+  winnerZoom: 1.35,
+  /** When the camera leaves the body and finds the winner. */
+  winnerAtMs: 1150,
+  /** How long the camera takes to move between the two, and to zoom at all. */
+  cameraEaseMs: 620,
+
+  /** How long the winner celebrates for, from `winnerAtMs`. */
+  celebrateMs: 2200,
+  /** Height of one celebratory hop, in px, and how many per second. */
+  celebrateHop: 34,
+  celebrateHz: 2.4,
+
+  /** Confetti: how many waves, how far apart, and how many pieces in each. */
+  confettiWaves: 4,
+  confettiGapMs: 260,
+  confettiPerWave: 26,
+
   /**
    * How long after the final kill the results appear, in ms of real time.
    *
-   * A little longer than the ramp, so the screen arrives after the arena has
-   * settled rather than on top of it.
+   * Long enough for both beats: the body, then the winner celebrating. The
+   * standings arrive once there is nothing left to watch rather than on top of
+   * the best moment in the match.
    */
-  resultsAfterMs: 1950,
+  resultsAfterMs: 3400,
 } as const;
+
+/**
+ * Confetti colours.
+ *
+ * Bright and unmistakably celebratory -- nothing in the arena's own palette is
+ * any of these, so a screen full of them cannot be mistaken for gameplay.
+ */
+export const CONFETTI_COLORS = Object.freeze([
+  0xff5d8f, 0xffd166, 0x4ade80, 0x38bdf8, 0xc084fc, 0xfb923c,
+]);
 
 /** Bursts, keyed by what caused them. */
 export const BURSTS = Object.freeze({

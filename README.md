@@ -1266,10 +1266,24 @@ survivors, because the client cannot work it out for itself — the kill arrives
 immediately and the finished state only with the next patch, so without the flag
 the last kill of a match looks like any other for a fifth of a second.
 
-On that flag the scene drops into slow motion (`FINALE`), and the shell holds the
-results screen back until it has played out — the moment somebody wins is
-something you watch rather than something a menu covers. Two details keep that
-honest:
+On that flag the whole ending plays out, in two beats, and the shell holds the
+results screen back until it has finished — the moment somebody wins is something
+you watch rather than something a menu covers.
+
+```
+0ms     the kill      slow motion drops in, the camera pushes in on the body
+1150ms  the winner    the camera finds whoever is left, they jump for joy,
+                      four waves of confetti fall across the screen
+3400ms  the menu      the standings, once there is nothing left to watch
+```
+
+The winner's celebration is an *offset* on the position the server sent, not a
+position of its own — they are still standing exactly where the server says, and
+this is only how they are drawn. The confetti is built from the same tweens as
+every other particle, which means it slows down with the finale instead of racing
+it.
+
+Two details keep the whole thing honest:
 
 - **Simulation time and presentation time are separate.** Prediction, input and
   snapshot interpolation keep running on real time; only what is *drawn* slows
@@ -1279,6 +1293,13 @@ honest:
   very effect it is waiting on and the results would arrive late by exactly
   however much time was slowed. The shell also keeps a backstop timer, so a scene
   torn down mid-animation still ends with the standings on screen.
+
+**Play again** ends the results early once everybody has asked for it — everybody
+who *can* ask, that is. Bots are always "connected" and never ask for anything,
+so counting them meant the button could not do its job in any room with one in
+it, which is every room somebody plays alone. The button also says it heard you:
+the countdown line is redrawn every frame, so writing "ready" straight to it was
+overwritten within milliseconds, and a working button looked like a broken one.
 
 Nothing here can change the outcome: the match is decided on the server before any
 of it starts.

@@ -36,7 +36,7 @@ import {
   listBrainProfiles,
   type BrainProfile,
 } from "@deathmatch/shared";
-import { createHarness, type Harness } from "./harness.js";
+import { clock, createHarness, type Harness } from "./harness.js";
 import { MAX_HEALTH } from "./helpers.js";
 
 const { Brain, deriveEffectiveProfile } = await import("../server/src/npc/Brain.js");
@@ -1631,5 +1631,73 @@ describe("a bot holding something explosive", () => {
     }
 
     assert.equal(fired, true, "a rifle at point-blank range is simply a rifle");
+  });
+});
+
+describe("asking for another match", () => {
+  /** A finished match with one person and `bots` bots still in the room. */
+  function afterAMatch(bots: number) {
+    const config = cloneConfig(getGameConfig());
+    config.npc.enabled = true;
+
+    const harness = createHarness();
+    harness.replaceConfig(config);
+    harness.state.matchState = MatchState.WAITING;
+
+    const human = harness.addPlayer("human", 400, 1700);
+    human.connected = true;
+    human.alive = false;
+    human.inMatch = false;
+    harness.state.hostId = "human";
+
+    for (let index = 0; index < bots; index++) harness.npcs.addBot("human", 3);
+    harness.matchManager.requestStart();
+    harness.run(8);
+
+    // End it by taking the bots out of the fight.
+    for (const agent of harness.npcs.list()) {
+      const player = harness.state.players.get(agent.sessionId)!;
+      harness.matchManager.eliminate(player, null, player.weaponId);
+    }
+    harness.run(0.2);
+    return harness;
+  }
+
+  it("cuts the wait short when everybody who can ask has asked", () => {
+    // The bug this pins: bots are always "connected" and never ask for
+    // anything, so counting them meant the button could never do its job in a
+    // room with one in it -- which is every room somebody plays alone.
+    const harness = afterAMatch(2);
+    assert.equal(harness.state.matchState, MatchState.FINISHED);
+
+    harness.matchManager.requestRequeue("human", clock.now);
+    harness.run(0.2);
+
+    assert.equal(harness.state.matchState, MatchState.WAITING, "the room should have recycled");
+  });
+
+  it("waits for the other people, not for the bots", () => {
+    const harness = afterAMatch(1);
+    const guest = harness.addPlayer("human-2", 500, 1700);
+    guest.connected = true;
+
+    harness.matchManager.requestRequeue("human", clock.now);
+    harness.run(0.2);
+    assert.equal(harness.state.matchState, MatchState.FINISHED, "one of two people is not everybody");
+
+    harness.matchManager.requestRequeue("human-2", clock.now);
+    harness.run(0.2);
+    assert.equal(harness.state.matchState, MatchState.WAITING);
+  });
+
+  it("ignores an ask outside the results screen", () => {
+    const harness = afterAMatch(1);
+    harness.run(20);
+    assert.equal(harness.state.matchState, MatchState.WAITING);
+
+    // Nothing to cut short; this must not disturb the lobby.
+    harness.matchManager.requestRequeue("human", clock.now);
+    harness.run(0.2);
+    assert.equal(harness.state.matchState, MatchState.WAITING);
   });
 });

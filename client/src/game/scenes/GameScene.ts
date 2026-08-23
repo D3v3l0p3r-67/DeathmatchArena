@@ -119,6 +119,13 @@ export class GameScene extends Phaser.Scene {
   private timeScale = 1;
   /** When the finale began, in real time; 0 when no finale is running. */
   private finaleStartedAt = 0;
+  /** Who died last, and who is left standing. Both drive the camera, not the game. */
+  private finaleVictimId = "";
+  private finaleWinnerId = "";
+  /** Set once the camera has left the body for the winner. */
+  private finaleFoundWinner = false;
+  /** How many confetti waves have gone up so far. */
+  private confettiWaves = 0;
 
   /** Previous per-player state, so movement events can be spotted in a patch. */
   private readonly wasOnGround = new Map<string, boolean>();
@@ -659,6 +666,7 @@ export class GameScene extends Phaser.Scene {
     this.renderLocalPlayer(deltaSeconds);
     this.renderRemotePlayers(now, deltaSeconds);
     for (const view of this.playerViews.values()) view.tickDeath(scaledSeconds);
+    this.updateFinale(now, scaledSeconds);
     this.renderProjectiles(now);
     for (const view of this.warningViews.values()) view.render(deltaSeconds);
     this.renderGrenades(now, deltaSeconds);
@@ -666,10 +674,40 @@ export class GameScene extends Phaser.Scene {
     this.updateCamera(deltaSeconds);
   }
 
-  /** Drop any running finale and put the clock back to normal. */
+  /** Drop any running finale and put everything it touched back. */
   private cancelFinale(): void {
+    if (this.finaleStartedAt === 0 && this.finaleWinnerId === "") return;
+
     this.finaleStartedAt = 0;
+    this.finaleVictimId = "";
+    this.finaleFoundWinner = false;
+    this.confettiWaves = 0;
     this.setSceneTimeScale(1);
+    this.cameraController?.resetZoom();
+
+    if (this.finaleWinnerId) {
+      this.playerViews.get(this.finaleWinnerId)?.setCelebrating(false);
+      this.finaleWinnerId = "";
+    }
+  }
+
+  /**
+   * Who is left.
+   *
+   * The kill that ends a match leaves exactly one player alive, and the server
+   * has not sent the finished state yet -- so the survivor is found here rather
+   * than waited for. Falls back to the killer, which is the same person in every
+   * case except a final death nobody scored.
+   */
+  private findSurvivor(victimId: string): string {
+    const state = this.network.state;
+    if (!state) return "";
+
+    for (const [sessionId, player] of state.players) {
+      if (sessionId === victimId) continue;
+      if (player.alive && player.inMatch) return sessionId;
+    }
+    return "";
   }
 
   /** True while the last kill of a match is still playing out. */
@@ -709,6 +747,59 @@ export class GameScene extends Phaser.Scene {
     return scale;
   }
 
+  /**
+   * The finale, beat by beat.
+   *
+   * Everything here is presentation: the match was decided on the server before
+   * any of it started, and nothing in this method can change who won. Run on
+   * real time so the sequence keeps its own pace while the world it is watching
+   * runs slowly.
+   */
+  private updateFinale(now: number, scaledSeconds: number): void {
+    if (this.finaleStartedAt === 0) return;
+
+    const elapsed = now - this.finaleStartedAt;
+
+    // Beat two: leave the body and find whoever is still standing.
+    if (!this.finaleFoundWinner && elapsed >= FINALE.winnerAtMs) {
+      this.finaleFoundWinner = true;
+      this.cameraController.zoomTo(FINALE.winnerZoom, FINALE.cameraEaseMs);
+      this.playerViews.get(this.finaleWinnerId)?.setCelebrating(true);
+    }
+
+    if (this.finaleFoundWinner) {
+      const winner = this.playerViews.get(this.finaleWinnerId);
+      winner?.tickCelebration(scaledSeconds, FINALE.celebrateHop, FINALE.celebrateHz);
+
+      // A wave of confetti every so often, so the screen keeps filling rather
+      // than emptying while the winner is still bouncing.
+      const due = Math.min(
+        FINALE.confettiWaves,
+        Math.floor((elapsed - FINALE.winnerAtMs) / FINALE.confettiGapMs) + 1,
+      );
+      while (this.confettiWaves < due) {
+        this.confettiWaves++;
+        this.effects.confetti(this.cameras.main.worldView, FINALE.confettiPerWave);
+      }
+    }
+  }
+
+  /**
+   * Where the camera should be looking during the finale, if anywhere.
+   *
+   * The body first, then the winner. Returning null hands the camera back to
+   * whatever it was following.
+   */
+  private finaleCameraTarget(): { x: number; y: number; aimAngle: number } | null {
+    if (this.finaleStartedAt === 0) return null;
+
+    const id = this.finaleFoundWinner ? this.finaleWinnerId : this.finaleVictimId;
+    const view = this.playerViews.get(id);
+    if (!view) return null;
+
+    return { x: view.container.x, y: view.container.y, aimAngle: 0 };
+  }
+
   /** Tweens and timers run on the same clock as the rendering. */
   private setSceneTimeScale(scale: number): void {
     if (Math.abs(this.timeScale - scale) < 0.001) return;
@@ -732,8 +823,15 @@ export class GameScene extends Phaser.Scene {
     if (!payload.endsMatch) return;
 
     this.finaleStartedAt = performance.now();
+    this.finaleVictimId = payload.victimId;
+    this.finaleWinnerId = this.findSurvivor(payload.victimId);
+    this.finaleFoundWinner = false;
+    this.confettiWaves = 0;
+
     const shake = this.effects.shakeFor("finalKill");
     this.cameraController.shake(shake.durationMs, shake.intensity);
+    // Push in on the body: this is the moment the slow motion exists to show.
+    this.cameraController.zoomTo(FINALE.victimZoom, FINALE.cameraEaseMs);
 
     // Real time, deliberately: `this.time` is dilated by the very effect being
     // waited on, so a scene timer here would stretch with it and the results
@@ -865,6 +963,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   private getCameraTarget(): { x: number; y: number; aimAngle: number } | null {
+    // The finale takes the camera: for those few seconds it is showing the match
+    // its ending rather than showing the player their own position.
+    const finale = this.finaleCameraTarget();
+    if (finale) return finale;
+
     if (this.isLocalAlive()) {
       return {
         x: this.prediction.renderX,

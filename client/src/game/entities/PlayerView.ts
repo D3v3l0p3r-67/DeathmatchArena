@@ -52,6 +52,11 @@ export class PlayerView {
   private weaponId = "";
   private beltCount = -1;
 
+  /** Elapsed time in the celebration, in ms. Negative when not celebrating. */
+  private celebratingFor = -1;
+  /** How far off the ground the celebration currently has them, in px. */
+  private celebrationLift = 0;
+
   /** Elapsed time in the death animation, in ms. Negative when not dying. */
   private dyingFor = -1;
   private deathVelocityY = 0;
@@ -133,7 +138,10 @@ export class PlayerView {
     // the animation ends.
     if (!state.alive) return;
 
-    this.container.setPosition(state.x, state.y);
+    // The celebration is an offset on top of the server's position rather than a
+    // position of its own: the winner is still a player standing where the
+    // server says they are, and this is only how they are drawn.
+    this.container.setPosition(state.x, state.y - this.celebrationLift);
 
     this.applyWeapon(state.weaponId);
 
@@ -189,6 +197,43 @@ export class PlayerView {
     this.weapon.setVisible(true);
     this.belt.setVisible(true);
     this.beltCount = -1;
+  }
+
+  /**
+   * Start or stop celebrating.
+   *
+   * Presentation only, and only ever used on the winner after a match has been
+   * decided: nothing here touches where the player actually is.
+   */
+  setCelebrating(celebrating: boolean): void {
+    if (celebrating) {
+      if (this.celebratingFor < 0) this.celebratingFor = 0;
+      return;
+    }
+
+    this.celebratingFor = -1;
+    this.celebrationLift = 0;
+    this.body.setRotation(0);
+  }
+
+  /**
+   * Advance the celebration: a series of hops on the spot.
+   *
+   * Driven by the scene's clock like the death animation, so it slows down with
+   * the finale rather than running at full speed underneath it.
+   */
+  tickCelebration(deltaSeconds: number, hop: number, hz: number): void {
+    if (this.celebratingFor < 0) return;
+
+    this.celebratingFor += deltaSeconds * 1000;
+    const phase = (this.celebratingFor / 1000) * hz * Math.PI * 2;
+
+    // Absolute sine: the arc of a bounce rather than the sway of a float, and it
+    // never dips below the floor they are standing on.
+    this.celebrationLift = Math.abs(Math.sin(phase)) * hop;
+    // A little tilt with each hop, so it reads as jumping for joy rather than as
+    // being lifted.
+    this.body.setRotation(Math.sin(phase * 0.5) * 0.14);
   }
 
   /**

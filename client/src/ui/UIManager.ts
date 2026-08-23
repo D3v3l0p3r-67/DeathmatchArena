@@ -71,6 +71,7 @@ export class UIManager {
   private readonly careerKills = requireElement("career-kills");
   private readonly careerKd = requireElement("career-kd");
   private readonly resultsCareer = requireElement("results-career");
+  private readonly playAgain = requireElement<HTMLButtonElement>("play-again");
 
   private readonly reconnect = requireElement("reconnect");
   private readonly reconnectTimer = requireElement("reconnect-timer");
@@ -92,7 +93,7 @@ export class UIManager {
     requireElement("cancel-matchmaking").addEventListener("click", () => this.callbacks.onCancelMatchmaking());
     requireElement("leave-lobby").addEventListener("click", () => this.callbacks.onLeaveLobby());
     this.startButton.addEventListener("click", () => this.callbacks.onStartMatch());
-    requireElement("play-again").addEventListener("click", () => this.callbacks.onPlayAgain());
+    this.playAgain.addEventListener("click", () => this.callbacks.onPlayAgain());
     requireElement("back-to-menu").addEventListener("click", () => this.callbacks.onBackToMenu());
 
     this.nameInput.addEventListener("input", () => this.clearNameError());
@@ -424,6 +425,17 @@ export class UIManager {
 
   setResultsCountdown(message: string): void {
     setText(this.resultsNext, message);
+  }
+
+  /**
+   * Mark the request as made.
+   *
+   * The button is the only thing that can say "I heard you" before the server
+   * acts, and pressing it a second time achieves nothing.
+   */
+  setPlayAgainReady(ready: boolean): void {
+    this.playAgain.disabled = ready;
+    setText(this.playAgain, ready ? "Ready" : "Play again");
   }
 
   // ---------------------------------------------------------------- notices
