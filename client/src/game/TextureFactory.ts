@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { PLAYER } from "@deathmatch/shared";
+import { PLAYER, listWeapons, type WeaponDefinition } from "@deathmatch/shared";
 
 /**
  * Placeholder art, generated at runtime.
@@ -12,6 +12,7 @@ export const TextureKeys = {
   PlayerBody: "player-body",
   PlayerVisor: "player-visor",
   PlayerShadow: "player-shadow",
+  /** Fallback for a weapon with no silhouette; real ones get a key of their own. */
   Weapon: "weapon",
   Bullet: "bullet",
   BulletGlow: "bullet-glow",
@@ -80,6 +81,43 @@ function createWeapon(scene: Phaser.Scene): void {
   graphics.fillStyle(0xffffff, 0.65);
   graphics.fillRect(20, 1, 6, 3);
   graphics.generateTexture(TextureKeys.Weapon, 26, 14);
+  graphics.destroy();
+}
+
+/** Texture key for one weapon's silhouette. */
+export function weaponTextureKey(weaponId: string): string {
+  return `weapon:${weaponId}`;
+}
+
+/**
+ * Draw every configured weapon.
+ *
+ * Separate from the placeholder textures because it cannot run at boot: weapons
+ * are administered data and arrive with the welcome message, so this runs once
+ * the room's configuration is known -- and again if it changes underneath us.
+ */
+export function generateWeaponTextures(scene: Phaser.Scene): void {
+  for (const weapon of listWeapons()) {
+    drawWeapon(scene, weapon);
+  }
+}
+
+function drawWeapon(scene: Phaser.Scene, weapon: WeaponDefinition): void {
+  const key = weaponTextureKey(weapon.id);
+  const shape = weapon.silhouette;
+  if (!shape || shape.length <= 0 || shape.height <= 0) return;
+
+  // Regenerated rather than skipped, so retuning a weapon's look takes effect
+  // without a reload.
+  if (scene.textures.exists(key)) scene.textures.remove(key);
+
+  const graphics = scene.make.graphics({ x: 0, y: 0 }, false);
+  for (const part of shape.parts) {
+    graphics.fillStyle(part.color ?? shape.color, part.alpha ?? 1);
+    graphics.fillRect(part.x, part.y, part.width, part.height);
+  }
+
+  graphics.generateTexture(key, shape.length, shape.height);
   graphics.destroy();
 }
 

@@ -66,6 +66,22 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
         projectileStyle: { color: 0xffd166, radius: 3, trailLength: 26 },
       },
       melee: null,
+      // Long, thin and businesslike. The grip sits 22px back from the muzzle,
+      // which is where the flash is drawn.
+      silhouette: {
+        length: 30,
+        height: 16,
+        gripX: 8,
+        gripY: 8,
+        color: 0xd7e2f5,
+        parts: [
+          { x: 0, y: 5, width: 9, height: 7, color: 0x8f9bb3 },
+          { x: 6, y: 4, width: 11, height: 8 },
+          { x: 16, y: 6, width: 14, height: 4 },
+          { x: 9, y: 11, width: 6, height: 5, color: 0x8f9bb3 },
+          { x: 13, y: 1, width: 3, height: 3, alpha: 0.75 },
+        ],
+      },
     },
 
     {
@@ -93,6 +109,23 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
         projectileStyle: { color: 0xff9f4a, radius: 2.4, trailLength: 15 },
       },
       melee: null,
+      // The pump under the barrel and the wooden stock are the giveaway: two
+      // silhouettes at a hundred paces have to be told apart by shape, not
+      // detail, so the differences are deliberately gross.
+      silhouette: {
+        length: 30,
+        height: 16,
+        gripX: 8,
+        gripY: 8,
+        color: 0xd7e2f5,
+        parts: [
+          { x: 0, y: 4, width: 10, height: 9, color: 0xc98a4b },
+          { x: 8, y: 4, width: 8, height: 8 },
+          { x: 15, y: 5, width: 15, height: 5 },
+          { x: 17, y: 10, width: 10, height: 4, color: 0xc98a4b },
+          { x: 27, y: 3, width: 3, height: 9 },
+        ],
+      },
     },
 
     {
@@ -112,6 +145,26 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
       melee: {
         arcDegrees: 70,
         attackIntervalMs: 260,
+      },
+      // An orange body and a long toothed bar. Nothing else in the game is
+      // orange and bar-shaped, which is the entire design goal: you should know
+      // what is running at you before it arrives.
+      silhouette: {
+        length: 36,
+        height: 18,
+        gripX: 8,
+        gripY: 10,
+        color: 0xff8a4a,
+        parts: [
+          { x: 0, y: 5, width: 9, height: 9 },
+          { x: 6, y: 3, width: 13, height: 12 },
+          { x: 8, y: 0, width: 10, height: 3 },
+          { x: 18, y: 7, width: 18, height: 5, color: 0xc9d3e4 },
+          // Teeth along the top of the bar.
+          { x: 21, y: 5, width: 2, height: 2, color: 0xeef3fb },
+          { x: 26, y: 5, width: 2, height: 2, color: 0xeef3fb },
+          { x: 31, y: 5, width: 2, height: 2, color: 0xeef3fb },
+        ],
       },
     },
   ],
@@ -176,7 +229,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
 
   grenades: {
     enabled: true,
-    startingCount: 1,
+    startingCount: 3,
     maxCount: 3,
     // A gentle lob at no charge, a long throw at full charge.
     minThrowSpeed: 420,

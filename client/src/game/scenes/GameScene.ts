@@ -32,6 +32,7 @@ import { CameraController } from "../CameraController.js";
 import { EffectsSystem } from "../EffectsSystem.js";
 import { InputController } from "../InputController.js";
 import { ShrinkWallsView } from "../ShrinkWallsView.js";
+import { generateWeaponTextures } from "../TextureFactory.js";
 import { DEFAULT_EFFECTS_SETTINGS, type EffectsSettings } from "../fx/effects.js";
 import { CrateView } from "../entities/CrateView.js";
 import { GrenadeView } from "../entities/GrenadeView.js";
@@ -132,6 +133,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private buildWorld(): void {
+    // Weapons are administered data and only arrive with the welcome message,
+    // so their silhouettes cannot be drawn at boot with the rest of the art.
+    generateWeaponTextures(this);
+
     this.arenaRenderer = new ArenaRenderer(this, this.arena);
     this.cameraController = new CameraController(this, this.arena);
     this.inputController = new InputController(this);
@@ -166,6 +171,8 @@ export class GameScene extends Phaser.Scene {
     events.on("patch", ({ state, receivedAt }) => this.onPatch(state, receivedAt));
     events.on("damage", (payload) => this.onDamage(payload));
     events.on("matchStateChanged", ({ matchState }) => this.onMatchStateChanged(matchState));
+    // A debug command can retune a weapon mid-match, including how it looks.
+    events.on("configChanged", () => generateWeaponTextures(this));
   }
 
   // ---------------------------------------------------------------------------
@@ -629,6 +636,8 @@ export class GameScene extends Phaser.Scene {
         onGround: this.prediction.movement.onGround,
         health: player.health,
         speedX: this.prediction.movement.velocityX,
+        weaponId: player.weaponId,
+        grenades: player.grenades,
       },
       deltaSeconds,
     );
@@ -656,6 +665,8 @@ export class GameScene extends Phaser.Scene {
           onGround: sample.onGround,
           health: player.health,
           speedX: sample.speedX,
+          weaponId: player.weaponId,
+          grenades: player.grenades,
         },
         deltaSeconds,
       );

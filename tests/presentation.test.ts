@@ -9,6 +9,7 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { PLAYER, listWeapons } from "@deathmatch/shared";
 
 const { SOUNDS, SoundChannel, SoundId, getSound } = await import("../client/src/audio/sounds.js");
 const { BURSTS, SHAKES, DEFAULT_EFFECTS_SETTINGS } = await import("../client/src/game/fx/effects.js");
@@ -106,5 +107,64 @@ describe("effect catalogue", () => {
     // Both are fractions, so 0 is a legal setting and means "off".
     assert.ok(DEFAULT_EFFECTS_SETTINGS.particleIntensity <= 1);
     assert.ok(DEFAULT_EFFECTS_SETTINGS.screenShake <= 1);
+  });
+});
+
+describe("weapon silhouettes", () => {
+  it("gives every weapon a shape someone can recognise across the arena", () => {
+    for (const weapon of listWeapons()) {
+      const shape = weapon.silhouette;
+      assert.ok(shape, `${weapon.id} has no silhouette`);
+      assert.ok(shape.length > 0 && shape.height > 0, `${weapon.id} has no size`);
+      assert.ok(shape.parts.length > 0, `${weapon.id} would draw as nothing`);
+    }
+  });
+
+  it("keeps every part inside the texture it is drawn into", () => {
+    // A part that overflows is silently clipped, which is the kind of thing you
+    // only notice as a weapon that looks subtly wrong from across the map.
+    for (const weapon of listWeapons()) {
+      const shape = weapon.silhouette;
+      for (const [index, part] of shape.parts.entries()) {
+        const where = `${weapon.id} part ${index}`;
+        assert.ok(part.width > 0 && part.height > 0, `${where} is empty`);
+        assert.ok(part.x >= 0 && part.y >= 0, `${where} starts outside the texture`);
+        assert.ok(part.x + part.width <= shape.length, `${where} overflows the length`);
+        assert.ok(part.y + part.height <= shape.height, `${where} overflows the height`);
+      }
+    }
+  });
+
+  it("puts the grip inside the weapon", () => {
+    for (const weapon of listWeapons()) {
+      const shape = weapon.silhouette;
+      assert.ok(shape.gripX >= 0 && shape.gripX <= shape.length, `${weapon.id} grips off the end`);
+      assert.ok(shape.gripY >= 0 && shape.gripY <= shape.height, `${weapon.id} grips off the side`);
+    }
+  });
+
+  it("puts a ranged weapon's muzzle where the flash is drawn", () => {
+    // The flash is placed at a fixed offset from the shoulder, so a barrel that
+    // ends anywhere else leaves the flash floating off the end of the gun.
+    for (const weapon of listWeapons()) {
+      if (!weapon.ranged) continue;
+      const reach = weapon.silhouette.length - weapon.silhouette.gripX;
+      assert.ok(
+        Math.abs(reach - PLAYER.MUZZLE_OFFSET_X) <= 4,
+        `${weapon.id} reaches ${reach}px, but the flash is drawn at ${PLAYER.MUZZLE_OFFSET_X}px`,
+      );
+    }
+  });
+
+  it("never draws two weapons with the same silhouette", () => {
+    // The whole point is that another player can read your loadout at a glance,
+    // and the way that quietly breaks is a copy-pasted shape on a new weapon.
+    const seen = new Map<string, string>();
+    for (const weapon of listWeapons()) {
+      const signature = JSON.stringify(weapon.silhouette);
+      const twin = seen.get(signature);
+      assert.equal(twin, undefined, `${weapon.id} is drawn identically to ${twin}`);
+      seen.set(signature, weapon.id);
+    }
   });
 });

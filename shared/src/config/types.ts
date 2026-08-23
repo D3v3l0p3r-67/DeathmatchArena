@@ -59,6 +59,48 @@ export interface RangedWeaponConfig {
   };
 }
 
+/**
+ * One rectangle of a weapon's drawn shape, in texture space.
+ *
+ * Rectangles rather than a sprite for the same reason the arena is rectangles:
+ * it is data, so a weapon added through configuration arrives with a look
+ * instead of a missing texture — and a shotgun's pump or a chainsaw's bar can be
+ * moved without opening an image editor.
+ */
+export interface WeaponSilhouettePart {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** Overrides the weapon's base colour, for a wooden stock or a steel bar. */
+  color?: number;
+  alpha?: number;
+}
+
+/**
+ * How a weapon looks in someone's hands.
+ *
+ * Purely cosmetic, and the whole point of it is that it is visible *to other
+ * players*: at a glance across the arena you can tell whether the figure running
+ * at you is carrying a rifle or a chainsaw, which is information a shooter owes
+ * you.
+ */
+export interface WeaponSilhouette {
+  /** Texture size. Parts are drawn inside this box. */
+  length: number;
+  height: number;
+  /**
+   * Where the hand holds it, in texture pixels. This is the rotation pivot, so
+   * for a ranged weapon `length - gripX` should be about the muzzle offset --
+   * otherwise the muzzle flash detaches from the barrel.
+   */
+  gripX: number;
+  gripY: number;
+  /** Base colour for parts that do not name their own. */
+  color: number;
+  parts: WeaponSilhouettePart[];
+}
+
 /** Contact-weapon specifics. Required when `type` is `melee`. */
 export interface MeleeWeaponConfig {
   /**
@@ -99,6 +141,11 @@ export interface WeaponDefinition {
   automatic: boolean;
   ranged: RangedWeaponConfig | null;
   melee: MeleeWeaponConfig | null;
+  /**
+   * How it is drawn in a player's hands. Cosmetic, and like `projectileStyle`
+   * it is a shape rather than a scalar, so it is not an admin form field.
+   */
+  silhouette: WeaponSilhouette;
 }
 
 /**

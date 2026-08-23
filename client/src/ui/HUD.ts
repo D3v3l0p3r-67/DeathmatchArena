@@ -28,13 +28,17 @@ export interface HudSnapshot {
  * Renders health, ammunition, reload progress, survivors, kills, the current
  * weapon and the match state. Every value comes from server-synchronised state --
  * the HUD never computes anything authoritative, it only presents it.
+ *
+ * Grenades are deliberately absent: they are worn on the player's belt, where
+ * they are visible on every player rather than only on your own screen.
  */
 export class HUD {
   private readonly root = query('[data-layer="hud"]');
   private readonly health = requireElement("hud-health");
   private readonly healthFill = requireElement("hud-health-fill");
   private readonly ammo = requireElement("hud-ammo");
-  private readonly ammoGroup = requireElement("hud-ammo").parentElement!;
+  private readonly ammoGauge = requireElement("hud-ammo-gauge");
+  private readonly ammoFill = requireElement("hud-ammo-fill");
   private readonly magazine = requireElement("hud-magazine");
   private readonly weaponName = requireElement("hud-weapon");
   private readonly meleeBadge = requireElement("hud-melee");
@@ -43,12 +47,9 @@ export class HUD {
   private readonly shrinkEffect = requireElement("hud-shrink");
   private readonly shrinkLabel = requireElement("hud-shrink-label");
   private readonly shrinkTimer = requireElement("hud-shrink-timer");
-  private readonly grenadeGroup = requireElement("hud-grenades");
-  private readonly grenadeCount = requireElement("hud-grenade-count");
   private readonly throwPower = requireElement("hud-throw-power");
   private readonly throwFill = requireElement("hud-throw-fill");
   private readonly reload = requireElement("hud-reload");
-  private readonly reloadFill = requireElement("hud-reload-fill");
   private readonly alive = requireElement("hud-alive");
   private readonly kills = requireElement("hud-kills");
   private readonly matchStateLabel = requireElement("hud-match-state");
@@ -89,18 +90,11 @@ export class HUD {
     const weapon = getWeapon(player.weaponId);
     setText(this.weaponName, weapon.name);
 
-    const ammoDriven = usesAmmo(weapon);
-    this.ammoGroup.style.display = ammoDriven ? "" : "none";
+    this.updateAmmo(player, weapon);
     toggleClass(this.meleeBadge, "is-active", isMelee(weapon));
 
-    if (ammoDriven) {
-      setText(this.ammo, String(player.ammo));
-      setText(this.magazine, String(weapon.magazineSize));
-      toggleClass(this.ammoGroup, "is-empty", player.ammo === 0);
-    }
-
     this.updateReload(player.reloading, weapon.reloadTime);
-    this.updateGrenades(player, snapshot);
+    this.updateThrowPower(player, snapshot);
     this.updateEffects(player, snapshot);
 
     const inFight = snapshot.matchState === MatchState.PLAYING && player.alive;
@@ -108,16 +102,40 @@ export class HUD {
   }
 
   /**
-   * Grenade count, and the power bar while a throw is winding up.
+   * The magazine, as a gauge under the health bar.
    *
-   * The count is server state. The bar is local so it moves at frame rate, but
-   * it charges against the same configured maximum the server measures with, so
-   * a full bar really is a full-power throw.
+   * The same shape as health on purpose: both answer "how much longer can I keep
+   * doing this", and two identical gauges are read faster than a bar on one side
+   * and a number on the other.
+   *
+   * A weapon with no magazine has no gauge at all rather than an empty one --
+   * the chainsaw never runs out, and a permanently empty bar would suggest it can.
    */
-  private updateGrenades(player: SyncedPlayer, snapshot: HudSnapshot): void {
-    setText(this.grenadeCount, String(player.grenades));
-    toggleClass(this.grenadeGroup, "is-empty", player.grenades === 0);
+  private updateAmmo(player: SyncedPlayer, weapon: ReturnType<typeof getWeapon>): void {
+    const ammoDriven = usesAmmo(weapon);
+    toggleClass(this.ammoGauge, "is-hidden", !ammoDriven);
+    if (!ammoDriven) return;
 
+    setText(this.ammo, String(player.ammo));
+    setText(this.magazine, String(weapon.magazineSize));
+
+    // The bar is empty during a reload: the magazine is genuinely out, and it
+    // leaves the whole bar for the reload sweep to fill. Otherwise the sweep
+    // would be hidden behind the rounds it is about to replace until it grew
+    // past them, so the first half of every reload would look like nothing.
+    const ratio = player.reloading ? 0 : clamp(player.ammo / Math.max(1, weapon.magazineSize), 0, 1);
+    this.ammoFill.style.width = `${ratio * 100}%`;
+    toggleClass(this.ammoGauge, "is-empty", player.ammo === 0 && !player.reloading);
+    toggleClass(this.ammoFill, "is-low", ratio > 0 && ratio <= 0.25);
+  }
+
+  /**
+   * The power bar while a throw is winding up.
+   *
+   * Local, so it moves at frame rate, but it charges against the same configured
+   * maximum the server measures with -- a full bar really is a full-power throw.
+   */
+  private updateThrowPower(player: SyncedPlayer, snapshot: HudSnapshot): void {
     const charging = snapshot.grenadeCharge > 0 && player.alive;
     toggleClass(this.throwPower, "is-active", charging);
     if (charging) this.throwFill.style.width = `${Math.min(1, snapshot.grenadeCharge) * 100}%`;
@@ -161,11 +179,14 @@ export class HUD {
     }
 
     toggleClass(this.reload, "is-active", reloading);
-    if (!reloading) return;
+    if (!reloading) {
+      this.reload.style.width = "0%";
+      return;
+    }
 
     const elapsed = performance.now() - this.reloadStartedAt;
     const progress = clamp(elapsed / Math.max(1, this.reloadDurationMs), 0, 1);
-    this.reloadFill.style.width = `${progress * 100}%`;
+    this.reload.style.width = `${progress * 100}%`;
   }
 
   /** Position the DOM crosshair over the pointer. */

@@ -92,31 +92,35 @@
         <ul class="kill-feed" id="kill-feed"></ul>
 
         <div class="hud__bottom">
-          <div class="health">
-            <div class="health__bar">
-              <div class="health__fill" id="hud-health-fill"></div>
+          <!-- Health and ammunition read as one stack of gauges: the two
+               numbers that decide whether you keep fighting or back off. -->
+          <div class="gauges">
+            <div class="gauge gauge--health">
+              <div class="gauge__bar">
+                <div class="gauge__fill" id="hud-health-fill"></div>
+              </div>
+              <div class="gauge__value"><span id="hud-health">100</span> <small>HP</small></div>
             </div>
-            <div class="health__value"><span id="hud-health">100</span> <small>HP</small></div>
+
+            <div class="gauge gauge--ammo" id="hud-ammo-gauge">
+              <div class="gauge__bar">
+                <div class="gauge__fill" id="hud-ammo-fill"></div>
+                <!-- Sweeps over the ammo fill while reloading, so the wait is
+                     shown where the ammunition is rather than somewhere else. -->
+                <div class="gauge__reload" id="hud-reload"></div>
+              </div>
+              <div class="gauge__value">
+                <span id="hud-ammo">30</span><small>/<span id="hud-magazine">30</span></small>
+              </div>
+            </div>
           </div>
 
           <div class="weapon">
             <div class="weapon__name" id="hud-weapon">Assault Rifle</div>
-            <div class="weapon__ammo">
-              <span id="hud-ammo">30</span><span class="weapon__ammo-sep">/</span
-              ><span id="hud-magazine">30</span>
-            </div>
             <div class="weapon__melee" id="hud-melee">MELEE</div>
-            <div class="grenades" id="hud-grenades">
-              <span class="grenades__label">GRENADES</span>
-              <span class="grenades__count" id="hud-grenade-count">0</span>
-            </div>
             <div class="throw-power" id="hud-throw-power">
               <span class="throw-power__label">THROW</span>
               <div class="throw-power__bar"><div class="throw-power__fill" id="hud-throw-fill"></div></div>
-            </div>
-            <div class="weapon__reload" id="hud-reload">
-              <span class="weapon__reload-label">RELOADING</span>
-              <div class="weapon__reload-bar"><div class="weapon__reload-fill" id="hud-reload-fill"></div></div>
             </div>
           </div>
 
