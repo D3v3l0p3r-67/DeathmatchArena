@@ -395,6 +395,30 @@ export interface PlayerConfig {
    * configuration value is not really configurable.
    */
   maxKnockbackSpeed: number;
+  /**
+   * How quickly a shove bleeds away, per second.
+   *
+   * Knockback deliberately does not decay through the ordinary friction figures:
+   * ground friction is 3200px/s², which erases a rifle's shove inside two frames
+   * and about half a pixel of travel -- landing a hit then looks like nothing
+   * happened at all. While a shove is live the horizontal speed decays by this
+   * fraction of itself each second instead, which makes the distance travelled
+   * proportional to the impulse: roughly `speed / knockbackDamping` pixels.
+   */
+  knockbackDamping: number;
+  /**
+   * How long a shove keeps its own decay before normal friction resumes, ms.
+   */
+  knockbackRecoveryMs: number;
+  /**
+   * How much of a shove is turned into lift when it lands on someone standing,
+   * as a fraction of the impulse.
+   *
+   * A purely horizontal push against the floor is fought by friction and by the
+   * victim's own footing. Taking them off their feet is what makes a hit read as
+   * a hit -- and it is what a shotgun blast should do anyway.
+   */
+  knockbackLift: number;
 }
 
 /** Match pacing and size. */

@@ -37,6 +37,11 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
     // Roughly two and a half times running speed: enough for a shotgun blast to
     // feel like one, not enough to send anybody through the arena.
     maxKnockbackSpeed: 850,
+    // A shove carries about `speed / 5` pixels: a rifle round nudges you some
+    // 40px, a point-blank shotgun throws you the better part of 170.
+    knockbackDamping: 5,
+    knockbackRecoveryMs: 420,
+    knockbackLift: 0.45,
   },
 
   match: {
@@ -62,10 +67,10 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
       magazineSize: 30,
       reloadTime: 1800,
       automatic: true,
-      knockbackForce: 0.25,
-      // Small on purpose: at 520 rounds a minute this lands nearly nine times a
-      // second, and anything larger walks the shooter backwards out of the fight.
-      recoilForce: 0.04,
+      knockbackForce: 0.75,
+      // Held down, this walks the shooter steadily backwards -- an automatic
+      // weapon should cost you your footing, not just your magazine.
+      recoilForce: 0.3,
       ranged: {
         bulletSpeed: 1500,
         spread: 0.035,
@@ -109,7 +114,8 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
       // Per pellet. Nine landing at contact range is a shove of about 700px/s,
       // which the knockback cap then holds at 850.
       knockbackForce: 0.3,
-      recoilForce: 0.4,
+      // One shot, one heavy kick: the shotgun is the weapon you can jump with.
+      recoilForce: 1.1,
       ranged: {
         bulletSpeed: 1150,
         spread: 0.17,
@@ -155,7 +161,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
       reloadTime: 0,
       automatic: true,
       // Throws whoever it catches; a chainsaw has nothing to recoil against.
-      knockbackForce: 0.9,
+      knockbackForce: 1.3,
       recoilForce: 0,
       ranged: null,
       melee: {
@@ -265,7 +271,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
     minDamageMultiplier: 0.18,
     // Radiates from the blast and falls off with it: a near miss shoves you, a
     // direct hit launches you.
-    knockbackForce: 1.4,
+    knockbackForce: 1.8,
   },
 
   arenaShrink: {

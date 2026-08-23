@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import { PLAYER, clamp, getPlayerConfig, getWeapon, lerpAngle } from "@deathmatch/shared";
 import { TextureKeys, getPlayerColor, weaponTextureKey } from "../TextureFactory.js";
+import { DEATH_ANIMATION } from "../fx/effects.js";
 
 export interface PlayerViewState {
   x: number;
@@ -39,10 +40,22 @@ export class PlayerView {
   /** Smoothed aim so remote weapons swing rather than snap between patches. */
   private renderedAim = 0;
   private walkCycle = 0;
-  private alive = true;
+  /**
+   * Null until the first state arrives.
+   *
+   * A view is created from whatever the room happens to hold -- which between
+   * matches is everybody dead -- and assuming "alive" would play a death
+   * animation for players who died before this client ever saw them.
+   */
+  private alive: boolean | null = null;
   /** Tracked so the weapon texture is only swapped when it actually changes. */
   private weaponId = "";
   private beltCount = -1;
+
+  /** Elapsed time in the death animation, in ms. Negative when not dying. */
+  private dyingFor = -1;
+  private deathVelocityY = 0;
+  private deathDrift = 0;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -107,13 +120,20 @@ export class PlayerView {
   }
 
   apply(state: PlayerViewState, deltaSeconds: number): void {
-    this.container.setPosition(state.x, state.y);
-
     if (this.alive !== state.alive) {
+      const known = this.alive !== null;
       this.alive = state.alive;
-      this.container.setVisible(state.alive);
+
+      if (!known) this.container.setVisible(state.alive);
+      else if (state.alive) this.reviveVisuals();
+      else this.beginDying();
     }
+
+    // A dying body is thrown by `tickDeath`, so its position is its own until
+    // the animation ends.
     if (!state.alive) return;
+
+    this.container.setPosition(state.x, state.y);
 
     this.applyWeapon(state.weaponId);
 
@@ -132,6 +152,76 @@ export class PlayerView {
     this.updateShadow(state);
     this.drawBelt(state.grenades, aimingLeft);
     this.drawHealthBar(state.health);
+  }
+
+  /**
+   * Throw the body.
+   *
+   * Started on the transition to dead and advanced by `tickDeath`, which the
+   * scene calls every frame -- deliberately not from `apply`, because the state
+   * of a dead player stops changing and there would be nothing to drive it.
+   */
+  private beginDying(): void {
+    this.dyingFor = 0;
+    this.deathVelocityY = -DEATH_ANIMATION.lift;
+    // Thrown away from where the body was facing, which is roughly away from
+    // whoever was in front of it.
+    this.deathDrift = -this.facingSign() * DEATH_ANIMATION.driftSpeed;
+
+    this.container.setVisible(true);
+    this.container.setAlpha(1);
+    this.label.setVisible(false);
+    this.healthBar.setVisible(false);
+    this.weapon.setVisible(false);
+    this.belt.setVisible(false);
+    this.shadow.setVisible(false);
+  }
+
+  /** Put everything back for a new life. */
+  private reviveVisuals(): void {
+    this.dyingFor = -1;
+    this.container.setVisible(true);
+    this.container.setAlpha(1);
+    this.body.setRotation(0);
+    this.body.setScale(1);
+    this.label.setVisible(true);
+    this.healthBar.setVisible(true);
+    this.weapon.setVisible(true);
+    this.belt.setVisible(true);
+    this.beltCount = -1;
+  }
+
+  /**
+   * Advance the death animation.
+   *
+   * Called every frame for every view, and a no-op for anyone alive. The delta
+   * is whatever the scene hands over -- which is how the same animation plays in
+   * slow motion for the kill that ends a match.
+   */
+  tickDeath(deltaSeconds: number): void {
+    if (this.dyingFor < 0) return;
+
+    this.dyingFor += deltaSeconds * 1000;
+    const progress = clamp(this.dyingFor / DEATH_ANIMATION.durationMs, 0, 1);
+
+    this.deathVelocityY += DEATH_ANIMATION.gravity * deltaSeconds;
+    this.container.x += this.deathDrift * deltaSeconds;
+    this.container.y += this.deathVelocityY * deltaSeconds;
+
+    this.body.setRotation(this.body.rotation + DEATH_ANIMATION.spin * deltaSeconds);
+    // Fades late and shrinks throughout, so the throw is legible before it goes.
+    this.container.setAlpha(1 - progress * progress);
+    this.body.setScale(1 - progress * 0.35);
+    this.visor.setAlpha(1 - progress);
+
+    if (progress < 1) return;
+
+    this.dyingFor = -1;
+    this.container.setVisible(false);
+  }
+
+  private facingSign(): number {
+    return Math.abs(this.renderedAim) > Math.PI / 2 ? -1 : 1;
   }
 
   /**

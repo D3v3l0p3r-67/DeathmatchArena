@@ -737,13 +737,25 @@ describe("bots in a real match", () => {
 
   it("moves under its own power, through the ordinary input queue", () => {
     const harness = startMatch(["aggressive", "rusher"]);
-    const before = harness.npcs.list().map((agent) => harness.state.players.get(agent.sessionId)!.x);
+    const ids = harness.npcs.list().map((agent) => agent.sessionId);
 
-    harness.run(6);
+    // Ground covered, not net displacement: a bot that chases somebody across
+    // the arena and is shoved back by their return fire has been moving the
+    // whole time even if it finishes where it started.
+    const travelled = new Map(ids.map((id) => [id, 0]));
+    let previous = new Map(ids.map((id) => [id, harness.state.players.get(id)!.x]));
 
-    const after = harness.npcs.list().map((agent) => harness.state.players.get(agent.sessionId)!.x);
-    const moved = after.filter((x, index) => Math.abs(x - before[index]!) > 150);
-    assert.ok(moved.length > 0, `expected a bot to cover ground, moved: ${JSON.stringify({ before, after })}`);
+    for (let second = 0; second < 6; second++) {
+      harness.run(1);
+      for (const id of ids) {
+        const x = harness.state.players.get(id)!.x;
+        travelled.set(id, travelled.get(id)! + Math.abs(x - previous.get(id)!));
+        previous.set(id, x);
+      }
+    }
+
+    const moved = [...travelled.values()].filter((distance) => distance > 150);
+    assert.ok(moved.length > 0, `expected a bot to cover ground, travelled: ${JSON.stringify([...travelled])}`);
 
     // The proof that it went through the same door a browser's input does.
     for (const agent of harness.npcs.list()) {

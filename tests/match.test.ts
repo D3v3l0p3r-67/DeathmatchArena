@@ -111,6 +111,10 @@ describe("match lifecycle", () => {
     assert.equal(results[0]!.winnerId, alice.sessionId);
     assert.equal(results[0]!.standings[0]!.placement, 1);
     assert.equal(kills.length, 1, "a disconnect mid-match counts as an elimination");
+    // Flagged by the server because the client cannot work it out: the kill
+    // arrives immediately and the finished state only with the next patch, so
+    // without this the last kill of a match looks like any other.
+    assert.equal(kills[0]!.endsMatch, true, "the last elimination must announce itself");
 
     // The room recycles itself so the same players can queue again.
     await waitFor(() => alice.state.matchState === MatchState.WAITING, "room to reset", 5000);

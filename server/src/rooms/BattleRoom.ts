@@ -471,17 +471,26 @@ export class BattleRoom extends Room<{ state: GameState }> {
       },
       applyDamage: (victimId, attackerId, amount, x, y, weaponId) =>
         this.matchManager.applyDamage(victimId, attackerId, amount, x, y, weaponId),
-      applyKnockback: (sessionId, directionX, directionY, force) => {
+      applyKnockback: (sessionId, directionX, directionY, force, lift = true) => {
         const runtime = this.runtimes.get(sessionId);
         const player = this.state.players.get(sessionId);
         if (!runtime || !player?.alive || !player.inMatch) return;
 
-        applyKnockback(runtime.movement, directionX, directionY, force, this.configView.getPlayerConfig());
+        const playerConfig = this.configView.getPlayerConfig();
+        applyKnockback(
+          runtime.movement,
+          directionX,
+          directionY,
+          force,
+          playerConfig,
+          lift ? playerConfig.knockbackLift : 0,
+        );
         // Mirrored immediately so the change is in the next patch rather than a
         // tick later; the client reconciles its prediction against these.
         player.velocityX = runtime.movement.velocityX;
         player.velocityY = runtime.movement.velocityY;
         player.onGround = runtime.movement.onGround;
+        player.knockbackTimer = runtime.movement.knockbackTimer;
       },
       damageCrate: (crateId, amount, attackerId, now) =>
         this.powerUpSystem.damageCrate(crateId, amount, attackerId, now),

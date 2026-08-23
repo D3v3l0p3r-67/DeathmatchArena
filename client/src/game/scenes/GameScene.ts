@@ -24,6 +24,7 @@ import {
   type SyncedProjectile,
   type SyncedTrap,
   TrapPhase,
+  type KillPayload,
 } from "@deathmatch/shared";
 import type { NetworkManager } from "../../net/NetworkManager.js";
 import { PredictionController } from "../../net/PredictionController.js";
@@ -34,7 +35,7 @@ import { EffectsSystem } from "../EffectsSystem.js";
 import { InputController } from "../InputController.js";
 import { ShrinkWallsView } from "../ShrinkWallsView.js";
 import { generateWeaponTextures } from "../TextureFactory.js";
-import { DEFAULT_EFFECTS_SETTINGS, type EffectsSettings } from "../fx/effects.js";
+import { DEFAULT_EFFECTS_SETTINGS, FINALE, type EffectsSettings } from "../fx/effects.js";
 import { CrateView } from "../entities/CrateView.js";
 import { CrateWarningView } from "../entities/CrateWarningView.js";
 import { GrenadeView } from "../entities/GrenadeView.js";
@@ -57,6 +58,13 @@ export interface GameSceneEvents {
   onPowerUpCollected(payload: PowerUpCollectedPayload): void;
   /** A crate has been announced and is on its way to this spot. */
   onCrateIncoming(warning: SyncedPendingCrate): void;
+  /**
+   * The kill that ended the match has finished playing out.
+   *
+   * The shell waits for this before putting the results screen up, so the last
+   * kill of a match is something you watch rather than something a menu covers.
+   */
+  onFinaleComplete(): void;
 }
 
 /**
@@ -101,6 +109,15 @@ export class GameScene extends Phaser.Scene {
 
   /** Player preferences, applied to every effect this scene plays. */
   private effectsSettings: EffectsSettings = { ...DEFAULT_EFFECTS_SETTINGS };
+  /**
+   * How fast the presentation is running, as a fraction of real time.
+   *
+   * Rendering only: the prediction loop keeps stepping at its fixed rate, and
+   * the match has already been decided on the server before any of this starts.
+   */
+  private timeScale = 1;
+  /** When the finale began, in real time; 0 when no finale is running. */
+  private finaleStartedAt = 0;
 
   /** Previous per-player state, so movement events can be spotted in a patch. */
   private readonly wasOnGround = new Map<string, boolean>();
@@ -175,6 +192,7 @@ export class GameScene extends Phaser.Scene {
     events.on("grenadeExploded", (payload) => this.onGrenadeExploded(payload));
     events.on("patch", ({ state, receivedAt }) => this.onPatch(state, receivedAt));
     events.on("damage", (payload) => this.onDamage(payload));
+    events.on("kill", (payload) => this.onKill(payload));
     events.on("matchStateChanged", ({ matchState }) => this.onMatchStateChanged(matchState));
     // A debug command can retune a weapon mid-match, including how it looks.
     events.on("configChanged", () => generateWeaponTextures(this));
@@ -523,9 +541,8 @@ export class GameScene extends Phaser.Scene {
     if (!local) return;
 
     if (this.wasAlive && !local.alive) {
-      const view = this.playerViews.get(this.network.sessionId);
-      if (view) this.effects.deathBurst(view.container.x, view.container.y, view.colorValue);
-
+      // The burst belongs to `onKill`, which fires for every death including
+      // this one; doing it here as well would double it up on the local player.
       this.inputController.setEnabled(false);
       const shake = this.effects.shakeFor("died");
       this.cameraController.shake(shake.durationMs, shake.intensity);
@@ -561,8 +578,13 @@ export class GameScene extends Phaser.Scene {
   private onMatchStateChanged(matchState: string): void {
     if (matchState === MatchState.PLAYING) {
       this.inputController.setEnabled(true);
+      this.cancelFinale();
       return;
     }
+
+    // FINISHED arrives immediately after the kill that caused it, so it must not
+    // cut the finale short; anything earlier in the cycle means a new match.
+    if (matchState !== MatchState.FINISHED) this.cancelFinale();
 
     this.inputController.setEnabled(false);
 
@@ -586,7 +608,11 @@ export class GameScene extends Phaser.Scene {
     if (!this.started || !this.network.isConnected) return;
 
     const now = performance.now();
+    // Simulation time and presentation time are separate. Everything that has
+    // to stay in step with the server -- prediction, input, snapshots -- runs on
+    // real time; only what is drawn is slowed down for the finale.
     const deltaSeconds = deltaMs / 1000;
+    const scaledSeconds = deltaSeconds * this.updateTimeScale(now);
 
     this.updateAim();
     this.runFixedSteps(deltaMs, now);
@@ -595,11 +621,87 @@ export class GameScene extends Phaser.Scene {
     this.prediction.update(deltaSeconds);
     this.renderLocalPlayer(deltaSeconds);
     this.renderRemotePlayers(now, deltaSeconds);
+    for (const view of this.playerViews.values()) view.tickDeath(scaledSeconds);
     this.renderProjectiles(now);
     for (const view of this.warningViews.values()) view.render(deltaSeconds);
     this.renderGrenades(now, deltaSeconds);
     this.renderShrinkWalls(deltaSeconds);
     this.updateCamera(deltaSeconds);
+  }
+
+  /** Drop any running finale and put the clock back to normal. */
+  private cancelFinale(): void {
+    this.finaleStartedAt = 0;
+    this.setSceneTimeScale(1);
+  }
+
+  /** True while the last kill of a match is still playing out. */
+  isPlayingFinale(): boolean {
+    return this.finaleStartedAt !== 0;
+  }
+
+  /**
+   * Advance the finale's time dilation and report the current scale.
+   *
+   * Driven from real time rather than from the scaled delta, or slowing time
+   * down would also slow down the ramp that is meant to bring it back.
+   */
+  private updateTimeScale(now: number): number {
+    if (this.finaleStartedAt === 0) return 1;
+
+    const elapsed = now - this.finaleStartedAt;
+    const { timeScale, easeInMs, holdMs, easeOutMs } = FINALE;
+    let scale: number;
+
+    if (elapsed < easeInMs) {
+      scale = 1 - (1 - timeScale) * (elapsed / easeInMs);
+    } else if (elapsed < easeInMs + holdMs) {
+      scale = timeScale;
+    } else {
+      const progress = (elapsed - easeInMs - holdMs) / easeOutMs;
+      if (progress >= 1) {
+        this.finaleStartedAt = 0;
+        this.setSceneTimeScale(1);
+        return 1;
+      }
+      // Eased so the return to full speed settles rather than snapping.
+      scale = timeScale + (1 - timeScale) * progress * progress;
+    }
+
+    this.setSceneTimeScale(scale);
+    return scale;
+  }
+
+  /** Tweens and timers run on the same clock as the rendering. */
+  private setSceneTimeScale(scale: number): void {
+    if (Math.abs(this.timeScale - scale) < 0.001) return;
+    this.timeScale = scale;
+    this.tweens.timeScale = scale;
+    this.time.timeScale = scale;
+  }
+
+  /**
+   * Somebody was killed.
+   *
+   * Every kill gets its burst -- until now only the local player's own death
+   * produced one, so a kill across the arena looked like a player quietly
+   * disappearing. The one that ends the match also slows time down, and the
+   * shell holds the results screen back until that has played out.
+   */
+  private onKill(payload: KillPayload): void {
+    const view = this.playerViews.get(payload.victimId);
+    if (view) this.effects.deathBurst(view.container.x, view.container.y, view.colorValue);
+
+    if (!payload.endsMatch) return;
+
+    this.finaleStartedAt = performance.now();
+    const shake = this.effects.shakeFor("finalKill");
+    this.cameraController.shake(shake.durationMs, shake.intensity);
+
+    // Real time, deliberately: `this.time` is dilated by the very effect being
+    // waited on, so a scene timer here would stretch with it and the results
+    // would arrive late by exactly however much time was slowed.
+    window.setTimeout(() => this.hooks.onFinaleComplete(), FINALE.resultsAfterMs);
   }
 
   private renderGrenades(now: number, deltaSeconds: number): void {
@@ -877,6 +979,7 @@ export class GameScene extends Phaser.Scene {
     this.arenaRenderer?.destroy();
     this.accumulatorMs = 0;
     this.wasAlive = false;
+    this.cancelFinale();
     this.spectateTargetId = "";
     void CAMERA;
   }

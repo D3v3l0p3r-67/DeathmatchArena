@@ -50,6 +50,12 @@ export interface MovementState {
    * "the second one". Part of the movement state because prediction replays it.
    */
   jumpsRemaining: number;
+  /**
+   * Seconds left in which a shove decays at its own rate rather than through
+   * friction. Part of the movement state, and mirrored to the client, because
+   * prediction has to replay a knocked-back player exactly as the server did.
+   */
+  knockbackTimer: number;
 }
 
 /**
@@ -75,6 +81,7 @@ export function createMovementState(
     facing: 1,
     jumpHeld: false,
     speedMultiplier: 1,
+    knockbackTimer: 0,
     jumpsRemaining: Math.max(1, Math.round(maxJumps)),
   };
 }
@@ -89,6 +96,7 @@ export function copyMovementState(source: MovementState, target: MovementState):
   target.jumpBufferTimer = source.jumpBufferTimer;
   target.facing = source.facing;
   target.jumpHeld = source.jumpHeld;
+  target.knockbackTimer = source.knockbackTimer;
   target.speedMultiplier = source.speedMultiplier;
   target.jumpsRemaining = source.jumpsRemaining;
   return target;
@@ -136,6 +144,15 @@ export interface KillEvent {
   weaponId: string;
   /** True when nobody scored the kill (fall damage, disconnect, ...). */
   selfInflicted: boolean;
+  /**
+   * True when this elimination is the one that ends the match.
+   *
+   * The client cannot work this out for itself: the kill arrives immediately
+   * and the match state that follows it arrives with the next patch, so without
+   * this the last kill of a match looks exactly like any other for a fifth of a
+   * second -- which is precisely the moment worth marking.
+   */
+  endsMatch: boolean;
 }
 
 export interface MatchStanding {

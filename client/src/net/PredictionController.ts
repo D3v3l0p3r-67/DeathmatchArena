@@ -92,6 +92,7 @@ export class PredictionController {
     this.movement.jumpBufferTimer = 0;
     this.movement.jumpHeld = false;
     this.movement.speedMultiplier = player.speedMultiplier || 1;
+    this.movement.knockbackTimer = player.knockbackTimer || 0;
     this.initialised = true;
   }
 
@@ -131,6 +132,9 @@ export class PredictionController {
     // The speed cap is part of server truth too: replaying a boosted player with
     // the default cap would manufacture an error the server never had.
     this.movement.speedMultiplier = player.speedMultiplier || 1;
+    // Likewise the shove window: replaying it under ordinary friction would
+    // scrub off a knockback the server is still carrying.
+    this.movement.knockbackTimer = player.knockbackTimer || 0;
     // The jump allowance is server truth too: replaying from a stale one would
     // predict a mid-air jump the server never granted.
     this.movement.jumpsRemaining = player.jumpsRemaining;

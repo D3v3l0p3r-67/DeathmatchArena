@@ -818,7 +818,7 @@ Configurable without touching TypeScript:
 
 | Area | Values |
 | --- | --- |
-| Player | max health, move speed, accelerations, frictions, knockback limit |
+| Player | max health, move speed, accelerations, frictions, knockback limit, damping, window and lift |
 | Jumping | gravity, jump strength, max jumps, mid-air jump strength, early-release cut, coyote time, jump buffer, fall speed |
 | Match | min/max players, countdown, result screen, maximum match length |
 | Weapons | enabled, damage, range, fire rate, magazine size, reload time, automatic, knockback, recoil |
@@ -857,10 +857,10 @@ across the room need not also throw its owner:
 
 | | Knockback | Recoil |
 | --- | --- | --- |
-| Assault Rifle | 0.25 | 0.04 |
-| Shotgun | 0.3 *per pellet* | 0.4 |
-| Chainsaw | 0.9 | 0 |
-| Grenade blast | 1.4 at the centre | — |
+| Assault Rifle | 0.75 | 0.3 |
+| Shotgun | 0.3 *per pellet* | 1.1 |
+| Chainsaw | 1.3 | 0 |
+| Grenade blast | 1.8 at the centre | — |
 
 One unit is 260 px/s along the direction of travel, so the numbers read as
 multiples of each other rather than as raw speeds. Knockback is applied **per
@@ -873,12 +873,29 @@ so a near miss shoves and a direct hit launches.
 configuration value can break is not really configurable, and it is the only
 thing standing between a mistyped weapon and somebody crossing the arena.
 
-One interaction is worth knowing about, because it silently cancels the whole
-feature if you get it wrong: the run-speed cap must not clip a velocity that is
-already above it. Clamping outright means a knocked-back player erases the shove
-by holding a movement key. The limit now never clips below the speed already
-carried — holding a key still cannot push you *past* the cap, and friction is what
-bleeds the excess.
+Two interactions are worth knowing about, because either of them silently cancels
+the whole feature.
+
+**The run-speed cap must not clip a velocity that is already above it.** Clamping
+outright means a knocked-back player erases the shove by holding a movement key.
+The limit never clips below the speed already carried — holding a key still cannot
+push you *past* the cap.
+
+**Friction must not be what bleeds a shove off.** Ground friction is 3200px/s²,
+which erases a rifle's shove within two frames and about half a pixel of travel:
+landing a hit then looks like nothing happened at all. A shove therefore opens a
+window (`player.knockbackRecoveryMs`) during which horizontal speed decays by
+`player.knockbackDamping` of itself per second instead, which makes the distance
+travelled proportional to the impulse — roughly `speed ÷ damping` pixels, so a
+rifle round moves somebody about 30px and a point-blank shotgun the better part of
+170. The window is part of the movement state and is synchronised, because
+prediction has to replay a knocked-back player exactly as the server did.
+
+A hit landing on somebody standing also takes them off their feet, in proportion
+to the impulse (`player.knockbackLift`): a purely horizontal push against the
+floor is fought by the victim's own footing, and lifting them is what makes a hit
+read as one. Recoil deliberately passes no lift — an automatic weapon would
+otherwise bounce its owner off the floor several times a second.
 
 ---
 
@@ -919,6 +936,39 @@ Beyond the existing muzzle flashes and impacts, there are landing puffs, a ring
 under the mid-air jump, sparks where a grenade bounces, debris when a crate
 breaks, a burst tinted with a power-up's own colour when it is collected, and a
 blast drawn at the radius the server actually used.
+
+### Dying, and the last kill of a match
+
+A death used to be a body disappearing on the frame its health hit zero, and only
+for the local player at that — a kill across the arena looked like a player
+quietly vanishing. Now every kill throws the body: it is lifted, spun, drifts away
+from whoever shot it and fades as it falls (`DEATH_ANIMATION`). It is owned by
+`PlayerView` and ticked from the scene rather than from the state-apply path,
+because a dead player's state stops changing and there would be nothing to drive
+it.
+
+The kill that ends a match gets more than that. The server flags it: `endsMatch`
+rides on the kill message, decided in `MatchManager.eliminate` from the number of
+survivors, because the client cannot work it out for itself — the kill arrives
+immediately and the finished state only with the next patch, so without the flag
+the last kill of a match looks like any other for a fifth of a second.
+
+On that flag the scene drops into slow motion (`FINALE`), and the shell holds the
+results screen back until it has played out — the moment somebody wins is
+something you watch rather than something a menu covers. Two details keep that
+honest:
+
+- **Simulation time and presentation time are separate.** Prediction, input and
+  snapshot interpolation keep running on real time; only what is *drawn* slows
+  down. Slowing the network loop would desynchronise the client from the server
+  for the sake of an effect.
+- **The wait itself runs on real time.** A Phaser timer would be dilated by the
+  very effect it is waiting on and the results would arrive late by exactly
+  however much time was slowed. The shell also keeps a backstop timer, so a scene
+  torn down mid-animation still ends with the standings on screen.
+
+Nothing here can change the outcome: the match is decided on the server before any
+of it starts.
 
 ### What a player can change
 
