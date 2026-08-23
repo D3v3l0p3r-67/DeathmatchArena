@@ -59,24 +59,28 @@
       <!-- =========================== WAITING ROOM ============================ -->
       <section class="screen screen--lobby" data-screen="lobby">
         <div class="panel">
+          <p class="panel__eyebrow" id="lobby-room-name">Room</p>
           <h2 class="panel__title">Waiting for players</h2>
-          <p class="counter" id="lobby-count">Players: 0 / 5</p>
-          <p class="panel__subtitle" id="lobby-hint">Need 2 players to start</p>
+          <p class="counter" id="lobby-count">Players: 0 / 10</p>
+          <p class="panel__subtitle" id="lobby-hint">Waiting for players...</p>
+
           <ul class="player-list" id="lobby-players"></ul>
 
-          <!-- Shown only while the lobby is holding places open for people. The
-               server decides whether the offer means anything; this only asks. -->
-          <div class="lobby__hold" id="lobby-hold">
-            <p class="lobby__hold-text">
-              Holding places for other players &middot;
-              <b id="lobby-hold-timer">1:00</b>
-            </p>
-            <button class="button button--primary" id="start-now" type="button">
-              Start now with bots
-            </button>
+          <!-- Host only. The server enforces that; this only asks. -->
+          <button class="button button--ghost lobby__add" id="add-bot" type="button">+ Add bot</button>
+
+          <!-- The difficulty picker, shown when "add bot" is pressed. Choosing a
+               rung adds the bot; there is no separate confirmation. -->
+          <div class="difficulty-picker" id="bot-picker">
+            <p class="difficulty-picker__title">Bot difficulty</p>
+            <div class="difficulty-picker__options" id="bot-picker-options"></div>
+            <button class="button button--ghost" id="bot-picker-cancel" type="button">Cancel</button>
           </div>
 
-          <button class="button button--ghost" id="leave-lobby" type="button">Leave</button>
+          <div class="lobby__actions">
+            <button class="button button--ghost" id="leave-lobby" type="button">Leave</button>
+            <button class="button button--primary" id="start-match" type="button">Start</button>
+          </div>
         </div>
       </section>
 

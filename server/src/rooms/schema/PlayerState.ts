@@ -25,6 +25,15 @@ export class PlayerState extends Schema implements SyncedPlayer {
    * matters -- same state, same input queue, same limits.
    */
   @type("boolean") bot = false;
+  /**
+   * For a bot, the rung of the difficulty ladder it plays at.
+   *
+   * Per player rather than per room: the host adds bots one at a time and each
+   * one may be as good or as poor as they like.
+   */
+  @type("uint8") botDifficulty = 0;
+  /** Name of that rung. Synced so the lobby list need not carry the ladder. */
+  @type("string") botDifficultyName = "";
 
   @type("float32") x = 0;
   @type("float32") y = 0;

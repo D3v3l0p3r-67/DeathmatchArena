@@ -16,8 +16,10 @@
  * of them (weapon lookups in particular) run on every simulation tick.
  */
 import { DEFAULT_GAME_CONFIG } from "./defaults.js";
+import { clampBotCount, getBotDifficulty } from "./difficulty.js";
 import type {
   ArenaShrinkConfig,
+  BotDifficultyLevel,
   CrateConfig,
   GameConfig,
   GrenadeConfig,
@@ -176,6 +178,20 @@ export class GameConfigView {
 
   listBrainProfiles(): readonly BrainProfile[] {
     return this.config.npc.profiles;
+  }
+
+  /** One rung of the difficulty ladder. Never null: see `getBotDifficulty`. */
+  getBotDifficulty(level: number): BotDifficultyLevel {
+    return getBotDifficulty(this.config.npc, level);
+  }
+
+  listBotDifficulties(): readonly BotDifficultyLevel[] {
+    return this.config.npc.difficulties;
+  }
+
+  /** Clamp a requested bot count to what this room may actually seat. */
+  clampBotCount(count: number): number {
+    return clampBotCount(count, this.config.npc, this.config.match.maxPlayers);
   }
 }
 

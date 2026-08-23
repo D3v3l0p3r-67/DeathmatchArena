@@ -24,11 +24,14 @@ export const ClientMessage = {
   /** Player pressed "play again" from the results screen. */
   REQUEUE: "requeue",
   /**
-   * "Do not wait for anyone else." Asks the server to fill the lobby's free
-   * places now rather than at the end of the hold. The server decides whether
-   * that is allowed; a client asking proves nothing.
+   * "Begin, with whoever is here." Only the host's asking means anything, and
+   * only when the room holds a match's worth of players.
    */
-  START_NOW: "startNow",
+  START_MATCH: "startMatch",
+  /** Add one bot at the given difficulty. Host only, and only while waiting. */
+  ADD_BOT: "addBot",
+  /** Remove one bot from the room. Host only, and only while waiting. */
+  REMOVE_BOT: "removeBot",
   /**
    * Request debug access. The server decides; a client saying "I am an admin"
    * proves nothing.
@@ -42,6 +45,18 @@ export const ClientMessage = {
 } as const;
 
 export type ClientMessageType = (typeof ClientMessage)[keyof typeof ClientMessage];
+
+/** Payload of {@link ClientMessage.ADD_BOT}. */
+export interface AddBotRequest {
+  /** Which rung of the ladder this bot should play at, 1..5. */
+  difficulty: number;
+}
+
+/** Payload of {@link ClientMessage.REMOVE_BOT}. */
+export interface RemoveBotRequest {
+  /** The bot to remove. Ignored unless it is a bot in this room. */
+  sessionId: string;
+}
 
 /** Messages the server broadcasts. State itself travels via Colyseus schema sync. */
 export const ServerMessage = {

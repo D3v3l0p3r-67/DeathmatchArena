@@ -1,5 +1,25 @@
 /** Shared helpers for the integration tests. */
-import { getPlayerConfig } from "@deathmatch/shared";
+import { ClientMessage, getPlayerConfig } from "@deathmatch/shared";
+
+/** Just enough of a Colyseus room for the helpers below. */
+interface StartableRoom {
+  sessionId: string;
+  state: { hostId: string };
+  send(type: string, payload?: unknown): void;
+}
+
+/**
+ * Start the match the way a person does: the host presses the button.
+ *
+ * Rooms no longer start themselves at a magic number of players -- they stay
+ * open until whoever owns the room says otherwise -- so every test that wants a
+ * match running has to say so too.
+ */
+export async function startMatch(...rooms: StartableRoom[]): Promise<void> {
+  const host = rooms.find((room) => room.state?.hostId === room.sessionId);
+  if (!host) throw new Error("none of these rooms belongs to its client");
+  host.send(ClientMessage.START_MATCH, {});
+}
 
 /**
  * The configured maximum health.

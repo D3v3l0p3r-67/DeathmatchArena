@@ -4,7 +4,6 @@ import {
   makeNameUnique,
   type BrainProfile,
   type DebugNpcSnapshot,
-  type NpcConfig,
 } from "@deathmatch/shared";
 import { PlayerRuntime } from "../rooms/PlayerRuntime.js";
 import type { RoomContext } from "../rooms/RoomContext.js";
@@ -13,9 +12,6 @@ import type { MovementSystem } from "../systems/MovementSystem.js";
 import { NpcAgent } from "./NpcAgent.js";
 import { Perception } from "./Perception.js";
 import { registerDefaultActions } from "./actions/index.js";
-
-/** How often the lobby is topped up, in ms. Bots do not need to arrive instantly. */
-const FILL_INTERVAL_MS = 1000;
 
 /**
  * The bots in one room.
@@ -36,19 +32,10 @@ export class NpcSystem {
   private readonly perception: Perception;
   private readonly random: () => number;
 
-  private nextFillAt = 0;
   private nextBotNumber = 1;
   private loggingFor: string | null = null;
 
-  /**
-   * When the current lobby started holding its places open.
-   *
-   * Set when the first person arrives and deliberately not reset when more do:
-   * a wait that keeps restarting is a wait nobody can plan around.
-   */
-  private holdingSince = 0;
-  /** Set when somebody asked not to wait. Cleared with the lobby. */
-  private skipRequested = false;
+
 
   constructor(
     private readonly context: RoomContext,
@@ -88,30 +75,17 @@ export class NpcSystem {
   // -------------------------------------------------------------------------
 
   /**
-   * Keep the lobby topped up.
+   * Housekeeping only.
    *
-   * Only while waiting: dropping a bot into a running match would give it a free
-   * spawn among people who have been fighting, and taking one out mid-match
-   * would look like a disconnect.
+   * Bots no longer arrive on a timer: the host adds them, one at a time, at
+   * whatever difficulty they choose. All that is left to do each tick is notice
+   * when they should not be here at all.
    */
   update(dt: number, now: number): void {
     const config = this.context.config.getNpcConfig();
-    const waiting = this.context.state.matchState === MatchState.WAITING;
-
-    if (!waiting) {
-      // The hold belongs to a lobby, not to the room.
-      this.holdingSince = 0;
-      this.skipRequested = false;
-    }
-
-    if (config.enabled && waiting && now >= this.nextFillAt) {
-      this.nextFillAt = now + FILL_INTERVAL_MS;
-      this.updateLobby(config, now);
-    }
 
     if (!config.enabled && this.agents.size > 0 && this.context.state.matchState !== MatchState.PLAYING) {
       this.removeAll();
-      this.publishHold(0, false);
     }
 
     // Everybody left. Bots never play among themselves, in a lobby or in a
@@ -120,108 +94,50 @@ export class NpcSystem {
     // is watching.
     if (this.agents.size > 0 && this.countPeople() === 0) {
       this.removeAll();
-      this.publishHold(0, false);
     }
 
     this.think(dt, now);
   }
 
   /**
-   * Hold the free places open, then fill them.
+   * Add one bot, at the host's request.
    *
-   * A bot is a consolation prize: given the choice a lobby should fill with
-   * people, so the places stay open for the configured hold before bots take
-   * them -- unless whoever is waiting has said not to bother.
+   * Everything the client could get wrong is decided here: that the asker is
+   * this room's host, that the room is between matches, that there is a place
+   * free, that bots are allowed at all, and which rung of the ladder the
+   * difficulty actually lands on.
    */
-  private updateLobby(config: NpcConfig, now: number): void {
-    const humans = this.countHumans();
+  addBot(sessionId: string, difficulty: number): boolean {
+    if (!this.canHostEdit(sessionId)) return false;
 
-    // Nobody here. Nothing to hold open, and nothing for bots to play against.
-    if (humans === 0) {
-      this.holdingSince = 0;
-      this.skipRequested = false;
-      if (this.agents.size > 0) this.removeAll();
-      this.publishHold(0, false);
-      return;
-    }
+    const config = this.context.config.getNpcConfig();
+    if (!config.enabled) return false;
+    if (this.agents.size >= config.maxBots) return false;
+    if (this.context.state.players.size >= this.context.config.getMatchConfig().maxPlayers) return false;
 
-    if (this.holdingSince === 0) this.holdingSince = now;
+    return this.spawn(undefined, difficulty) !== null;
+  }
 
-    const target = Math.min(config.fillToPlayers, this.context.config.getMatchConfig().maxPlayers);
-    const wanted = Math.min(config.maxBots, Math.max(0, target - humans));
-
-    // Already full of people, or bots are not wanted here.
-    if (wanted === 0) {
-      this.publishHold(0, false);
-      if (this.agents.size > 0) this.removeAll();
-      return;
-    }
-
-    const elapsed = now - this.holdingSince;
-    const remaining = Math.max(0, config.fillAfterMs - elapsed);
-
-    if (!this.skipRequested && remaining > 0) {
-      // Still someone else's seat. Offer the skip and wait.
-      this.publishHold(Math.ceil(remaining / 1000), true);
-      if (this.agents.size > 0) this.removeAll();
-      return;
-    }
-
-    this.publishHold(0, false);
-    this.fill(wanted);
+  /** Remove one bot, at the host's request. People are not removable this way. */
+  removeBot(sessionId: string, botId: string): boolean {
+    if (!this.canHostEdit(sessionId)) return false;
+    if (!this.agents.has(botId)) return false;
+    return this.remove(botId);
   }
 
   /**
-   * Skip the wait.
+   * May this session change the room's line-up?
    *
-   * Only a person in this lobby may ask, and only while it is actually holding
-   * places open -- a bot or a spectator asking achieves nothing, and neither
-   * does asking twice.
+   * Only the host, only a connected person, and only between matches -- adding a
+   * bot to a running match would hand it a free spawn among people who have been
+   * fighting, and taking one out would look like a disconnect.
    */
-  requestImmediateStart(sessionId: string): boolean {
+  private canHostEdit(sessionId: string): boolean {
     if (this.context.state.matchState !== MatchState.WAITING) return false;
-    if (this.agents.has(sessionId)) return false;
+    if (this.context.state.hostId !== sessionId) return false;
 
     const player = this.context.state.players.get(sessionId);
-    if (!player || !player.connected) return false;
-    if (!this.context.config.getNpcConfig().enabled) return false;
-
-    this.skipRequested = true;
-    // Act on it now rather than at the next fill tick, so the button feels
-    // like it did something.
-    this.updateLobby(this.context.config.getNpcConfig(), this.context.now());
-    return true;
-  }
-
-  /** Tell the lobby what it is waiting for, in whole seconds. */
-  private publishHold(seconds: number, canSkip: boolean): void {
-    const state = this.context.state;
-    if (state.botFillSeconds !== seconds) state.botFillSeconds = seconds;
-    if (state.canStartNow !== canSkip) state.canStartNow = canSkip;
-  }
-
-  /** Bring the bot count to exactly `wanted`. */
-  private fill(wanted: number): void {
-    while (this.agents.size < wanted) {
-      if (!this.spawn()) break;
-    }
-
-    // Too many, because somebody joined: retire the newest rather than a
-    // random one, so the bots that have been here longest stay.
-    while (this.agents.size > wanted) {
-      const last = Array.from(this.agents.keys()).pop();
-      if (!last) break;
-      this.remove(last);
-    }
-  }
-
-  /** People connected right now. What the lobby fill is measured against. */
-  private countHumans(): number {
-    let humans = 0;
-    for (const player of this.context.state.players.values()) {
-      if (!this.agents.has(player.sessionId) && player.connected) humans++;
-    }
-    return humans;
+    return Boolean(player && player.connected && !player.bot);
   }
 
   /**
@@ -240,8 +156,13 @@ export class NpcSystem {
     return people;
   }
 
-  /** Add one bot with a randomly chosen personality. */
-  spawn(profileId?: string): NpcAgent | null {
+  /**
+   * Add one bot with a randomly chosen personality.
+   *
+   * Personality and skill arrive separately on purpose: the profile decides how
+   * this bot wants to play, the difficulty decides how well it manages to.
+   */
+  spawn(profileId?: string, difficulty = this.context.config.getNpcConfig().defaultDifficulty): NpcAgent | null {
     const config = this.context.config.getNpcConfig();
     const profiles = config.profiles;
     if (profiles.length === 0) return null;
@@ -251,11 +172,16 @@ export class NpcSystem {
       (profileId ? this.context.config.getBrainProfile(profileId) : null) ??
       profiles[Math.floor(this.random() * profiles.length)]!;
 
+    const level = this.context.config.getBotDifficulty(difficulty);
     const sessionId = `npc-${this.nextBotNumber++}`;
     const player = new PlayerState();
     player.sessionId = sessionId;
     player.name = this.pickName(config.names, profile);
     player.bot = true;
+    // Carried on the player rather than on the room: each bot is added on its
+    // own and may be as good or as poor as the host likes.
+    player.botDifficulty = level.level;
+    player.botDifficultyName = level.name;
     // Bots are always "connected": there is no socket to drop, and the match
     // manager counts connected players when it decides to start.
     player.connected = true;
@@ -273,11 +199,17 @@ export class NpcSystem {
       this.perception,
       this.random,
       this.random() * Math.max(20, config.thinkIntervalMs),
+      level.level,
     );
     registerDefaultActions(agent.brain);
     this.agents.set(sessionId, agent);
 
-    this.context.logger.info("Bot joined", { sessionId, name: player.name, profile: profile.id });
+    this.context.logger.info("Bot joined", {
+      sessionId,
+      name: player.name,
+      profile: profile.id,
+      difficulty: level.level,
+    });
     this.onRosterChanged();
     return agent;
   }
@@ -379,6 +311,8 @@ export class NpcSystem {
         name: player?.name ?? agent.sessionId,
         profileId: agent.brainProfile.id,
         profileName: agent.brainProfile.name,
+        difficulty: agent.difficulty.level,
+        difficultyName: agent.difficulty.name,
         action: agent.brain.currentAction?.id ?? "-",
         state: agent.state || "-",
         targetName: agent.target?.name ?? "-",

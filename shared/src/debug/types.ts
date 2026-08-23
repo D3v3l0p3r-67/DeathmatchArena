@@ -84,6 +84,9 @@ export interface DebugNpcSnapshot {
   name: string;
   profileId: string;
   profileName: string;
+  /** The rung it is playing at: personality is the profile, this is skill. */
+  difficulty: number;
+  difficultyName: string;
   /** Whatever the brain settled on, and where its state machine has got to. */
   action: string;
   state: string;

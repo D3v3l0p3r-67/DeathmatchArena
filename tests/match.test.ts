@@ -32,7 +32,7 @@ import {
   type MatchResultMessage,
   type InputCommand,
 } from "@deathmatch/shared";
-import { delay, randomPort, waitFor } from "./helpers.js";
+import { delay, randomPort, startMatch, waitFor } from "./helpers.js";
 
 const { initialiseAdmin } = await import("../server/src/admin/index.js");
 const { BattleRoom } = await import("../server/src/rooms/BattleRoom.js");
@@ -79,6 +79,15 @@ describe("match lifecycle", () => {
     assert.equal(alice.roomId, bob.roomId, "both players should share a room");
 
     await waitFor(() => alice.state.players.size === 2, "both players in state");
+
+    // The room does not start itself: it belongs to whoever got here first, and
+    // it waits for them. Alice arrived before Bob, so the room is hers.
+    assert.equal(alice.state.hostId, alice.sessionId, "the first person here owns the room");
+    assert.equal(alice.state.roomName, "Alice's Room");
+    assert.equal(alice.state.canStart, true, "two players is a match");
+    assert.equal(alice.state.matchState, MatchState.WAITING, "and it waits to be told");
+
+    await startMatch(alice, bob);
     await waitFor(() => alice.state.matchState === MatchState.COUNTDOWN, "countdown to begin");
     await waitFor(() => alice.state.matchState === MatchState.PLAYING, "match to start");
 
@@ -127,6 +136,7 @@ describe("match lifecycle", () => {
   it("routes players into a new room once a match has started", async () => {
     const alice = await join("Alpha");
     const bob = await join("Bravo");
+    await startMatch(alice, bob);
     await waitFor(() => alice.state.matchState === MatchState.PLAYING, "first match to start");
 
     // The room locks on match start, so matchmaking must create a second room.
@@ -142,6 +152,7 @@ describe("server-authoritative weapons", () => {
   it("spends ammunition, spawns projectiles and reloads on the server's terms", async () => {
     const shooter = await join("Shooter");
     const target = await join("Target");
+    await startMatch(shooter, target);
     await waitFor(() => shooter.state.matchState === MatchState.PLAYING, "match to start");
 
     const player = shooter.state.players.get(shooter.sessionId)!;
@@ -181,6 +192,7 @@ describe("anti-cheat", () => {
   it("ignores malformed input instead of trusting it", async () => {
     const alice = await join("Malformed");
     const bob = await join("Partner");
+    await startMatch(alice, bob);
     await waitFor(() => alice.state.matchState === MatchState.PLAYING, "match to start");
 
     const player = alice.state.players.get(alice.sessionId)!;
@@ -202,6 +214,7 @@ describe("anti-cheat", () => {
   it("caps how far a flood of inputs can move a player", async () => {
     const cheater = await join("Cheater");
     const bob = await join("Honest");
+    await startMatch(cheater, bob);
     await waitFor(() => cheater.state.matchState === MatchState.PLAYING, "match to start");
 
     const player = cheater.state.players.get(cheater.sessionId)!;

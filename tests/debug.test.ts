@@ -36,7 +36,7 @@ import {
   type DebugCommandResult,
   type DebugStatePayload,
 } from "@deathmatch/shared";
-import { MAX_HEALTH, delay, randomPort, waitFor } from "./helpers.js";
+import { MAX_HEALTH, delay, randomPort, startMatch, waitFor } from "./helpers.js";
 
 const { initialiseAdmin } = await import("../server/src/admin/index.js");
 const { BattleRoom } = await import("../server/src/rooms/BattleRoom.js");
@@ -165,6 +165,7 @@ describe("debug commands", () => {
     const victim = await join("Victim");
 
     await waitFor(() => intruder.room.state?.players?.size === 2, "both players");
+    await startMatch(intruder.room, victim.room);
     await waitFor(() => intruder.room.state.matchState === MatchState.PLAYING, "the match");
 
     const victimId = victim.room.sessionId;
@@ -203,6 +204,7 @@ describe("debug commands", () => {
     const other = await join("Bystander");
 
     await waitFor(() => admin.room.state?.players?.size === 2, "both players");
+    await startMatch(admin.room, other.room);
     await waitFor(() => admin.room.state.matchState === MatchState.PLAYING, "the match");
 
     requestAccess(admin, "test-secret");
@@ -231,6 +233,7 @@ describe("debug commands", () => {
     const other = await join("Bystander");
 
     await waitFor(() => admin.room.state?.players?.size === 2, "both players");
+    await startMatch(admin.room, other.room);
     await waitFor(() => admin.room.state.matchState === MatchState.PLAYING, "the match");
 
     requestAccess(admin, "test-secret");
@@ -259,6 +262,7 @@ describe("debug commands", () => {
     const other = await join("Bystander");
 
     await waitFor(() => admin.room.state?.players?.size === 2, "both players");
+    await startMatch(admin.room, other.room);
     await waitFor(() => admin.room.state.matchState === MatchState.PLAYING, "the match");
 
     requestAccess(admin, "test-secret");
@@ -302,6 +306,7 @@ describe("debug commands", () => {
     const other = await join("Bystander");
 
     await waitFor(() => admin.room.state?.players?.size === 2, "both players");
+    await startMatch(admin.room, other.room);
     await waitFor(() => admin.room.state.matchState === MatchState.PLAYING, "the match");
 
     requestAccess(admin, "test-secret");

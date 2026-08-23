@@ -20,6 +20,7 @@
 import {
   PowerUpType,
   WeaponType,
+  type BotDifficultyLevel,
   type BrainProfile,
   type ConfigValue,
   type GameConfig,
@@ -115,7 +116,12 @@ function resolvePath(
   for (let i = 0; i < segments.length - 1; i++) {
     const segment = segments[i]!;
     if (Array.isArray(node)) {
-      node = node.find((entry) => isRecord(entry) && entry.id === segment);
+      // Matched by a stable key rather than by index, so reordering a catalogue
+      // does not silently repoint every stored override. Most things carry an
+      // `id`; the difficulty ladder is keyed by its rung number instead.
+      node = node.find(
+        (entry) => isRecord(entry) && (entry.id === segment || String(entry.level) === segment),
+      );
     } else if (isRecord(node)) {
       node = node[segment];
     } else {
@@ -467,8 +473,8 @@ function crateFields(): FieldDescriptor[] {
 function matchFields(): FieldDescriptor[] {
   const { MATCH } = CATEGORY;
   return [
-    number("match.minPlayers", MATCH, "Match", "Minimum players", "Participants needed before the countdown starts, bots included. Equal to the maximum means every match is a full arena; lower lets one start short-handed.", { min: 2, max: 32, step: 1, integer: true, mustNotExceed: "match.maxPlayers" }),
-    number("match.maxPlayers", MATCH, "Match", "Maximum players", "Hard cap on players in one match. Rooms created afterwards use the new limit.", { min: 2, max: 32, step: 1, integer: true, mustBeAtLeast: "match.minPlayers" }),
+    number("match.minPlayers", MATCH, "Match", "Minimum players", "The fewest participants a match may start with, bots included. The room does not wait to be full -- the host starts it.", { min: 2, max: 32, step: 1, integer: true, mustNotExceed: "match.maxPlayers" }),
+    number("match.maxPlayers", MATCH, "Match", "Maximum players", "Hard cap on players in one room, people and bots together. A room that reaches it starts by itself. Rooms created afterwards use the new limit.", { min: 2, max: 32, step: 1, integer: true, mustBeAtLeast: "match.minPlayers" }),
     number("match.countdownMs", MATCH, "Match", "Countdown (ms)", "How long the pre-match countdown runs.", { min: 1000, max: 60000, step: 500 }),
     number("match.resultsMs", MATCH, "Match", "Result screen (ms)", "How long the results stay up before the room recycles into a new lobby.", { min: 1000, max: 300000, step: 500 }),
     number("match.maxDurationMs", MATCH, "Match", "Maximum match length (ms)", "Safety valve: a match can never run longer than this.", { min: 30000, max: 3600000, step: 10000 }),
@@ -505,12 +511,41 @@ function npcFields(): FieldDescriptor[] {
   const { NPC } = CATEGORY;
   return [
     boolean("npc.enabled", NPC, "Bots", "Bots enabled", "Off means no NPC ever joins a match, whatever the fill target says."),
-    number("npc.fillToPlayers", NPC, "Bots", "Fill lobbies to", "Top a waiting lobby up to this many participants with bots. 0 leaves matches human-only.", { min: 0, max: 32, step: 1, integer: true }),
     number("npc.maxBots", NPC, "Bots", "Maximum bots", "Hard cap on bots in one match.", { min: 0, max: 32, step: 1, integer: true }),
-    number("npc.fillAfterMs", NPC, "Bots", "Hold places open for (ms)", "How long a lobby waits for people before bots take the free places. Whoever is waiting can always start sooner.", { min: 0, max: 600000, step: 1000 }),
     number("npc.sightRange", NPC, "Bots", "Sight range (px)", "Beyond this a bot simply cannot see an enemy. Raising it makes bots feel omniscient.", { min: 100, max: 4000, step: 50 }),
     number("npc.thinkIntervalMs", NPC, "Thinking", "Decision interval (ms)", "How often a brain re-decides what it wants. Lower is sharper and more expensive.", { min: 30, max: 2000, step: 5 }),
     number("npc.perceptionIntervalMs", NPC, "Thinking", "Perception interval (ms)", "How often a bot refreshes what it can sense.", { min: 30, max: 2000, step: 5 }),
+
+    number("npc.defaultDifficulty", NPC, "Bots", "Default difficulty", "The rung the lobby's \"add bot\" picker starts on, 1 (Very Easy) to 5 (Very Hard).", { min: 1, max: 5, step: 1, integer: true }),
+  ];
+}
+
+/**
+ * Fields for one rung of the difficulty ladder.
+ *
+ * Generated from the level itself for the same reason profiles are: a sixth rung
+ * added to the ladder is tunable without a change here. Almost everything is a
+ * multiplier on what the personality asked for -- difficulty scales a profile,
+ * it does not replace one.
+ */
+function botDifficultyFields(level: BotDifficultyLevel): FieldDescriptor[] {
+  const { NPC } = CATEGORY;
+  const group = `Difficulty ${level.level} - ${level.name}`;
+  const prefix = `npc.difficulties.${level.level}`;
+
+  return [
+    text(`${prefix}.name`, NPC, group, "Display name", "What this rung is called in the lobby."),
+
+    number(`${prefix}.reactionTimeMultiplier`, NPC, group, "Reaction time x", "Scales the profile's reaction time. Above 1 hesitates longer, i.e. plays worse.", { min: 0.1, max: 6, step: 0.05 }),
+    number(`${prefix}.aimSkillMultiplier`, NPC, group, "Aim skill x", "Scales the profile's aim. Even at 1 a bot aims through the same imperfect-aim machinery as every other rung -- there is no perfect aim at any difficulty.", { min: 0, max: 1.5, step: 0.05 }),
+    number(`${prefix}.predictionSkillMultiplier`, NPC, group, "Prediction skill x", "Scales how well it leads a moving target.", { min: 0, max: 1.5, step: 0.05 }),
+    number(`${prefix}.dodgeSkillMultiplier`, NPC, group, "Dodge skill x", "Scales how well it gets out of the way.", { min: 0, max: 1.5, step: 0.05 }),
+    number(`${prefix}.decisionNoiseMultiplier`, NPC, group, "Decision noise x", "Scales the profile's own jitter. Above 1 makes its choices less consistent.", { min: 0, max: 6, step: 0.05 }),
+    number(`${prefix}.decisionIntervalMultiplier`, NPC, group, "Decision interval x", "Scales how often it re-decides. Above 1 thinks less often, i.e. reacts to a changing fight more slowly.", { min: 0.2, max: 6, step: 0.05 }),
+
+    percentage(`${prefix}.grenadeAccuracy`, NPC, group, "Grenade accuracy", "How well it judges a throw. Below 100% it misjudges the angle and the charge."),
+    percentage(`${prefix}.navigationSkill`, NPC, group, "Navigation skill", "How well it reads the arena: how far ahead it looks for hazards, how quickly it notices it is stuck."),
+    percentage(`${prefix}.targetSelectionSkill`, NPC, group, "Target selection", "How reliably it switches to the enemy actually worth fighting, rather than staying on whoever it was already shooting at."),
   ];
 }
 
@@ -580,6 +615,7 @@ export function buildConfigFields(config: GameConfig, baseline: GameConfig = con
     ...arenaFields(),
     ...trapFields(),
     ...npcFields(),
+    ...config.npc.difficulties.flatMap(botDifficultyFields),
     ...config.npc.profiles.flatMap(brainProfileFields),
   ];
 

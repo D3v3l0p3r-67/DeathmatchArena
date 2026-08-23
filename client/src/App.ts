@@ -7,6 +7,7 @@ import {
   type MatchResultMessage,
   type MatchStateValue,
   getGrenadeConfig,
+  getNpcConfig,
   type PowerUpCollectedPayload,
 } from "@deathmatch/shared";
 import { AudioEngine, DEFAULT_AUDIO_SETTINGS } from "./audio/AudioEngine.js";
@@ -26,6 +27,46 @@ import { UIManager } from "./ui/UIManager.js";
 
 /** HUD text does not need to change 60 times a second. */
 const HUD_UPDATE_INTERVAL_MS = 80;
+
+/** Where the last bot setup is remembered between sessions. */
+const BOT_PREFERENCE_KEY = "deathmatch-arena:bots";
+
+interface BotPreference {
+  /** The rung this player last added a bot at. */
+  difficulty: number;
+}
+
+/**
+ * The difficulty this player last added a bot at.
+ *
+ * Falls back to the shipped default, and treats anything unreadable as absent:
+ * a corrupt entry should mean "no preference", never a broken lobby. It only
+ * marks a rung in the picker -- bots are never added on somebody's behalf.
+ */
+function loadBotPreference(): BotPreference {
+  const fallback: BotPreference = { difficulty: getNpcConfig().defaultDifficulty };
+
+  try {
+    const raw = window.localStorage.getItem(BOT_PREFERENCE_KEY);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw) as Partial<BotPreference>;
+    return {
+      difficulty: Number.isFinite(parsed.difficulty)
+        ? Number(parsed.difficulty)
+        : fallback.difficulty,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function saveBotPreference(preference: BotPreference): void {
+  try {
+    window.localStorage.setItem(BOT_PREFERENCE_KEY, JSON.stringify(preference));
+  } catch {
+    // Private browsing or blocked storage: the choice still holds this session.
+  }
+}
 
 /**
  * Application shell.
@@ -83,6 +124,9 @@ export class App {
    */
   private pendingResult: MatchResultMessage | null = null;
 
+  /** The rung this player last added a bot at, remembered between sessions. */
+  private botPreference = loadBotPreference();
+
   constructor() {
     this.killFeed = new KillFeed(() => this.network.sessionId);
 
@@ -101,12 +145,21 @@ export class App {
       onLeaveLobby: () => void this.returnToMenu(),
       // Asking only. The server decides whether the lobby is in a state where
       // this means anything.
-      onStartNow: () => this.network.requestImmediateStart(),
+      onStartMatch: () => this.network.requestStart(),
+      onAddBot: (difficulty) => {
+        // Remembered so the picker marks the rung this player reached for last.
+        this.botPreference = { difficulty };
+        saveBotPreference(this.botPreference);
+        this.ui.setPreferredDifficulty(difficulty);
+        this.network.addBot(difficulty);
+      },
+      onRemoveBot: (sessionId) => this.network.removeBot(sessionId),
       onPlayAgain: () => this.handlePlayAgain(),
       onBackToMenu: () => void this.returnToMenu(),
     });
 
     this.restoreStoredName();
+    this.ui.setPreferredDifficulty(this.botPreference.difficulty);
     this.subscribeToNetwork();
     this.sound.attach();
     this.bindDebugConsoleKey();
@@ -475,6 +528,7 @@ export class App {
   private updateLobby(): void {
     const state = this.network.state;
     if (!state || this.ui.currentScreen !== "lobby") return;
+
     this.ui.updateLobby(state, this.network.sessionId);
   }
 

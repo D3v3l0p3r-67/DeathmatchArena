@@ -30,6 +30,13 @@ export class MatchManager {
   /** Timestamp at which the current phase ends (countdown / results). */
   private phaseEndsAt = 0;
   private matchDeadline = 0;
+  /**
+   * Set when the host asks to begin, cleared when the countdown starts.
+   *
+   * A request rather than an action: what actually starts the match is the next
+   * tick finding the room in a state where starting is allowed.
+   */
+  private startRequested = false;
 
   /** Players who pressed "play again" on the results screen. */
   private readonly requeueRequests = new Set<string>();
@@ -84,8 +91,47 @@ export class MatchManager {
   }
 
   private updateWaiting(now: number): void {
-    if (this.countConnectedPlayers() < this.rules.minPlayers) return;
+    // The lobby is showing both of these, and both change for reasons other
+    // than somebody joining -- a bot added, a connection dropped. Cheap enough
+    // at ten players to simply keep true.
+    this.refreshCounters();
+    this.context.state.canStart = this.couldStart();
+
+    // A room that has filled up has nothing left to wait for, so it does not
+    // make the host say so. Anything short of full waits to be told.
+    if (!this.startRequested && this.countConnectedPlayers() < this.rules.maxPlayers) return;
+    if (!this.couldStart()) return;
+
+    this.startRequested = false;
     this.beginCountdown(now);
+  }
+
+  /**
+   * Could a match begin right now?
+   *
+   * Two conditions, and no third: enough players for a fight, and at least one
+   * of them a person. Everything else about the line-up -- how many bots, how
+   * good they are, whether to wait for a friend -- is the host's business, not
+   * a rule.
+   */
+  private couldStart(): boolean {
+    const players = this.getConnectedPlayers();
+    if (players.length < Math.max(2, this.rules.minPlayers)) return false;
+    return players.some((player) => !player.bot);
+  }
+
+  /**
+   * "Begin, with whoever is here."
+   *
+   * The room checks that the asker is its host before this is reached; what is
+   * checked here is whether starting is a thing that could happen at all.
+   */
+  requestStart(): boolean {
+    if (this.context.state.matchState !== MatchState.WAITING) return false;
+    if (!this.couldStart()) return false;
+
+    this.startRequested = true;
+    return true;
   }
 
   private beginCountdown(now: number): void {
@@ -96,8 +142,9 @@ export class MatchManager {
   }
 
   private updateCountdown(now: number): void {
-    // Players may leave during the countdown; fall back to WAITING if we drop below the threshold.
-    if (this.countConnectedPlayers() < this.rules.minPlayers) {
+    // Players may leave during the countdown: fall back to WAITING if what is
+    // left could not have been started in the first place.
+    if (!this.couldStart()) {
       this.context.state.matchState = MatchState.WAITING;
       this.context.state.countdownSeconds = 0;
       this.context.logger.info("Countdown aborted, not enough players");
@@ -246,6 +293,7 @@ export class MatchManager {
     state.matchStartedAt = 0;
 
     this.context.setLocked(false);
+    this.startRequested = false;
     this.refreshCounters();
     this.context.logger.info("Room reset, waiting for players");
   }

@@ -75,13 +75,22 @@ export class GameState extends Schema implements SyncedGameState {
   @type("uint8") maxPlayers: number = getMatchConfig().maxPlayers;
 
   /**
-   * Whole seconds until bots take the lobby's free places; 0 when nothing is
-   * waiting. The client shows it and offers to skip it -- but only the server
-   * decides when bots actually arrive.
+   * Whose room this is.
+   *
+   * The host adds and removes bots and decides when the match begins -- the room
+   * waits for a person rather than for a number. It is whoever has been here
+   * longest, and it passes on when they leave.
    */
-  @type("uint16") botFillSeconds = 0;
-  /** True while the wait could be skipped. Purely so the client knows to offer. */
-  @type("boolean") canStartNow = false;
+  @type("string") hostId = "";
+  /** "Ada's Room". Rebuilt whenever the host changes. */
+  @type("string") roomName = "";
+  /**
+   * Whether a match could begin right now.
+   *
+   * Computed here rather than in the client so the button and the server can
+   * never disagree about what pressing it would do.
+   */
+  @type("boolean") canStart = false;
 
   /**
    * The playable width, narrowed by the closing walls.

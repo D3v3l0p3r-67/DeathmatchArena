@@ -1,6 +1,7 @@
 import {
   PLAYER_HALF_HEIGHT,
   PLAYER_HALF_WIDTH,
+  clamp01,
   type CollisionWorld,
 } from "@deathmatch/shared";
 import type { PerceivedTrap, SelfContext } from "./context.js";
@@ -69,6 +70,8 @@ export class MovementController {
   private stuck = false;
   /** True while backing away from a ledge to get a run-up at it. */
   private runningUp = false;
+  /** 0..1, from this bot's difficulty. See `setNavigationSkill`. */
+  private navigationSkill = 1;
 
   constructor(
     private readonly graph: NavGraph,
@@ -166,6 +169,31 @@ export class MovementController {
    * brain tick for every bot is the classic way to make AI look expensive when
    * it is really just wasteful.
    */
+  /**
+   * How well this bot reads the arena, 0..1. Comes from its difficulty.
+   *
+   * It buys two things a better player has: seeing further ahead, and noticing
+   * sooner that what you are doing is not working. It buys no extra information
+   * -- the hazards it looks at are the ones it can already perceive.
+   */
+  setNavigationSkill(skill: number): void {
+    this.navigationSkill = clamp01(skill);
+  }
+
+  /** How far ahead this bot looks for something dangerous, in px. */
+  private get hazardLookahead(): number {
+    return HAZARD_LOOKAHEAD * (0.35 + 0.65 * this.navigationSkill);
+  }
+
+  /** How long it flails before deciding it is stuck, in ms. */
+  private get stuckAfterMs(): number {
+    return STUCK_AFTER_MS / Math.max(0.2, 0.4 + 0.6 * this.navigationSkill);
+  }
+
+  private get abandonAfterMs(): number {
+    return ABANDON_AFTER_MS / Math.max(0.2, 0.4 + 0.6 * this.navigationSkill);
+  }
+
   setGoal(x: number, y: number, self: SelfContext, now: number): void {
     const moved = !this.hasGoal || Math.hypot(x - this.goalX, y - this.goalY) > 90;
 
@@ -281,7 +309,7 @@ export class MovementController {
   /** The first live hazard sitting in the direction of travel. */
   private hazardAhead(self: SelfContext, hazards: readonly PerceivedTrap[]): PerceivedTrap | null {
     const from = self.x - PLAYER_HALF_WIDTH;
-    const to = self.x + PLAYER_HALF_WIDTH + this.intent.direction * HAZARD_LOOKAHEAD;
+    const to = self.x + PLAYER_HALF_WIDTH + this.intent.direction * this.hazardLookahead;
 
     const left = Math.min(from, to);
     const right = Math.max(from, to);
@@ -381,12 +409,12 @@ export class MovementController {
     }
 
     const stalled = now - this.lastProgressAt;
-    if (stalled > STUCK_AFTER_MS) this.stuck = true;
+    if (stalled > this.stuckAfterMs) this.stuck = true;
 
     // Somewhere genuinely unreachable. Dropping the goal lets the brain choose
     // something else next time it thinks, rather than leaving a bot pressed
     // against the underside of a platform for the rest of the match.
-    if (stalled > ABANDON_AFTER_MS) {
+    if (stalled > this.abandonAfterMs) {
       this.clearGoal();
       this.stop();
       this.lastProgressAt = now;

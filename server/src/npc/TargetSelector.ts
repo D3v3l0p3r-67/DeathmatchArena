@@ -21,6 +21,16 @@ export interface TargetScore {
  * shape as the action scoring, for the same reason: it can be tuned by moving
  * numbers rather than by rewriting conditions.
  */
+/** How a bot's own competence bears on which enemy it settles for. */
+export interface TargetPickOptions {
+  /** 0..1. How reliably it acts on its own ranking. */
+  skill?: number;
+  /** The bot's seeded generator, so the choice stays reproducible. */
+  random?: () => number;
+  /** Who it is currently fighting, if anybody. */
+  currentId?: string | null;
+}
+
 export class TargetSelector {
   /** Score every known enemy, best first. */
   rank(context: BrainContext, profile: BrainProfile, sightRange: number): TargetScore[] {
@@ -29,9 +39,34 @@ export class TargetSelector {
       .sort((a, b) => b.score - a.score);
   }
 
-  /** The one worth fighting, or null when nothing is. */
-  pick(context: BrainContext, profile: BrainProfile, sightRange: number): PerceivedEnemy | null {
-    return this.rank(context, profile, sightRange)[0]?.enemy ?? null;
+  /**
+   * The one worth fighting, or null when nothing is.
+   *
+   * `skill` is how reliably this bot acts on its own ranking. Below 1 it often
+   * stays on whoever it was already shooting at even when something better has
+   * appeared -- which is what poor target selection actually looks like in a
+   * fight. Modelled as reluctance to switch rather than as a random pick,
+   * because re-rolling a target eight times a second reads as a broken bot
+   * rather than a bad one.
+   */
+  pick(
+    context: BrainContext,
+    profile: BrainProfile,
+    sightRange: number,
+    options: TargetPickOptions = {},
+  ): PerceivedEnemy | null {
+    const ranked = this.rank(context, profile, sightRange);
+    const best = ranked[0];
+    if (!best) return null;
+
+    const { skill = 1, random = Math.random, currentId = null } = options;
+    if (!currentId || best.enemy.sessionId === currentId) return best.enemy;
+
+    // Whoever it was fighting is gone or forgotten: nothing to stay loyal to.
+    const current = ranked.find((entry) => entry.enemy.sessionId === currentId);
+    if (!current) return best.enemy;
+
+    return random() < clamp01(skill) ? best.enemy : current.enemy;
   }
 
   private scoreTarget(

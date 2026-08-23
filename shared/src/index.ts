@@ -15,6 +15,7 @@ export * from "./core/geometry.js";
 // metadata + validation an administration interface drives itself from.
 export * from "./config/types.js";
 export * from "./config/defaults.js";
+export * from "./config/difficulty.js";
 export * from "./config/registry.js";
 export * from "./config/schema.js";
 export * from "./config/validator.js";

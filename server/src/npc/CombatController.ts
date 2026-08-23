@@ -18,6 +18,10 @@ const MAX_AIM_ERROR = 0.3;
 const AIM_DRIFT_INTERVAL_MS = 380;
 /** How fast a perfect shot swings its aim, in radians per second. */
 const MAX_TURN_RATE = 14;
+/** Worst-case misjudged throw angle at zero grenade accuracy, in radians (~9°). */
+const MAX_THROW_ANGLE_ERROR = 0.16;
+/** Worst-case misjudged throw power at zero grenade accuracy, as a fraction. */
+const MAX_THROW_CHARGE_ERROR = 0.4;
 
 export interface CombatOutput {
   aimAngle: number;
@@ -49,6 +53,15 @@ export class CombatController {
   private targetAcquiredAt = 0;
 
   private grenadeChargeStartedAt = 0;
+  /**
+   * How well this bot judges a throw, 0..1. Set from its difficulty.
+   *
+   * Applied as a misjudged angle and a misjudged charge, drawn once when the
+   * wind-up starts: a throw that wobbled every tick would simply never leave.
+   */
+  private grenadeAccuracy = 1;
+  private throwAngleError = 0;
+  private throwChargeScale = 1;
   private throwing = false;
 
   constructor(private readonly random: () => number) {}
@@ -140,20 +153,25 @@ export class CombatController {
     config: GrenadeConfig,
     dt: number,
   ): CombatOutput {
+    if (!this.throwing) {
+      this.throwing = true;
+      this.grenadeChargeStartedAt = context.now;
+      // Drawn once per throw, so the whole wind-up commits to one misjudgement
+      // rather than wobbling until it happens to be right.
+      const error = 1 - clamp01(this.grenadeAccuracy);
+      this.throwAngleError = (this.random() * 2 - 1) * MAX_THROW_ANGLE_ERROR * error;
+      this.throwChargeScale = 1 + (this.random() * 2 - 1) * MAX_THROW_CHARGE_ERROR * error;
+    }
+
     const dx = target.x - context.self.x;
     const dy = target.y - context.self.y;
 
     // Aim above the target: a thrown grenade falls, so throwing flat lands short.
     const loft = clamp(Math.abs(dx) / 900, 0, 1) * 0.55;
-    const desired = normalizeAngle(Math.atan2(dy, dx) - loft);
+    const desired = normalizeAngle(Math.atan2(dy, dx) - loft + this.throwAngleError);
     this.aimAt(desired, profile, dt, context.now);
 
-    const needed = this.chargeForDistance(Math.hypot(dx, dy), config);
-
-    if (!this.throwing) {
-      this.throwing = true;
-      this.grenadeChargeStartedAt = context.now;
-    }
+    const needed = this.chargeForDistance(Math.hypot(dx, dy), config) * this.throwChargeScale;
 
     const held = context.now - this.grenadeChargeStartedAt;
     // Releasing is simply stopping the hold; the server measures the interval.
@@ -166,6 +184,11 @@ export class CombatController {
       reload: false,
       chargeGrenade: !release,
     };
+  }
+
+  /** How well this bot judges a throw, 0..1. Comes from its difficulty. */
+  setGrenadeAccuracy(accuracy: number): void {
+    this.grenadeAccuracy = clamp01(accuracy);
   }
 
   cancelThrow(): void {
