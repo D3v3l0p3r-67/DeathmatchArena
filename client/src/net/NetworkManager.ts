@@ -1,6 +1,7 @@
 import { Client, getStateCallbacks, type Room } from "@colyseus/sdk";
 import {
   ClientMessage,
+  MATCH,
   NETWORK,
   ServerMessage,
   encodeInputBatch,
@@ -79,6 +80,16 @@ export interface NetworkEvents {
   /** The room retuned its configuration; anything derived from it must refresh. */
   configChanged: ConfigChangedPayload;
   disconnected: { code: number; reason: string };
+  /**
+   * The connection dropped, but the seat is being held.
+   *
+   * Distinct from `disconnected`: the server keeps a dropped player's place for
+   * the reconnection window, so the honest thing to show is "hold on", not "you
+   * have been thrown out".
+   */
+  connectionLost: { secondsLeft: number };
+  /** The connection came back and the same seat is ours again. */
+  reconnected: Record<string, never>;
   error: { message: string };
 }
 
@@ -89,12 +100,30 @@ export interface NetworkEvents {
  * batching outbound input, and measuring round-trip time. It contains no gameplay
  * logic -- everything it emits is server truth.
  */
+/**
+ * Is this close code one the server might still be holding a seat for?
+ *
+ * Colyseus uses 4000-and-up for deliberate closes -- a consented leave, a room
+ * disposing, a kick. Everything else is the network failing, which is exactly
+ * the case the reconnection window exists for.
+ */
+function isRecoverable(code: number): boolean {
+  return code < 4000;
+}
+
 export class NetworkManager {
   readonly events = new Emitter<NetworkEvents>();
 
   private readonly client = new Client(clientConfig.serverUrl);
   private room: GameRoom | null = null;
   private welcome: WelcomePayload | null = null;
+  /**
+   * What the server will accept in place of a fresh join.
+   *
+   * Kept for the length of a session and cleared the moment a leave is final, so
+   * a reconnection is only ever attempted for a seat that still exists.
+   */
+  private reconnectionToken = "";
 
   /**
    * True once the welcome message AND the first state patch have both arrived.
@@ -222,6 +251,7 @@ export class NetworkManager {
     this.welcome = welcome;
     this.handshakeComplete = true;
 
+    this.reconnectionToken = room.reconnectionToken;
     this.startPingLoop();
     this.events.emit("connected", welcome);
 
@@ -229,6 +259,65 @@ export class NetworkManager {
     // simply refused, which is what keeps the console shut for ordinary players.
     this.requestDebugAccess(clientConfig.debugToken);
     return welcome;
+  }
+
+  /**
+   * The connection went away while we were playing.
+   *
+   * Idempotent: a dying socket can produce both an error and a leave, and the
+   * player should be told once.
+   */
+  private handleConnectionLost(): void {
+    if (!this.room && !this.handshakeComplete) return;
+
+    this.stopPingLoop();
+    this.room = null;
+    this.handshakeComplete = false;
+
+    if (!this.reconnectionToken) {
+      this.events.emit("disconnected", { code: 0, reason: "" });
+      return;
+    }
+
+    this.events.emit("connectionLost", { secondsLeft: MATCH.RECONNECTION_WINDOW_SEC });
+  }
+
+  /**
+   * Ask for the seat back.
+   *
+   * Returns false when the attempt fails, which is not an error worth reporting
+   * on its own: the caller retries until the server's window closes, and only
+   * then is it a disconnection.
+   */
+  async attemptReconnect(): Promise<boolean> {
+    if (!this.reconnectionToken) return false;
+
+    try {
+      const room = (await this.client.reconnect(this.reconnectionToken)) as GameRoom;
+      this.room = room;
+      this.handshakeComplete = false;
+      this.attachRoomHandlers(room);
+
+      const welcome = await this.waitForHandshake(room);
+      this.welcome = welcome;
+      this.handshakeComplete = true;
+      this.reconnectionToken = room.reconnectionToken;
+
+      this.startPingLoop();
+      this.requestDebugAccess(clientConfig.debugToken);
+      this.events.emit("reconnected", {});
+      return true;
+    } catch {
+      // The window may simply not have expired yet, or the server may be gone.
+      // Either way the caller decides how long to keep trying.
+      this.room = null;
+      return false;
+    }
+  }
+
+  /** Give up on the held seat; the next connection will be a fresh join. */
+  abandonReconnection(): void {
+    this.reconnectionToken = "";
   }
 
   /** Resolve once the server has both greeted us and sent a decodable state. */
@@ -264,7 +353,9 @@ export class NetworkManager {
 
       room.onError((code, message) => {
         window.clearTimeout(timeout);
-        const error = new Error(message ?? `Connection error (${code})`);
+        // `code` is often undefined for a transport failure, and "Connection
+        // error (undefined)" is not something to show a player.
+        const error = new Error(message || (code ? `Connection error (${code})` : "Connection error."));
         this.events.emit("error", { message: error.message });
         reject(error);
       });
@@ -449,10 +540,33 @@ export class NetworkManager {
     room.onMessage(ServerMessage.PONG, (payload: PongPayload) => this.handlePong(payload));
 
     room.onLeave((code, reason) => {
+      // A consented leave -- pressing Leave, or the room disposing -- is final.
+      // Anything else is the network failing, and the server holds the seat for
+      // a few seconds either way, so it is worth asking for it back.
+      if (this.reconnectionToken && isRecoverable(code)) {
+        this.handleConnectionLost();
+        return;
+      }
+
       this.stopPingLoop();
       this.room = null;
       this.handshakeComplete = false;
+      this.reconnectionToken = "";
       this.events.emit("disconnected", { code, reason: reason ?? "" });
+    });
+
+    /*
+     * The other way a connection ends.
+     *
+     * A socket that dies mid-match -- the server restarting, a tunnel closing,
+     * a laptop lid -- surfaces here rather than through `onLeave`, which only
+     * fires for a close the two ends agreed on. Treating it as a bare error
+     * message was the client giving up while the server was still holding the
+     * player's place.
+     */
+    room.onError(() => {
+      if (!this.handshakeComplete) return;
+      this.handleConnectionLost();
     });
   }
 

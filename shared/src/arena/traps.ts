@@ -46,6 +46,15 @@ export type TrapMotionValue = (typeof TrapMotion)[keyof typeof TrapMotion];
 export const TrapDamageMode = {
   CONTINUOUS: "continuous",
   ON_ENTER: "on-enter",
+  /**
+   * Throws whoever touches it instead of hurting them.
+   *
+   * A trap that helps is still a trap: same placement, same activation modes,
+   * same everything -- it simply answers "what does contact do to you" with a
+   * push rather than with damage. Putting it here rather than inventing a second
+   * kind of arena object is what keeps one system in charge of contact.
+   */
+  LAUNCH: "launch",
 } as const;
 
 export type TrapDamageModeValue = (typeof TrapDamageMode)[keyof typeof TrapDamageMode];
@@ -153,6 +162,31 @@ export const BUILT_IN_TRAP_TYPES: readonly TrapTypeDefinition[] = Object.freeze(
     defaultActivation: TrapActivation.PERIODIC,
     defaultOverrides: { damage: 32, activationDelayMs: 500, activeDurationMs: 2000, cooldownMs: 3000 },
     params: [],
+  },
+  {
+    id: "jump-pad",
+    label: "Jump pad",
+    description: "Throws whoever steps on it upwards. Hurts nobody -- it is a route, not a hazard.",
+    motion: TrapMotion.STATIC,
+    damageMode: TrapDamageMode.LAUNCH,
+    defaultSize: { width: 110, height: 20 },
+    color: 0x4ade80,
+    defaultActivation: TrapActivation.ALWAYS,
+    // No damage at all: the launch is the whole effect.
+    defaultOverrides: { damage: 0, activationDelayMs: 0 },
+    params: [
+      {
+        key: "force",
+        label: "Launch force",
+        type: ConfigFieldType.NUMBER,
+        defaultValue: 2.6,
+        min: 0.2,
+        max: 6,
+        step: 0.1,
+        description:
+          "How hard it throws, in knockback impulses. Around 2.6 is a little higher than a jump; the player's knockback limit still caps it.",
+      },
+    ],
   },
   {
     id: "saw",

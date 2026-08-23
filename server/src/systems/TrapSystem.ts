@@ -352,10 +352,16 @@ export class TrapSystem {
    * answer to "what does standing still do to you".
    */
   private applyDamage(runtime: TrapRuntime, dt: number, targets: readonly PlayerState[]): void {
+    const mode = runtime.resolved.type.damageMode;
+    if (mode === TrapDamageMode.LAUNCH) {
+      this.applyLaunch(runtime, targets);
+      return;
+    }
+
     const damage = runtime.resolved.damage;
     if (damage <= 0) return;
 
-    const continuous = runtime.resolved.type.damageMode === TrapDamageMode.CONTINUOUS;
+    const continuous = mode === TrapDamageMode.CONTINUOUS;
     const box = this.currentBox(runtime);
     const hitX = box.x + box.width / 2;
     const hitY = box.y + box.height / 2;
@@ -385,6 +391,32 @@ export class TrapSystem {
       const whole = Math.floor(owed);
       runtime.carry.set(player.sessionId, owed - whole);
       if (whole > 0) this.hurt(player, whole, hitX, hitY, runtime);
+    }
+  }
+
+  /**
+   * Throw whoever is standing on it.
+   *
+   * Once per contact, like spikes: a pad that fired every tick would pin
+   * somebody in the air above it. The push goes through the same knockback the
+   * weapons use, so the player's configured limit caps a mistyped pad rather
+   * than launching anyone into orbit -- and the client predicts it exactly as it
+   * predicts being shot.
+   */
+  private applyLaunch(runtime: TrapRuntime, targets: readonly PlayerState[]): void {
+    const force = trapParamNumber(runtime.resolved, "force", 2.6);
+    if (force <= 0) return;
+
+    for (const player of targets) {
+      if (!this.overlaps(runtime, player)) {
+        runtime.struck.delete(player.sessionId);
+        continue;
+      }
+
+      if (runtime.struck.has(player.sessionId)) continue;
+      runtime.struck.add(player.sessionId);
+      // Straight up, and no lift on top of it: the force *is* the lift.
+      this.context.applyKnockback(player.sessionId, 0, -1, force, false);
     }
   }
 

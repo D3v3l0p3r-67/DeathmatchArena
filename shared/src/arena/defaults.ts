@@ -176,6 +176,9 @@ const FOUNDRY: ArenaDefinition = {
       direction: "right",
       travel: 380,
     }),
+    // A way up out of the ground-level passage that does not involve the
+    // staircase everybody watches.
+    trap("trap-6", "jump-pad", 1660, 1720, 110, 20, TrapActivation.ALWAYS, { force: 2.6 }),
     // Hangs under the top platform and drops on whoever climbs to it.
     trap("trap-5", "falling-object", 1550, 780, 90, 90, TrapActivation.PROXIMITY, {
       direction: "down",
@@ -285,6 +288,10 @@ const GANTRY: ArenaDefinition = {
     // Vents at both ends of the middle deck, on the routes between the towers.
     trap("trap-4", "fire", 1360, 640, 80, 140, TrapActivation.PERIODIC),
     trap("trap-5", "fire", 2240, 640, 80, 140, TrapActivation.PERIODIC),
+    // The decks are a double jump apart; these are the shortcut, and standing on
+    // one is as visible as it sounds.
+    trap("trap-7", "jump-pad", 480, 1120, 110, 20, TrapActivation.ALWAYS, { force: 2.9 }),
+    trap("trap-8", "jump-pad", 3020, 1120, 110, 20, TrapActivation.ALWAYS, { force: 2.9 }),
     // Hangs over the mast, the highest and most exposed perch.
     trap("trap-6", "falling-object", 1780, 300, 80, 80, TrapActivation.PROXIMITY, {
       direction: "down",
@@ -399,6 +406,8 @@ const SILO: ArenaDefinition = {
       direction: "right",
       travel: 320,
     }),
+    // The fastest way back into the spiral after a long fall.
+    trap("trap-7", "jump-pad", 300, 2320, 110, 20, TrapActivation.ALWAYS, { force: 3.2 }),
     // Hangs over the two-room floor.
     trap("trap-6", "falling-object", 1420, 2100, 80, 80, TrapActivation.PROXIMITY, {
       direction: "down",

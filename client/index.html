@@ -183,6 +183,13 @@
         <div class="damage-flash" id="damage-flash" aria-hidden="true"></div>
       </div>
 
+      <!-- The connection dropped, but the seat is being held. Not a screen: the
+           match is still on the other side of it. -->
+      <div class="reconnect" id="reconnect" hidden>
+        <p class="reconnect__title">Connection lost</p>
+        <p class="reconnect__detail">Holding your place &middot; <b id="reconnect-timer">20s</b></p>
+      </div>
+
       <!-- =========================== DEATH / SPECTATE ======================== -->
       <div class="spectator" data-layer="spectator">
         <div class="spectator__banner">

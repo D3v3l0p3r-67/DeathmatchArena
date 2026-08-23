@@ -72,6 +72,9 @@ export class UIManager {
   private readonly careerKd = requireElement("career-kd");
   private readonly resultsCareer = requireElement("results-career");
 
+  private readonly reconnect = requireElement("reconnect");
+  private readonly reconnectTimer = requireElement("reconnect-timer");
+
   private readonly notices = requireElement("notices");
 
   private activeScreen: ScreenName = "none";
@@ -292,6 +295,25 @@ export class UIManager {
 
       this.lobbyPlayers.appendChild(item);
     }
+  }
+
+  // ------------------------------------------------------------- reconnecting
+
+  /**
+   * "Hold on, your seat is still yours."
+   *
+   * A banner rather than a screen: the match is still running on the other side
+   * of it, and throwing somebody back to the menu for a dropped packet -- while
+   * the server is still holding their place -- would be the client giving up
+   * before the server does.
+   */
+  showReconnecting(secondsLeft: number): void {
+    this.reconnect.hidden = false;
+    setText(this.reconnectTimer, `${Math.max(0, Math.ceil(secondsLeft))}s`);
+  }
+
+  hideReconnecting(): void {
+    this.reconnect.hidden = true;
   }
 
   // ----------------------------------------------------------------- career

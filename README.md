@@ -756,6 +756,32 @@ level 5              217ms                     122
 
 ---
 
+## Jump pads, and holding a seat open
+
+Two smaller things, both of which reuse a mechanism rather than adding one.
+
+**A jump pad is a trap that helps.** The trap system already answers "what does
+contact with this do to you", so a pad is a third answer -- `TrapDamageMode.LAUNCH`
+-- alongside continuous and on-enter damage. Same placement, same activation
+modes, same editor, and the throw goes through the same knockback the weapons
+use, so a mistyped force is capped by the player's own knockback limit rather
+than launching somebody into orbit. It fires once per contact, because a pad that
+fired every tick would pin whoever stood on it in the air above it. Every arena
+now has at least one, as a route the staircase-watchers are not covering.
+
+**A dropped connection is not a disconnection.** The server has always held a
+player's seat for twenty seconds; the client used to throw them straight back to
+the menu anyway, which was the client giving up before the server did. Now a lost
+connection shows a banner with the time remaining, keeps the scene standing, and
+asks for the seat back every 1.2s until it either succeeds or the window closes.
+
+Getting that right meant finding where a dropped connection actually surfaces:
+`onLeave` fires only for a close both ends agreed on, and a socket that simply
+dies -- a restarted server, a closed tunnel, a laptop lid -- arrives as an
+*error*. Both now lead to the same place.
+
+---
+
 ## Playing with thumbs
 
 The game is keyboard and mouse, and on a phone that made it unplayable rather
