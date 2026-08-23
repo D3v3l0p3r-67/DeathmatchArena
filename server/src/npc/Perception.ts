@@ -24,8 +24,16 @@ import type { Memory } from "./Memory.js";
 
 /** Beyond this many pixels a grenade is somebody else's problem. */
 const GRENADE_ALARM_RADIUS = 320;
-/** How near a trap has to be before it is worth steering around. */
-const TRAP_ALARM_RADIUS = 220;
+/**
+ * How near a trap has to be before it is worth steering around.
+ *
+ * Comfortably further than a bot can travel in the time it takes to notice and
+ * stop: at running speed 220px was about two thirds of a second, which is how
+ * bots ended up walking into spikes they had every right to have seen coming.
+ */
+const TRAP_ALARM_RADIUS = 460;
+/** Within this, a trap is frightening rather than merely noted. */
+const TRAP_FEAR_RADIUS = 220;
 /** How near a closing wall has to be before it counts as pressure. */
 const WALL_ALARM_DISTANCE = 260;
 
@@ -308,7 +316,11 @@ export class Perception {
       // Arming counts as hot: the warning exists to be reacted to, and a bot
       // that only fled once it was already burning would waste it.
       const hot = trap.phase === TrapPhase.ACTIVE || trap.phase === TrapPhase.ARMING;
-      const proximity = clamp01(1 - distance / (TRAP_ALARM_RADIUS + Math.max(trap.width, trap.height)));
+      // Seen from far off, felt only from near: the alarm radius decides what a
+      // bot is aware of, and this decides how much of it is *fear*. Without the
+      // split, widening the first would have bots cowering from scenery.
+      const reach = TRAP_FEAR_RADIUS + Math.max(trap.width, trap.height);
+      const proximity = clamp01(1 - distance / reach);
 
       traps.push({
         id: trap.id,

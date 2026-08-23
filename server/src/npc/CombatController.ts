@@ -18,6 +18,8 @@ const MAX_AIM_ERROR = 0.3;
 const AIM_DRIFT_INTERVAL_MS = 380;
 /** How fast a perfect shot swings its aim, in radians per second. */
 const MAX_TURN_RATE = 14;
+/** How much clearance a bot wants beyond its own blast radius, in px. */
+const SELF_BLAST_MARGIN = 45;
 /** Worst-case misjudged throw angle at zero grenade accuracy, in radians (~9°). */
 const MAX_THROW_ANGLE_ERROR = 0.16;
 /** Worst-case misjudged throw power at zero grenade accuracy, as a fraction. */
@@ -129,7 +131,16 @@ export class CombatController {
     const reload = empty && !context.self.reloading;
 
     const inRange = target.distance <= weapon.range;
-    const canFire = reacted && onTarget && inRange && target.visible && !empty && !context.self.reloading;
+    // An explosive round caught by the wall behind a target standing on top of
+    // you takes you with it. The same reasoning the grenade action applies, at
+    // the trigger rather than at the plan: a bot holding a launcher backs off
+    // instead of killing itself.
+    const tooCloseToDetonate =
+      weapon.ranged?.explosion != null &&
+      target.distance < weapon.ranged.explosion.radius + SELF_BLAST_MARGIN;
+
+    const canFire =
+      reacted && onTarget && inRange && target.visible && !empty && !context.self.reloading && !tooCloseToDetonate;
 
     return {
       aimAngle: this.aimAngle,

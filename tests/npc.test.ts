@@ -21,6 +21,8 @@ import {
   MAX_BOT_DIFFICULTY,
   MIN_BOT_DIFFICULTY,
   MatchState,
+  ROCKET_LAUNCHER_ID,
+  TrapActivation,
   applyBotDifficulty,
   createRandom,
   getBotDifficulty,
@@ -261,6 +263,72 @@ describe("action scoring", () => {
 
     assert.equal(actions.throwGrenadeAction.score(emptyContext({ enemies: [near] }), p, agentWith(near)), 0);
     assert.ok(actions.throwGrenadeAction.score(emptyContext({ enemies: [far] }), p, agentWith(far)) > 0);
+  });
+
+  it("just shoots when shooting is the better answer", () => {
+    // A grenade that out-scored a clean shot would be a bot that never fires.
+    const target = enemy({ distance: 420, visible: true });
+    const context = emptyContext({ enemies: [target], visibleEnemies: [target], weaponEffectiveness: 1 });
+    const p = profile({ grenadeUsage: 0.7 });
+
+    const shoot = actions.attackAction.score(context, p, agentWith(target));
+    const lob = actions.throwGrenadeAction.score(context, p, agentWith(target));
+
+    assert.ok(shoot > lob, `expected shooting to win, ${shoot} vs ${lob}`);
+  });
+
+  it("reaches for one when the target has just gone behind cover", () => {
+    // The one shot a rifle does not have. Attack scores nothing here, so the
+    // comparison that matters is against giving chase.
+    const hidden = enemy({ distance: 420, visible: false, ageMs: 250 });
+    const context = emptyContext({ enemies: [hidden], visibleEnemies: [] });
+    const p = profile({ grenadeUsage: 0.7 });
+
+    const lob = actions.throwGrenadeAction.score(context, p, agentWith(hidden));
+    const chase = actions.chaseAction.score(context, p, agentWith(hidden));
+
+    assert.equal(actions.attackAction.score(context, p, agentWith(hidden)), 0);
+    assert.ok(lob > chase, `expected the grenade to win, ${lob} vs ${chase}`);
+  });
+
+  it("reaches for one when two enemies are standing together", () => {
+    const target = enemy({ sessionId: "e1", x: 900, distance: 420 });
+    const friend = enemy({ sessionId: "e2", x: 960, distance: 470 });
+    const alone = emptyContext({ enemies: [target], visibleEnemies: [target] });
+    const crowd = emptyContext({
+      enemies: [target, friend],
+      visibleEnemies: [target, friend],
+    });
+    const p = profile({ grenadeUsage: 0.7 });
+
+    const one = actions.throwGrenadeAction.score(alone, p, agentWith(target));
+    const two = actions.throwGrenadeAction.score(crowd, p, agentWith(target));
+
+    assert.ok(two > one + 10, `a cluster should be worth throwing at, ${two} vs ${one}`);
+    assert.ok(
+      two > actions.attackAction.score(crowd, p, agentWith(target)),
+      "and worth more than shooting one of them",
+    );
+  });
+
+  it("will not spend a grenade on a stale memory", () => {
+    const stale = enemy({ distance: 500, visible: false, ageMs: 4000 });
+    const context = emptyContext({ enemies: [stale], visibleEnemies: [] });
+
+    assert.equal(actions.throwGrenadeAction.score(context, profile({ grenadeUsage: 1 }), agentWith(stale)), 0);
+  });
+
+  it("holds on to its last one a little harder", () => {
+    const target = enemy({ distance: 500 });
+    const p = profile({ grenadeUsage: 0.8 });
+    const context = (grenades: number) =>
+      emptyContext({ self: { ...emptyContext().self, grenades }, enemies: [target], visibleEnemies: [target] });
+
+    const plenty = actions.throwGrenadeAction.score(context(3), p, agentWith(target));
+    const last = actions.throwGrenadeAction.score(context(1), p, agentWith(target));
+
+    assert.ok(last < plenty, `expected more hesitation with one left, ${last} vs ${plenty}`);
+    assert.ok(last > 0, "but not a refusal");
   });
 
   it("will not throw a grenade it does not have", () => {
@@ -552,6 +620,163 @@ describe("navigation", () => {
     assert.ok(countJumps(strong) > countJumps(weak), "a weaker jump should mean fewer jump links");
   });
 
+  it("walks around the spikes rather than through them", () => {
+    // A corridor with a strip of spikes across the middle and a clear detour
+    // above it. Both routes exist; only one of them hurts.
+    const arena = createEmptyArena("hazard-test", "Hazard Test", 2400, 1400);
+    arena.elements.push(
+      { id: "floor", type: "floor", x: 100, y: 1200, width: 2200, height: 40 },
+      { id: "ledge", type: "platform", x: 800, y: 1010, width: 900, height: 20 },
+    );
+    // Wider than a jump can clear, so going over the ledge is the only way
+    // across that does not involve standing in it.
+    arena.traps.push({
+      id: "spikes",
+      type: "spikes",
+      x: 900,
+      y: 1160,
+      width: 700,
+      height: 40,
+      enabled: true,
+      activation: TrapActivation.ALWAYS,
+      damage: null,
+      activationDelayMs: null,
+      activeDurationMs: null,
+      cooldownMs: null,
+      moveSpeed: null,
+      triggerRadius: null,
+      params: {},
+    });
+
+    const world = new CollisionWorld(arena);
+    const graph = new NavGraph(arena, world, getPlayerConfig());
+
+    const from = graph.nearest(300, 1160);
+    const to = graph.nearest(2100, 1160);
+    const path = graph.findPath(from, to);
+    assert.ok(path.length > 1, "expected a route at all");
+
+    // Not one step of it stands where the spikes can reach.
+    const through = path.filter((index) => graph.nodes[index]!.hazardous);
+    assert.deepEqual(through, [], "the route should not stand in the spikes");
+
+    // And it is genuinely a detour: without the spikes the same trip is a walk
+    // straight along the floor, and with them it leaves that floor to get past.
+    const clear = createEmptyArena("hazard-test", "Hazard Test", 2400, 1400);
+    clear.elements.push(...arena.elements);
+    const clearGraph = new NavGraph(clear, new CollisionWorld(clear), getPlayerConfig());
+    const clearPath = clearGraph.findPath(
+      clearGraph.nearest(300, 1160),
+      clearGraph.nearest(2100, 1160),
+    );
+
+    const stayedOnTheFloor = (g: InstanceType<typeof NavGraph>, route: number[]) =>
+      route.every((index) => g.nodes[index]!.surfaceId === "floor");
+
+    assert.ok(stayedOnTheFloor(clearGraph, clearPath), "without spikes it is a straight walk");
+    assert.equal(stayedOnTheFloor(graph, path), false, "with them it should go around");
+  });
+
+  it("still goes through when there is no way round", () => {
+    // A cost, not a wall: an arena is allowed to put the only route through a
+    // fire vent, and a bot that refused to move would be worse than one that
+    // takes the risk.
+    const arena = createEmptyArena("only-way", "Only Way", 2000, 1400);
+    arena.elements.push({ id: "floor", type: "floor", x: 100, y: 1200, width: 1800, height: 40 });
+    arena.traps.push({
+      id: "fire",
+      type: "fire",
+      x: 900,
+      y: 1160,
+      width: 200,
+      height: 40,
+      enabled: true,
+      activation: TrapActivation.ALWAYS,
+      damage: null,
+      activationDelayMs: null,
+      activeDurationMs: null,
+      cooldownMs: null,
+      moveSpeed: null,
+      triggerRadius: null,
+      params: {},
+    });
+
+    const graph = new NavGraph(arena, new CollisionWorld(arena), getPlayerConfig());
+    const path = graph.findPath(graph.nearest(300, 1160), graph.nearest(1700, 1160));
+
+    assert.ok(path.length > 1, "a dangerous route still beats no route");
+  });
+
+  it("costs a hazardous step without forbidding it", () => {
+    const arena = createEmptyArena("cost", "Cost", 2000, 1400);
+    arena.elements.push({ id: "floor", type: "floor", x: 100, y: 1200, width: 1800, height: 40 });
+
+    /** The cheapest way to step along the floor, whatever else the shell has. */
+    const cheapestFloorStep = (graph: InstanceType<typeof NavGraph>) => {
+      let best = Infinity;
+      graph.nodes.forEach((node, index) => {
+        if (node.surfaceId !== "floor") return;
+        for (const link of graph.links[index] ?? []) {
+          if (graph.nodes[link.to]!.surfaceId !== "floor") continue;
+          best = Math.min(best, link.cost);
+        }
+      });
+      return best;
+    };
+
+    const safe = new NavGraph(arena, new CollisionWorld(arena), getPlayerConfig());
+    const cheapest = cheapestFloorStep(safe);
+
+    arena.traps.push({
+      id: "spikes",
+      type: "spikes",
+      x: 100,
+      y: 1160,
+      width: 1800,
+      height: 40,
+      enabled: true,
+      activation: TrapActivation.ALWAYS,
+      damage: null,
+      activationDelayMs: null,
+      activeDurationMs: null,
+      cooldownMs: null,
+      moveSpeed: null,
+      triggerRadius: null,
+      params: {},
+    });
+
+    const risky = new NavGraph(arena, new CollisionWorld(arena), getPlayerConfig());
+    const dearest = cheapestFloorStep(risky);
+
+    assert.ok(risky.links.flat().length > 0, "the links should still exist");
+    assert.ok(dearest > cheapest + 500, `a hazard should cost real detour, ${cheapest} -> ${dearest}`);
+  });
+
+  it("ignores a trap that is switched off", () => {
+    const arena = createEmptyArena("disabled", "Disabled", 2000, 1400);
+    arena.elements.push({ id: "floor", type: "floor", x: 100, y: 1200, width: 1800, height: 40 });
+    arena.traps.push({
+      id: "spikes",
+      type: "spikes",
+      x: 900,
+      y: 1160,
+      width: 200,
+      height: 40,
+      enabled: false,
+      activation: TrapActivation.ALWAYS,
+      damage: null,
+      activationDelayMs: null,
+      activeDurationMs: null,
+      cooldownMs: null,
+      moveSpeed: null,
+      triggerRadius: null,
+      params: {},
+    });
+
+    const graph = new NavGraph(arena, new CollisionWorld(arena), getPlayerConfig());
+    assert.equal(graph.nodes.some((node) => node.hazardous), false);
+  });
+
   it("returns nothing rather than a wrong answer when there is no route", () => {
     const arena = createEmptyArena("empty", "Empty");
     const graph = new NavGraph(arena, new CollisionWorld(arena), getPlayerConfig());
@@ -581,6 +806,74 @@ describe("perception", () => {
     assert.equal(context.visibleEnemies.length, 1);
     assert.equal(context.nearestEnemy?.sessionId, "target");
     assert.ok(context.nearestEnemy!.distance > 0);
+  });
+
+  it("notices a hazard well before it is standing in one", () => {
+    // Perception's job is to see it coming. At 220px and running speed a bot had
+    // about two thirds of a second to notice, decide and stop -- which is how
+    // they ended up walking into spikes they had every right to have seen.
+    const arena = createEmptyArena("hazard", "Hazard");
+    arena.traps = [
+      {
+        id: "spikes",
+        type: "spikes",
+        x: 1000,
+        y: 1690,
+        width: 120,
+        height: 40,
+        enabled: true,
+        activation: TrapActivation.ALWAYS,
+        damage: null,
+        activationDelayMs: null,
+        activeDurationMs: null,
+        cooldownMs: null,
+        moveSpeed: null,
+        triggerRadius: null,
+        params: {},
+      },
+    ];
+    harness.loadTraps(arena);
+    harness.stepTraps(0.05, 0);
+
+    harness.addPlayer("bot", 620, 1700);
+    const seen = perceive("bot");
+
+    assert.equal(seen.traps.length, 1, "a hazard 400px ahead should be noticed");
+  });
+
+  it("is not frightened of a hazard it is merely aware of", () => {
+    // Seeing further must not turn scenery into panic: what a bot knows about
+    // and what it is afraid of are two different radii.
+    const arena = createEmptyArena("hazard", "Hazard");
+    const trap = {
+      id: "spikes",
+      type: "spikes",
+      x: 1000,
+      y: 1690,
+      width: 120,
+      height: 40,
+      enabled: true,
+      activation: TrapActivation.ALWAYS,
+      damage: null,
+      activationDelayMs: null,
+      activeDurationMs: null,
+      cooldownMs: null,
+      moveSpeed: null,
+      triggerRadius: null,
+      params: {},
+    };
+    arena.traps = [trap];
+    harness.loadTraps(arena);
+    harness.stepTraps(0.05, 0);
+
+    harness.addPlayer("far", 620, 1700);
+    harness.addPlayer("near", 1060, 1700);
+
+    const distant = perceive("far").trapDanger;
+    const close = perceive("near").trapDanger;
+
+    assert.ok(close > distant * 3, `standing on it should be the frightening one, ${close} vs ${distant}`);
+    assert.ok(distant < 0.25, "and a hazard across the room should barely register");
   });
 
   it("does not see through a wall", () => {
@@ -1286,5 +1579,57 @@ describe("the lobby's headcount", () => {
     harness.npcs.removeBot("human-0", harness.npcs.list()[0]!.sessionId);
     harness.run(0.2);
     assert.equal(harness.state.playerCount, 1);
+  });
+});
+
+describe("a bot holding something explosive", () => {
+  it("will not fire a rocket into a target on top of it", () => {
+    // The blast radius reaches back past the muzzle: firing here is suicide, and
+    // a bot that did it would be a gift rather than an opponent.
+    const launcher = getWeapon(ROCKET_LAUNCHER_ID);
+    const blast = launcher.ranged!.explosion!;
+
+    const pointBlank = enemy({ x: 560, distance: blast.radius * 0.5 });
+    const across = enemy({ x: 1200, distance: blast.radius * 3 });
+
+    /**
+     * Hold the trigger for a second and report whether anything came out.
+     *
+     * A fresh controller each time: reaction time is measured from when a target
+     * was acquired, so a reused one would still be waiting out the first case's
+     * clock.
+     */
+    function firedAt(target: ReturnType<typeof enemy>): boolean {
+      const combat = new CombatController(createRandom(5));
+      const context = emptyContext({
+        self: { ...emptyContext().self, weapon: launcher },
+        enemies: [target],
+        visibleEnemies: [target],
+      });
+
+      let fired = false;
+      for (let elapsed = 0; elapsed < 1500; elapsed += 1000 / 60) {
+        context.now = elapsed;
+        if (combat.engage(target, context, profile(), 1 / 60).fire) fired = true;
+      }
+      return fired;
+    }
+
+    assert.equal(firedAt(pointBlank), false, "it should hold fire at its own feet");
+    assert.equal(firedAt(across), true, "and fire freely at a safe distance");
+  });
+
+  it("fires an ordinary weapon at any range it reaches", () => {
+    const combat = new CombatController(createRandom(5));
+    const target = enemy({ x: 560, distance: 60 });
+    const context = emptyContext({ enemies: [target], visibleEnemies: [target] });
+
+    let fired = false;
+    for (let elapsed = 0; elapsed < 1500; elapsed += 1000 / 60) {
+      context.now = elapsed;
+      if (combat.engage(target, context, profile(), 1 / 60).fire) fired = true;
+    }
+
+    assert.equal(fired, true, "a rifle at point-blank range is simply a rifle");
   });
 });

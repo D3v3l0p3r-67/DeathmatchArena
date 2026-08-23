@@ -28,7 +28,9 @@ import {
   encodeInputBatch,
   createInputCommand,
   getWeapon,
+  type ArenaChangedPayload,
   type KillPayload,
+  type PlayerCareer,
   type MatchResultMessage,
   type InputCommand,
 } from "@deathmatch/shared";
@@ -58,8 +60,8 @@ after(async () => {
   await gameServer.gracefullyShutdown(false);
 });
 
-async function join(name: string): Promise<GameRoom> {
-  return sdk.joinOrCreate<BattleRoomType>("battle", { name });
+async function join(name: string, playerId?: string): Promise<GameRoom> {
+  return sdk.joinOrCreate<BattleRoomType>("battle", { name, playerId });
 }
 
 /** Send a batch of input commands the way the real client does. */
@@ -126,9 +128,45 @@ describe("match lifecycle", () => {
     assert.equal(kills[0]!.endsMatch, true, "the last elimination must announce itself");
 
     // The room recycles itself so the same players can queue again.
+    const arenaBefore = alice.state.arenaId;
+    const arenas: string[] = [];
+    alice.onMessage(ServerMessage.ARENA_CHANGED, (payload) =>
+      arenas.push((payload as ArenaChangedPayload).arena.id),
+    );
+
     await waitFor(() => alice.state.matchState === MatchState.WAITING, "room to reset", 5000);
     assert.equal(alice.state.winnerId, "");
     assert.equal(alice.state.players.get(alice.sessionId)!.placement, 0);
+
+    // And it is somewhere new: the next match deserves a different map, and the
+    // client is sent the whole definition because it draws and predicts from it.
+    assert.notEqual(alice.state.arenaId, arenaBefore, "the room should have rotated");
+    assert.deepEqual(arenas, [alice.state.arenaId], "the client is told, once");
+
+    await alice.leave(true);
+  });
+
+  it("keeps a record of what a player has done, and tells only them", async () => {
+    // No accounts: the id comes from the client, which is why it is a personal
+    // record rather than a ranking -- and why nobody is sent anybody else's.
+    const alice = await join("Recorder", "career-test-alice");
+    const bob = await join("Opponent", "career-test-bob");
+
+    const mine: PlayerCareer[] = [];
+    alice.onMessage(ServerMessage.CAREER, (payload) => mine.push(payload as PlayerCareer));
+
+    await waitFor(() => alice.state.players.size === 2, "both players");
+    await startMatch(alice, bob);
+    await waitFor(() => alice.state.matchState === MatchState.PLAYING, "match to start");
+
+    await bob.leave(true);
+    await waitFor(() => alice.state.matchState === MatchState.FINISHED, "match to finish");
+    await waitFor(() => mine.length > 0, "a career update");
+
+    const career = mine.at(-1)!;
+    assert.equal(career.matches, 1, "the match just played");
+    assert.equal(career.wins, 1, "and she won it");
+    assert.equal(career.bestPlacement, 1);
 
     await alice.leave(true);
   });

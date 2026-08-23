@@ -8,6 +8,7 @@ import {
   type MatchStateValue,
   getGrenadeConfig,
   getNpcConfig,
+  type PlayerCareer,
   type PowerUpCollectedPayload,
 } from "@deathmatch/shared";
 import { AudioEngine, DEFAULT_AUDIO_SETTINGS } from "./audio/AudioEngine.js";
@@ -23,10 +24,49 @@ import { DebugConsole } from "./ui/DebugConsole.js";
 import { DebugOverlay } from "./ui/DebugOverlay.js";
 import { HUD } from "./ui/HUD.js";
 import { KillFeed } from "./ui/KillFeed.js";
+import { TouchControls } from "./ui/TouchControls.js";
 import { UIManager } from "./ui/UIManager.js";
 
 /** HUD text does not need to change 60 times a second. */
 const HUD_UPDATE_INTERVAL_MS = 80;
+
+/**
+ * Where this player's own record is kept locally.
+ *
+ * A cache, not the truth: the server sends the real one on joining and after
+ * every match. It exists so the menu can show a returning player their record
+ * before they have joined anything, which is exactly where they want to see it.
+ */
+const CAREER_KEY = "deathmatch-arena:career";
+
+/** How long to wait between attempts to get a held seat back. */
+const RECONNECT_RETRY_MS = 1200;
+
+function loadCareer(): PlayerCareer | null {
+  try {
+    const raw = window.localStorage.getItem(CAREER_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<PlayerCareer>;
+    if (!Number.isFinite(parsed.matches)) return null;
+    return {
+      matches: Number(parsed.matches),
+      wins: Number(parsed.wins ?? 0),
+      kills: Number(parsed.kills ?? 0),
+      deaths: Number(parsed.deaths ?? 0),
+      bestPlacement: Number(parsed.bestPlacement ?? 0),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function saveCareer(career: PlayerCareer): void {
+  try {
+    window.localStorage.setItem(CAREER_KEY, JSON.stringify(career));
+  } catch {
+    // Blocked storage: the server still knows, and will say so on the next join.
+  }
+}
 
 /** Where the last bot setup is remembered between sessions. */
 const BOT_PREFERENCE_KEY = "deathmatch-arena:bots";
@@ -124,6 +164,11 @@ export class App {
    */
   private pendingResult: MatchResultMessage | null = null;
 
+  /** When the server will stop holding our seat; 0 when nothing is being held. */
+  private reconnectDeadline = 0;
+  private reconnectTimer = 0;
+  /** On-screen controls, shown only on a device that has asked for them. */
+  private touch!: TouchControls;
   /** The rung this player last added a bot at, remembered between sessions. */
   private botPreference = loadBotPreference();
 
@@ -158,7 +203,13 @@ export class App {
       onBackToMenu: () => void this.returnToMenu(),
     });
 
+    this.touch = new TouchControls({
+      onIntent: (intent) => this.getGameScene()?.setTouchIntent(intent),
+    });
+
     this.restoreStoredName();
+    const remembered = loadCareer();
+    if (remembered) this.ui.showCareer(remembered);
     this.ui.setPreferredDifficulty(this.botPreference.difficulty);
     this.subscribeToNetwork();
     this.sound.attach();
@@ -366,6 +417,11 @@ export class App {
     });
 
     events.on("notice", (notice) => this.ui.showNotice(notice));
+    // Their own record, sent on joining and again after every match they finish.
+    events.on("career", (career) => {
+      saveCareer(career);
+      this.ui.showCareer(career);
+    });
 
     // The server's verdict is the only thing that opens any debug tooling.
     events.on("debugState", (state) => {
@@ -381,7 +437,14 @@ export class App {
     events.on("debugResult", (result) => this.debugConsole.appendResult(result));
     events.on("debugNpc", (payload) => this.debugConsole.renderNpcs(payload));
 
+    events.on("connectionLost", ({ secondsLeft }) => this.beginReconnecting(secondsLeft));
+    events.on("reconnected", () => {
+      this.stopReconnecting();
+      this.ui.showNotice({ code: "INFO", message: "Reconnected." }, 2200);
+    });
+
     events.on("disconnected", ({ code, reason }) => {
+      this.stopReconnecting();
       this.getGameScene()?.teardown();
       this.hud.setVisible(false);
       this.ui.setSpectating(false, "", 0);
@@ -391,10 +454,19 @@ export class App {
       );
     });
 
-    events.on("error", ({ message }) => this.ui.showConnectionError(message));
+    events.on("error", ({ message }) => {
+      // While the seat is being held, the banner is the whole story: a raw
+      // transport error behind it would be the client contradicting itself.
+      if (this.reconnectDeadline > 0) return;
+      this.ui.showConnectionError(message);
+    });
   }
 
   private onMatchStateChanged(matchState: MatchStateValue): void {
+    // The on-screen controls belong to the match, not to the menus: they follow
+    // the HUD exactly.
+    this.touch.setInMatch(matchState === MatchState.PLAYING);
+
     switch (matchState) {
       case MatchState.WAITING:
         this.hud.setVisible(false);
@@ -530,6 +602,53 @@ export class App {
     if (!state || this.ui.currentScreen !== "lobby") return;
 
     this.ui.updateLobby(state, this.network.sessionId);
+  }
+
+  /**
+   * Keep asking for the seat back until the server stops holding it.
+   *
+   * The scene is deliberately left standing: the match is still running, and a
+   * player who comes back in three seconds should find it where they left it
+   * rather than a menu they have to fight their way out of.
+   */
+  private beginReconnecting(secondsLeft: number): void {
+    if (this.reconnectDeadline > 0) return;
+
+    this.reconnectDeadline = performance.now() + secondsLeft * 1000;
+    this.ui.showConnectionError("");
+    this.ui.showReconnecting(secondsLeft);
+
+    const attempt = async () => {
+      if (this.reconnectDeadline === 0) return;
+
+      const remaining = (this.reconnectDeadline - performance.now()) / 1000;
+      if (remaining <= 0) {
+        // The server has let the seat go; from here it is an ordinary
+        // disconnection and the menu is the honest place to be.
+        this.stopReconnecting();
+        this.network.abandonReconnection();
+        this.getGameScene()?.teardown();
+        this.hud.setVisible(false);
+        this.ui.setSpectating(false, "", 0);
+        this.ui.showScreen("menu");
+        this.ui.showConnectionError("Connection lost. Your place was held as long as it could be.");
+        return;
+      }
+
+      this.ui.showReconnecting(remaining);
+      if (await this.network.attemptReconnect()) return;
+
+      this.reconnectTimer = window.setTimeout(() => void attempt(), RECONNECT_RETRY_MS);
+    };
+
+    this.reconnectTimer = window.setTimeout(() => void attempt(), RECONNECT_RETRY_MS);
+  }
+
+  private stopReconnecting(): void {
+    this.reconnectDeadline = 0;
+    if (this.reconnectTimer !== 0) window.clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = 0;
+    this.ui.hideReconnecting();
   }
 
   private updateResultsCountdown(now: number): void {

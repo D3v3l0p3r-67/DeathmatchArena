@@ -16,7 +16,7 @@ import {
   type PowerUpCollectedPayload,
   type SyncedCrate,
   type SyncedPendingCrate,
-  type GrenadeExplodedPayload,
+  type ExplosionPayload,
   type SyncedGameState,
   type SyncedGrenade,
   type SyncedPlayer,
@@ -36,6 +36,7 @@ import { InputController } from "../InputController.js";
 import { ShrinkWallsView } from "../ShrinkWallsView.js";
 import { generateWeaponTextures } from "../TextureFactory.js";
 import { DEFAULT_EFFECTS_SETTINGS, FINALE, type EffectsSettings } from "../fx/effects.js";
+import type { TouchIntent } from "../../ui/TouchControls.js";
 import { CrateView } from "../entities/CrateView.js";
 import { CrateWarningView } from "../entities/CrateWarningView.js";
 import { GrenadeView } from "../entities/GrenadeView.js";
@@ -189,13 +190,49 @@ export class GameScene extends Phaser.Scene {
     events.on("meleeSwing", (payload) => this.onMeleeSwing(payload));
     events.on("grenadeAdded", ({ grenade }) => this.addGrenadeView(grenade));
     events.on("grenadeRemoved", ({ grenade }) => this.removeGrenadeView(grenade));
-    events.on("grenadeExploded", (payload) => this.onGrenadeExploded(payload));
+    events.on("explosion", (payload) => this.onExplosion(payload));
     events.on("patch", ({ state, receivedAt }) => this.onPatch(state, receivedAt));
     events.on("damage", (payload) => this.onDamage(payload));
     events.on("kill", (payload) => this.onKill(payload));
     events.on("matchStateChanged", ({ matchState }) => this.onMatchStateChanged(matchState));
     // A debug command can retune a weapon mid-match, including how it looks.
     events.on("configChanged", () => generateWeaponTextures(this));
+    events.on("arenaChanged", (arena) => this.onArenaChanged(arena));
+  }
+
+  /**
+   * The room moved to a different arena for the next match.
+   *
+   * Only the pieces that describe geometry are rebuilt -- the drawing, the
+   * camera's limits, the closing walls, the collision world and the prediction
+   * that steps against it. Everything else (views, buffers, the HUD) is about
+   * players and survives a change of scenery.
+   *
+   * Between matches by construction: the server only rotates while resetting the
+   * room, so nothing is standing on the floor being replaced.
+   */
+  private onArenaChanged(arena: ArenaDefinition): void {
+    this.arena = arena;
+    this.world = getCollisionWorld(arena);
+
+    this.arenaRenderer?.destroy();
+    this.arenaRenderer = new ArenaRenderer(this, arena);
+    this.cameraController.setArena(arena);
+    this.shrinkWalls?.destroy();
+    this.shrinkWalls = new ShrinkWallsView(this, arena);
+
+    for (const view of this.trapViews.values()) view.destroy();
+    this.trapViews.clear();
+    this.trapPhases.clear();
+
+    // Prediction steps against the world it was built with, so it needs a new
+    // one rather than a new arena inside the old one.
+    this.prediction = new PredictionController(this.world);
+    const local = this.network.state?.players.get(this.network.sessionId);
+    if (local) this.prediction.reset(local);
+
+    const state = this.network.state;
+    if (state) this.syncTraps(state);
   }
 
   // ---------------------------------------------------------------------------
@@ -308,7 +345,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   /** The blast is already resolved; this only makes it visible. */
-  private onGrenadeExploded(payload: GrenadeExplodedPayload): void {
+  private onExplosion(payload: ExplosionPayload): void {
     this.effects.explosion(payload.x, payload.y, payload.radius);
 
     // Shake harder the closer the blast was to whoever is being watched.
@@ -753,6 +790,12 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (ticks === MAX_TICKS_PER_FRAME) this.accumulatorMs = 0;
+
+    // Whatever is left over is how far into the next step this frame sits. The
+    // renderer uses it to place the player between two steps instead of on the
+    // last one, which is the difference between a smooth jump and a stuttering
+    // one on any display that is not exactly in step with the simulation.
+    this.prediction.setStepProgress(this.accumulatorMs / FIXED_DELTA_MS);
     void now;
   }
 
@@ -940,6 +983,17 @@ export class GameScene extends Phaser.Scene {
 
   get grenadeCount(): number {
     return this.grenadeViews.size;
+  }
+
+  /**
+   * What the on-screen controls are asking for.
+   *
+   * Routed through the scene because the input controller belongs to it, and the
+   * controls are DOM the shell owns -- neither should have to know the other
+   * exists.
+   */
+  setTouchIntent(intent: TouchIntent): void {
+    this.inputController?.setTouchIntent(intent);
   }
 
   /** Apply the player's effects preferences. Safe to call before `begin`. */

@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 import { createInputCommand, type InputCommand } from "@deathmatch/shared";
+import { emptyTouchIntent, type TouchIntent } from "../ui/TouchControls.js";
 
 /**
  * Translates keyboard and mouse into `InputCommand`s.
@@ -22,6 +23,16 @@ export class InputController {
   private firePressedSinceSample = false;
 
   private firing = false;
+  /**
+   * What the on-screen controls are asking for.
+   *
+   * Merged with the keyboard rather than replacing it: a tablet with a keyboard
+   * attached should answer to both, and the simulation cannot tell the
+   * difference in any case.
+   */
+  private touch: TouchIntent = emptyTouchIntent();
+  /** Set when the touch jump button goes down, cleared at the next sample. */
+  private touchJumpPressed = false;
   /** True while the right mouse button is held, i.e. a grenade is winding up. */
   private chargingGrenade = false;
   /** When the wind-up began, for the local power bar. */
@@ -91,6 +102,29 @@ export class InputController {
     scene.game.canvas.addEventListener("contextmenu", (event) => event.preventDefault());
   }
 
+  /**
+   * Take the on-screen controls' current state.
+   *
+   * Jump and reload are latched the same way their keys are: a tap that happens
+   * between two ticks still registers, which is the difference between a control
+   * that works and one that feels broken.
+   */
+  setTouchIntent(intent: TouchIntent): void {
+    if (intent.jump && !this.touch.jump) this.touchJumpPressed = true;
+    if (intent.reload && !this.touch.reload) this.reloadPressedSinceSample = true;
+    if (intent.fire && !this.touch.fire) this.firePressedSinceSample = true;
+
+    // A wind-up starts when the button goes down and ends when it comes up, the
+    // same as the right mouse button.
+    if (intent.grenade && !this.touch.grenade) {
+      this.chargingGrenade = true;
+      this.chargeStartedAt = performance.now();
+    }
+    if (!intent.grenade && this.touch.grenade) this.chargingGrenade = false;
+
+    this.touch = { ...intent };
+  }
+
   /** Disable input while dead or between matches. */
   setEnabled(enabled: boolean): void {
     if (!enabled) this.releaseAll();
@@ -147,12 +181,17 @@ export class InputController {
       return command;
     }
 
-    command.moveLeft = this.isDown("left") || this.isDown("leftArrow");
-    command.moveRight = this.isDown("right") || this.isDown("rightArrow");
+    command.moveLeft = this.isDown("left") || this.isDown("leftArrow") || this.touch.left;
+    command.moveRight = this.isDown("right") || this.isDown("rightArrow") || this.touch.right;
     command.jump =
-      this.jumpPressedSinceSample || this.isDown("jump") || this.isDown("jumpAlt") || this.isDown("jumpUp");
-    command.fire = this.firing || this.firePressedSinceSample;
-    command.reload = this.reloadPressedSinceSample || this.isDown("reload");
+      this.jumpPressedSinceSample ||
+      this.touchJumpPressed ||
+      this.touch.jump ||
+      this.isDown("jump") ||
+      this.isDown("jumpAlt") ||
+      this.isDown("jumpUp");
+    command.fire = this.firing || this.firePressedSinceSample || this.touch.fire;
+    command.reload = this.reloadPressedSinceSample || this.isDown("reload") || this.touch.reload;
     command.chargeGrenade = this.chargingGrenade;
     command.aimAngle = this.aimAngle;
 
@@ -161,6 +200,7 @@ export class InputController {
   }
 
   private clearStickyFlags(): void {
+    this.touchJumpPressed = false;
     this.jumpPressedSinceSample = false;
     this.reloadPressedSinceSample = false;
     this.firePressedSinceSample = false;
@@ -168,6 +208,7 @@ export class InputController {
 
   private releaseAll(): void {
     this.firing = false;
+    this.touch = emptyTouchIntent();
     // Losing focus mid-wind-up releases the button, which the server reads as a
     // throw at whatever charge had accumulated -- better than a stuck wind-up.
     this.chargingGrenade = false;

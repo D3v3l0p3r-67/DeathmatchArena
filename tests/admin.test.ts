@@ -124,14 +124,21 @@ describe("arena management", () => {
   });
 
   it("disables an arena without deleting it", async () => {
-    await service.create("Spare");
     const result = await service.setEnabled("foundry", false);
     assert.equal(result.ok, true);
     assert.equal((await service.get("foundry"))?.enabled, false);
-    assert.equal(getArena("foundry").id, "spare", "a disabled arena is never chosen for a match");
+
+    const chosen = getArena("foundry");
+    assert.notEqual(chosen.id, "foundry", "a disabled arena is never chosen for a match");
+    assert.equal(chosen.enabled, true, "and whatever replaces it has to be playable");
   });
 
   it("refuses to delete the last arena a match could run on", async () => {
+    // Every other arena out of rotation first: the rule is about the *last*
+    // playable one, and the catalogue ships with several.
+    const others = (await service.list()).filter((arena) => arena.id !== "foundry");
+    for (const arena of others) await service.delete(arena.id);
+
     const result = await service.delete("foundry");
     assert.equal(result.ok, false);
     assert.match(result.message, /only playable arena/);

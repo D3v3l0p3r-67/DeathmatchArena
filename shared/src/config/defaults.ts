@@ -13,6 +13,10 @@ import { PowerUpType, WeaponType, type GameConfig } from "./types.js";
 export const ASSAULT_RIFLE_ID = "assault-rifle";
 export const SHOTGUN_ID = "shotgun";
 export const CHAINSAW_ID = "chainsaw";
+export const SMG_ID = "smg";
+export const SNIPER_ID = "sniper";
+export const FLAMETHROWER_ID = "flamethrower";
+export const ROCKET_LAUNCHER_ID = "rocket-launcher";
 
 export const DEFAULT_GAME_CONFIG: GameConfig = {
   defaultWeaponId: ASSAULT_RIFLE_ID,
@@ -76,6 +80,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
         pellets: 1,
         // The all-rounder: no falloff, so it stays useful at every distance.
         falloff: null,
+        explosion: null,
         projectileStyle: { color: 0xffd166, radius: 3, trailLength: 26 },
       },
       melee: null,
@@ -119,6 +124,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
         bulletSpeed: 1150,
         spread: 0.17,
         pellets: 9,
+        explosion: null,
         falloff: {
           startDistance: 170,
           endDistance: 560,
@@ -142,6 +148,201 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
           { x: 15, y: 5, width: 15, height: 5 },
           { x: 17, y: 10, width: 10, height: 4, color: 0xc98a4b },
           { x: 27, y: 3, width: 3, height: 9 },
+        ],
+      },
+    },
+
+
+    {
+      id: SMG_ID,
+      name: "SMG",
+      type: WeaponType.RANGED,
+      enabled: true,
+      // The spray weapon: half the rifle's damage at nearly twice the rate, so
+      // the damage per second is similar and the *accuracy* is what differs.
+      damage: 11,
+      range: 900,
+      fireRate: 900,
+      magazineSize: 40,
+      reloadTime: 1500,
+      automatic: true,
+      knockbackForce: 0.35,
+      recoilForce: 0.16,
+      ranged: {
+        bulletSpeed: 1350,
+        // Three times the rifle's cone. Fine across a room, hopeless across the
+        // arena, which is the whole personality of the thing.
+        spread: 0.105,
+        pellets: 1,
+        falloff: {
+          startDistance: 380,
+          endDistance: 900,
+          minMultiplier: 0.45,
+        },
+        explosion: null,
+        projectileStyle: { color: 0xa5f3fc, radius: 2, trailLength: 18 },
+      },
+      melee: null,
+      // Stubby, with a long magazine hanging under it.
+      silhouette: {
+        length: 29,
+        height: 18,
+        gripX: 7,
+        gripY: 8,
+        color: 0xb9c6dc,
+        parts: [
+          { x: 0, y: 5, width: 8, height: 7, color: 0x76839b },
+          { x: 5, y: 4, width: 11, height: 8 },
+          { x: 15, y: 6, width: 14, height: 4 },
+          { x: 7, y: 11, width: 5, height: 7, color: 0x76839b },
+          { x: 10, y: 2, width: 6, height: 2, alpha: 0.7 },
+        ],
+      },
+    },
+
+    {
+      id: SNIPER_ID,
+      name: "Sniper Rifle",
+      type: WeaponType.RANGED,
+      enabled: true,
+      // Two hits, or one on somebody already hurt. The cost is the rate: at 40
+      // rounds a minute a miss is a second and a half of standing there.
+      damage: 62,
+      range: 2600,
+      fireRate: 40,
+      magazineSize: 5,
+      reloadTime: 2600,
+      automatic: false,
+      // It hits like a truck in both directions.
+      knockbackForce: 1.4,
+      recoilForce: 0.9,
+      ranged: {
+        // Fast enough that leading a target barely matters, which is what makes
+        // it the weapon for the far side of the arena.
+        bulletSpeed: 3200,
+        spread: 0.004,
+        pellets: 1,
+        falloff: null,
+        explosion: null,
+        projectileStyle: { color: 0xbfdbfe, radius: 2, trailLength: 90 },
+      },
+      melee: null,
+      // Long barrel, obvious scope: recognisable in silhouette at any distance,
+      // which is exactly the information somebody in the open is owed.
+      silhouette: {
+        length: 42,
+        height: 16,
+        // Held well back: on a barrel this long the hand has to sit where the
+        // muzzle ends up 22px ahead, or the flash detaches from the gun.
+        gripX: 20,
+        gripY: 9,
+        color: 0x94a3b8,
+        parts: [
+          { x: 0, y: 6, width: 12, height: 7, color: 0x5b6577 },
+          { x: 9, y: 5, width: 14, height: 7 },
+          { x: 22, y: 7, width: 20, height: 3 },
+          { x: 19, y: 11, width: 5, height: 5, color: 0x5b6577 },
+          // Scope.
+          { x: 12, y: 1, width: 11, height: 4, color: 0x0f172a },
+          { x: 14, y: 0, width: 2, height: 5, color: 0x38bdf8, alpha: 0.9 },
+        ],
+      },
+    },
+
+    {
+      id: FLAMETHROWER_ID,
+      name: "Flamethrower",
+      type: WeaponType.RANGED,
+      enabled: true,
+      // Not a bullet weapon at all: each "shot" is a puff of burning fuel, weak
+      // on its own and lethal in a stream. Standing in it is the mistake.
+      damage: 7,
+      range: 300,
+      fireRate: 720,
+      magazineSize: 100,
+      reloadTime: 2400,
+      automatic: true,
+      // A push you can feel but not be thrown by -- being herded is the point.
+      knockbackForce: 0.12,
+      recoilForce: 0.05,
+      ranged: {
+        // Slow and wide: the flame visibly travels, so both sides can see
+        // exactly how far it reaches.
+        bulletSpeed: 620,
+        spread: 0.22,
+        pellets: 2,
+        // Almost nothing at the far edge, so the range is felt rather than read.
+        falloff: {
+          startDistance: 120,
+          endDistance: 300,
+          minMultiplier: 0.25,
+        },
+        explosion: null,
+        projectileStyle: { color: 0xff9d3d, radius: 7, trailLength: 12 },
+      },
+      melee: null,
+      // A tank on the back end and a wide nozzle: bulky, unmistakable.
+      silhouette: {
+        length: 30,
+        height: 20,
+        gripX: 9,
+        gripY: 10,
+        color: 0xd9534f,
+        parts: [
+          { x: 0, y: 3, width: 11, height: 13, color: 0x9b3b38 },
+          { x: 2, y: 1, width: 7, height: 3, color: 0xb85a56 },
+          { x: 9, y: 7, width: 12, height: 6, color: 0xc9d3e4 },
+          { x: 20, y: 5, width: 6, height: 10, color: 0x8a94a8 },
+          { x: 26, y: 7, width: 4, height: 6, color: 0xffb457, alpha: 0.9 },
+        ],
+      },
+    },
+
+    {
+      id: ROCKET_LAUNCHER_ID,
+      name: "Rocket Launcher",
+      type: WeaponType.RANGED,
+      enabled: true,
+      // The rocket itself does nothing on contact -- `explosion` below is the
+      // whole weapon, and it catches the person who fired it just as readily.
+      damage: 0,
+      range: 1800,
+      fireRate: 48,
+      magazineSize: 2,
+      reloadTime: 3000,
+      automatic: false,
+      knockbackForce: 0,
+      // Firing it downwards while jumping is a rocket jump, and that is not an
+      // accident: the recoil and the blast are both tuned to allow it.
+      recoilForce: 1.1,
+      ranged: {
+        // Slow enough to see coming and to dodge, which is what stops it being
+        // simply the best weapon in the game.
+        bulletSpeed: 820,
+        spread: 0.01,
+        pellets: 1,
+        falloff: null,
+        explosion: {
+          radius: 165,
+          damage: 78,
+          minDamageMultiplier: 0.2,
+          knockbackForce: 1.9,
+        },
+        projectileStyle: { color: 0xfb7185, radius: 6, trailLength: 40 },
+      },
+      melee: null,
+      // A fat tube with a rocket nose showing at the front.
+      silhouette: {
+        length: 40,
+        height: 18,
+        gripX: 18,
+        gripY: 11,
+        color: 0x6b7280,
+        parts: [
+          { x: 0, y: 4, width: 34, height: 9 },
+          { x: 15, y: 13, width: 7, height: 5, color: 0x4b5563 },
+          { x: 8, y: 1, width: 9, height: 3, color: 0x4b5563 },
+          { x: 33, y: 5, width: 7, height: 7, color: 0xfb7185 },
         ],
       },
     },
@@ -236,6 +437,44 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
       spawnWeight: 15,
       color: 0xf472b6,
       weaponId: CHAINSAW_ID,
+    },
+    {
+      id: "weapon-smg",
+      name: "SMG",
+      type: PowerUpType.WEAPON,
+      enabled: true,
+      spawnWeight: 22,
+      color: 0xa5f3fc,
+      weaponId: SMG_ID,
+    },
+    {
+      id: "weapon-sniper",
+      name: "Sniper Rifle",
+      type: PowerUpType.WEAPON,
+      enabled: true,
+      // Rarer than the rest: it decides fights across the whole arena.
+      spawnWeight: 12,
+      color: 0xbfdbfe,
+      weaponId: SNIPER_ID,
+    },
+    {
+      id: "weapon-flamethrower",
+      name: "Flamethrower",
+      type: PowerUpType.WEAPON,
+      enabled: true,
+      spawnWeight: 14,
+      color: 0xff9d3d,
+      weaponId: FLAMETHROWER_ID,
+    },
+    {
+      id: "weapon-rocket-launcher",
+      name: "Rocket Launcher",
+      type: PowerUpType.WEAPON,
+      enabled: true,
+      // The rarest thing in a crate, and the one worth crossing the map for.
+      spawnWeight: 9,
+      color: 0xfb7185,
+      weaponId: ROCKET_LAUNCHER_ID,
     },
   ],
 

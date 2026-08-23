@@ -10,6 +10,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   ARENA_LIMITS,
+  BUILT_IN_ARENAS,
+  CollisionWorld,
+  DEFAULT_GAME_CONFIG,
+  getPlayerConfig,
   SurfaceType,
   TrapActivation,
   createEmptyArena,
@@ -24,30 +28,62 @@ import {
   type ArenaDefinition,
 } from "@deathmatch/shared";
 
+const { NavGraph } = await import("../server/src/npc/Navigation.js");
+
 function errors(arena: ArenaDefinition, takenIds: string[] = []): string[] {
   return validateArena(arena, { takenIds })
     .issues.filter((issue) => issue.severity === "error")
     .map((issue) => `${issue.path}: ${issue.message}`);
 }
 
-describe("the shipped arena", () => {
-  it("is valid on its own terms", () => {
-    const result = validateArena(getArena("foundry"));
-    assert.equal(result.ok, true, `errors: ${JSON.stringify(result.issues)}`);
+describe("the shipped arenas", () => {
+  it("ships more than one, so a room has somewhere to rotate to", () => {
+    assert.ok(BUILT_IN_ARENAS.length >= 3, "a rotation of one is not a rotation");
   });
 
-  it("has no warnings either, so a fresh install starts clean", () => {
-    // Warnings do not block a save, but shipping an arena that generates them
-    // would teach whoever opens the editor to ignore the list.
-    const result = validateArena(getArena("foundry"));
-    assert.deepEqual(result.issues, []);
-  });
+  for (const arena of BUILT_IN_ARENAS) {
+    describe(arena.name, () => {
+      it("is valid on its own terms", () => {
+        const result = validateArena(arena);
+        assert.equal(result.ok, true, `errors: ${JSON.stringify(result.issues)}`);
+      });
 
-  it("places every trap on a type the simulation knows how to run", () => {
-    for (const trap of getArena("foundry").traps) {
-      assert.ok(trapRegistry.has(trap.type), `unknown trap type "${trap.type}"`);
-    }
-  });
+      it("has no warnings either, so a fresh install starts clean", () => {
+        // Warnings do not block a save, but shipping an arena that generates
+        // them would teach whoever opens the editor to ignore the list.
+        assert.deepEqual(validateArena(arena).issues, []);
+      });
+
+      it("places every trap on a type the simulation knows how to run", () => {
+        for (const trap of arena.traps) {
+          assert.ok(trapRegistry.has(trap.type), `unknown trap type "${trap.type}"`);
+        }
+      });
+
+      it("seats a full room", () => {
+        const usable = arena.playerSpawns.filter((spawn) => spawn.enabled);
+        assert.ok(
+          usable.length >= DEFAULT_GAME_CONFIG.match.maxPlayers,
+          `${usable.length} spawns for ${DEFAULT_GAME_CONFIG.match.maxPlayers} players`,
+        );
+      });
+
+      it("connects every spawn to every other", () => {
+        // The failure this catches is a map that looks fine and plays as two
+        // separate arenas, where half the players never meet anybody.
+        const graph = new NavGraph(arena, new CollisionWorld(arena), getPlayerConfig());
+        const spawns = arena.playerSpawns.filter((spawn) => spawn.enabled);
+
+        for (const from of spawns) {
+          for (const to of spawns) {
+            if (from.id === to.id) continue;
+            const path = graph.findPath(graph.nearest(from.x, from.y), graph.nearest(to.x, to.y));
+            assert.ok(path.length > 0, `no route from ${from.id} to ${to.id} on ${arena.id}`);
+          }
+        }
+      });
+    });
+  }
 });
 
 describe("arena validation", () => {

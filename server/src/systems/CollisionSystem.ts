@@ -25,7 +25,12 @@ export interface CrateHit extends RayHit {
  * outcomes.
  */
 export class CollisionSystem {
-  constructor(private readonly world: CollisionWorld) {}
+  constructor(private world: CollisionWorld) {}
+
+  /** Point at a different arena's geometry. Called when a room rotates maps. */
+  setWorld(world: CollisionWorld): void {
+    this.world = world;
+  }
 
   /** First arena surface hit along a segment, or null. */
   raycastWorld(x0: number, y0: number, x1: number, y1: number): RayHit | null {

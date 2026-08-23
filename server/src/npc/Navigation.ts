@@ -14,9 +14,24 @@ export interface NavNode {
   y: number;
   /** Id of the element this node stands on, for grouping. */
   surfaceId: string;
+  /**
+   * True when this spot is inside a trap's reach.
+   *
+   * Not "impassable": an arena is allowed to put the only route through a fire
+   * vent, and a bot that refused to move would be worse than one that takes a
+   * risk. It is a cost, and the cost is high enough that any way round wins.
+   */
+  hazardous: boolean;
 }
 
 export type NavLinkKind = "walk" | "jump" | "drop";
+
+/** How far around a trap a route should stay, in px. */
+const HAZARD_MARGIN = 26;
+/** What ending a step inside a trap's reach costs, in pixels of detour. */
+const HAZARD_STANDING_COST = 1400;
+/** What walking through one on the way costs. */
+const HAZARD_CROSSING_COST = 1100;
 
 export interface NavLink {
   to: number;
@@ -38,7 +53,11 @@ export class NavGraph {
   readonly nodes: NavNode[] = [];
   readonly links: NavLink[][] = [];
 
+  /** Trap rectangles, grown by a margin, that routes should avoid. */
+  private readonly hazards: { left: number; right: number; top: number; bottom: number }[] = [];
+
   constructor(arena: ArenaDefinition, world: CollisionWorld, player: PlayerConfig) {
+    this.collectHazards(arena);
     this.buildNodes(arena, world);
     this.buildLinks(player);
   }
@@ -126,6 +145,56 @@ export class NavGraph {
    * enough to route around an arena and coarse enough that the Foundry's forty-odd
    * platforms produce a couple of hundred nodes rather than thousands.
    */
+  /**
+   * Where the arena's traps are.
+   *
+   * Position rather than phase: spikes that are down now come back up, and a
+   * route planned around the schedule would be a route planned around
+   * information a bot has no business having. Standing *on* a trap is what the
+   * plan avoids; reacting to one going off is perception's job, later and
+   * separately.
+   */
+  private collectHazards(arena: ArenaDefinition): void {
+    for (const trap of arena.traps) {
+      if (!trap.enabled) continue;
+      this.hazards.push({
+        left: trap.x - HAZARD_MARGIN,
+        right: trap.x + trap.width + HAZARD_MARGIN,
+        // Generous upwards: a bot standing on the lip of a spike pit is close
+        // enough to be caught by it.
+        top: trap.y - PLAYER_HALF_HEIGHT * 2,
+        bottom: trap.y + trap.height + HAZARD_MARGIN,
+      });
+    }
+  }
+
+  /** Is this point somewhere a trap can reach? */
+  private isHazardous(x: number, y: number): boolean {
+    for (const hazard of this.hazards) {
+      if (x < hazard.left || x > hazard.right) continue;
+      if (y < hazard.top || y > hazard.bottom) continue;
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Does the straight line between two nodes pass over a trap?
+   *
+   * Sampled rather than solved: two nodes either side of a strip of spikes are
+   * both perfectly safe, and only the walk between them is not.
+   */
+  private crossesHazard(a: NavNode, b: NavNode): boolean {
+    if (this.hazards.length === 0) return false;
+
+    const steps = Math.max(2, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / 40));
+    for (let i = 1; i < steps; i++) {
+      const t = i / steps;
+      if (this.isHazardous(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)) return true;
+    }
+    return false;
+  }
+
   private buildNodes(arena: ArenaDefinition, world: CollisionWorld): void {
     const spacing = 110;
 
@@ -144,7 +213,13 @@ export class NavGraph {
         // is a crawlspace, not a place to be.
         if (world.isBoxBlocked(x, top, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT)) continue;
 
-        this.nodes.push({ index: this.nodes.length, x, y: top, surfaceId: element.id });
+        this.nodes.push({
+          index: this.nodes.length,
+          x,
+          y: top,
+          surfaceId: element.id,
+          hazardous: this.isHazardous(x, top),
+        });
       }
     }
   }
@@ -185,14 +260,18 @@ export class NavGraph {
         const rise = a.y - b.y;
 
         if (a.surfaceId === b.surfaceId && Math.abs(rise) < 2 && dx <= 140) {
-          this.links[i]!.push({ to: j, kind: "walk", cost: dx });
+          this.links[i]!.push({ to: j, kind: "walk", cost: dx + this.hazardCost(a, b) });
           continue;
         }
 
         if (rise > 4) {
           // Climbing. Both the height and the gap have to be within reach.
           if (rise <= maxRise && dx <= maxReach) {
-            this.links[i]!.push({ to: j, kind: "jump", cost: dx + rise * 2 + 60 });
+            this.links[i]!.push({
+              to: j,
+              kind: "jump",
+              cost: dx + rise * 2 + 60 + this.hazardCost(a, b),
+            });
           }
           continue;
         }
@@ -200,10 +279,31 @@ export class NavGraph {
         // Level or downwards. A step across a gap still needs a hop.
         if (dx <= maxDropReach && -rise <= 2200) {
           const kind: NavLinkKind = rise < -4 ? "drop" : "jump";
-          this.links[i]!.push({ to: j, kind, cost: dx + Math.abs(rise) * 0.35 + (kind === "drop" ? 20 : 60) });
+          this.links[i]!.push({
+            to: j,
+            kind,
+            cost:
+              dx +
+              Math.abs(rise) * 0.35 +
+              (kind === "drop" ? 20 : 60) +
+              this.hazardCost(a, b),
+          });
         }
       }
     }
+  }
+
+  /**
+   * What taking this link through a trap is worth avoiding.
+   *
+   * Priced in the same units as the rest of the graph -- pixels of travel -- so
+   * a bot will happily walk the length of the arena rather than through the
+   * spikes, and will still go through them when there is no other way at all.
+   */
+  private hazardCost(a: NavNode, b: NavNode): number {
+    let cost = b.hazardous ? HAZARD_STANDING_COST : 0;
+    if (this.crossesHazard(a, b)) cost += HAZARD_CROSSING_COST;
+    return cost;
   }
 
   private heuristic(from: number, to: number): number {

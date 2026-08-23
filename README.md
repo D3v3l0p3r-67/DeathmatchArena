@@ -559,6 +559,30 @@ marked, alongside the context that produced them. **Add bot**, **Remove bots** a
 Decision logging is off by default and only ever on for one bot at a time — a
 dozen of them logging at eight hertz is noise nobody can read.
 
+### Three arenas, and the room moves between them
+
+```
+The Foundry   3200x1800   three lanes, a central mesa, a passage underneath
+The Gantry    3600x1200   wide and low: four staggered decks and long sightlines
+The Silo      2000x2400   tall and narrow: a spiral around a solid column
+```
+
+A room changes arena while it resets between matches — never mid-fight, and
+never to the one just played. Everything that reads geometry does so through
+`context.arena` and `context.world`, which are getters, so most of the server
+follows on its own; what is left is the handful of places holding a direct
+reference: the two systems that raycast, the traps the arena defines, the closing
+walls, and the bots, whose navigation graph describes a map that no longer
+exists. The client is sent the whole definition rather than an id, for the same
+reason the welcome carries one: an administrator can create an arena after the
+client was built, and prediction steps against this geometry.
+
+Every shipped arena is checked in the suite for more than validity: that it seats
+a full room, that its traps are types the simulation knows, that it produces no
+warnings at all — and that **every spawn can reach every other**. That last one
+catches the failure a validator cannot: a map that looks fine and plays as two
+separate arenas, where half the players never meet anybody.
+
 ### The room, and whose it is
 
 **A room belongs to a person, not to a number.** It seats ten, it starts at two,
@@ -682,6 +706,38 @@ from, so difficulty owns them outright:
 - **decision interval** — how often it reconsiders at all, so a fight turning
   against a poor bot takes longer to register.
 
+### Hazards, and when a grenade is the right answer
+
+**A bot routes around the spikes.** The navigation graph prices every trap the
+arena defines: standing where one can reach costs 1400px of detour, walking
+through one on the way costs 1100. It is a cost and not a wall on purpose — an
+arena is allowed to put the only route through a fire vent, and a bot that
+refused to move would be worse than one that takes the risk. What it prices is
+where the traps *are*, never what phase they are in: spikes that are down now
+come back up, and routing around the schedule would be routing around information
+a bot has no business having. Reacting to one going off is perception's job,
+separately and later.
+
+Perception was the other half of the problem. A trap was noticed only within
+220px, which at running speed is about two thirds of a second to see it, decide
+and stop — which is how bots walked into spikes they had every right to have seen
+coming. Awareness now reaches 460px while *fear* still starts at 220, because
+seeing further should not turn scenery into panic.
+
+**A grenade is for the shot a rifle does not have.** The old scoring could never
+beat plain shooting, so bots finished matches with three grenades in their
+pockets. It now recognises the three situations that are actually worth one:
+
+- the target has just gone behind cover — an arc reaches where a bullet does not,
+  and this is the case attack scores zero for;
+- they are on another level, where a flat shot never lands;
+- two or three of them are standing inside one blast radius.
+
+A sighting older than 1.8s is not worth a grenade at all, the last one is held a
+little harder than the first, and a bot with a good angle and a good weapon still
+just shoots. Measured over a minute of bots left to fight each other: none thrown
+before, two at difficulty 2 and five in the first ten seconds at difficulty 5.
+
 The ladder is data like everything else (`npc.difficulties`), generated into the
 admin interface and the debug console from the levels themselves, so a sixth rung
 is a configuration change rather than a code change. Every bot's card in the
@@ -697,6 +753,101 @@ level 1              767ms                      67
 level 3              267ms                      97
 level 5              217ms                     122
 ```
+
+---
+
+## Jump pads, and holding a seat open
+
+Two smaller things, both of which reuse a mechanism rather than adding one.
+
+**A jump pad is a trap that helps.** The trap system already answers "what does
+contact with this do to you", so a pad is a third answer -- `TrapDamageMode.LAUNCH`
+-- alongside continuous and on-enter damage. Same placement, same activation
+modes, same editor, and the throw goes through the same knockback the weapons
+use, so a mistyped force is capped by the player's own knockback limit rather
+than launching somebody into orbit. It fires once per contact, because a pad that
+fired every tick would pin whoever stood on it in the air above it. Every arena
+now has at least one, as a route the staircase-watchers are not covering.
+
+**A dropped connection is not a disconnection.** The server has always held a
+player's seat for twenty seconds; the client used to throw them straight back to
+the menu anyway, which was the client giving up before the server did. Now a lost
+connection shows a banner with the time remaining, keeps the scene standing, and
+asks for the seat back every 1.2s until it either succeeds or the window closes.
+
+Getting that right meant finding where a dropped connection actually surfaces:
+`onLeave` fires only for a close both ends agreed on, and a socket that simply
+dies -- a restarted server, a closed tunnel, a laptop lid -- arrives as an
+*error*. Both now lead to the same place.
+
+---
+
+## Playing with thumbs
+
+The game is keyboard and mouse, and on a phone that made it unplayable rather
+than merely awkward. There are now on-screen controls — move, jump, fire, reload
+and grenade — and the interesting part is when they appear.
+
+**Only when they are wanted.** A phone gets them immediately; a desktop never
+sees them; a laptop with a touchscreen gets them the moment a finger arrives and
+loses them again the moment a key is pressed. The last input actually used
+decides, rather than a guess made at boot: permanent thumb pads on a machine with
+a keyboard are clutter, and a `Space to jump` hint on a phone is a lie. They also
+follow the HUD in and out, because controls have no business over a menu.
+
+**They are DOM buttons, not painted on the canvas.** That is what makes aiming
+and shooting at the same time work: a finger on a button never reaches the game's
+own pointer handling, so the buttons take their touches, the canvas takes the
+rest, and the browser keeps them apart at no cost. Aiming is unchanged — you
+point at where you want to shoot, exactly as the mouse does.
+
+Nothing here is a new authority. The controls produce the same intent a key
+produces, and the server trusts it exactly as little.
+
+Two things fell out of testing it on a real phone viewport: the lobby panel now
+scrolls inside itself and sheds its decoration below 520px of height, because a
+landscape phone is under 400px tall and the start button was falling off the
+bottom of the screen.
+
+---
+
+## A record, not a ranking
+
+Every player carries a small career across matches: matches played, matches won,
+kills, deaths and the best finish ever reached. It appears on the menu once there
+is something to show, and as a line under the standings when a match ends.
+
+The identity behind it is deliberately weak. There are no accounts: the client
+generates a UUID, keeps it in `localStorage`, and offers it when joining. That is
+a *claim*, not an identity — anyone can send any id — so the design follows the
+strength of the evidence:
+
+- a career is only ever sent to the player it belongs to;
+- there is no leaderboard, and no comparison between players anywhere;
+- nothing in the game is unlocked, weighted or matched by it.
+
+Which makes forging one pointless rather than merely detectable. Losing it — a
+cleared cache, a different machine — starts a fresh record, and that is the
+honest cost of not asking anybody to sign up.
+
+Storage follows the same shape as the administration data: a repository
+interface, a JSON file behind it, an in-memory fallback when the directory turns
+out to be unusable. A match ending never waits on the disk — the write is
+coalesced and fire-and-forget, because losing a kill count is not worth
+interrupting a game for.
+
+---
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every push and pull request: typecheck, the
+whole suite, then both bundles. One machine, one install, one red or green — the
+suite is deterministic and finishes in well under a minute, so splitting it
+across jobs would buy nothing but complexity.
+
+It typechecks the *tests* as well as the source, which `npm test` does not: `tsx`
+strips types rather than checking them, so a test can pass while carrying a type
+error. That is not hypothetical — adding this caught one on its first run.
 
 ---
 
@@ -931,6 +1082,77 @@ client prediction and server simulation must agree on them *exactly*. They are n
 configurable, and the agreement is explicit instead of implicit — the server sends
 the room's values with the welcome message and the client predicts with those, so
 both sides still step the same integrator with the same numbers.
+
+---
+
+## Movement that does not snag
+
+Two things stand between a fixed-timestep simulation and a jump that feels right,
+and neither of them is the physics.
+
+**A ledge corner must not eat a jump.** Clipping the edge of a platform with the
+side of your head used to stop the whole ascent dead, which is the single most
+common way a platformer feels like it caught on something. An upward move that
+overlaps a solid by less than `CORNER_CORRECTION` (9px, well under half the
+player's width) is nudged past the corner instead of stopped. It forgives a
+clipped corner; it never lets anybody through a wall they were squarely under.
+It lives in the shared step, so the server, the client's prediction and the bots
+all agree about it.
+
+**A frame is not a step.** The simulation advances 60 times a second in whole
+steps; the display draws whenever it likes, and the two are not in phase — on a
+90Hz or 144Hz screen they never are. Drawing the player at the last completed
+step means one frame repeats the previous position and the next jumps two steps'
+worth, which reads as a stutter, most visibly in a jump where the vertical speed
+is large and changing. The renderer now keeps the position each step *started*
+from and interpolates by whatever is left in the accumulator:
+
+```
+render = previous + (current - previous) * (accumulator / stepLength)
+```
+
+A server correction moves both ends by the same amount, so the interpolation
+stays one step long instead of stretching across the correction, and the existing
+error smoothing still hides the difference. Remote players were already
+interpolated from their snapshot buffer; this is the local one catching up.
+
+---
+
+## The weapon catalogue
+
+Seven weapons, and every one of them is data. A weapon is a row in
+`config.weapons`: numbers, a falloff curve, an optional blast, and a silhouette
+made of rectangles. Nothing about the list below required a line of code that
+knows which weapon it is.
+
+```
+                  damage   range   rpm   mag   what it is for
+Assault Rifle         18    1400   520    30   the baseline, no falloff
+SMG                   11     900   900    40   close work; three times the rifle's cone
+Shotgun            13 x9     620    75     6   contact range, brutal, useless beyond it
+Sniper Rifle          62    2600    40     5   two hits, across the whole arena
+Flamethrower        7 x2     300   720   100   the highest close dps in the game
+Rocket Launcher     0(!)    1800    48     2   the round does nothing; the blast is the weapon
+Chainsaw              34      62     -     -   if you can reach them
+```
+
+**Explosions are one mechanism, not two.** A grenade and a rocket differ in how
+they arrive and in their numbers, never in what happens when they go off — the
+same `detonate` decides who a blast catches, how much it hurts and how hard it
+throws them. Two copies of that would drift, and the day they did a rocket would
+quietly stop opening crates or start sparing the person who fired it.
+
+An explosive round never applies its own damage — hence the launcher's `damage:
+0`, which is not an oversight. It detonates wherever it stops: a player, a crate,
+a wall, or the end of its range, because a rocket that only exploded on people
+would be one nobody could use for anything else. It catches the shooter as
+readily as anyone, which is what makes both firing it in a corridor and firing it
+at your own feet a decision — the recoil and the blast are tuned so the second
+one is a rocket jump.
+
+Bots hold fire with an explosive weapon when the target is inside their own blast
+radius. The same reasoning the grenade action already applied, moved to the
+trigger: a bot with a launcher backs off instead of killing itself.
 
 ---
 

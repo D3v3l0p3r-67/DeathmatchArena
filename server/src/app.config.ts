@@ -8,6 +8,7 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { MATCH, getGameConfig } from "@deathmatch/shared";
 import { adminServices, createAdminRouter, initialiseAdmin } from "./admin/index.js";
+import { initialisePlayerStats } from "./stats/index.js";
 import { serverConfig } from "./config.js";
 import { BattleRoom } from "./rooms/BattleRoom.js";
 import { createLogger } from "./utils/logger.js";
@@ -126,6 +127,9 @@ export default config({
     // Stored arenas and configuration are loaded *before* the listener opens, so
     // the first room created can never run on the shipped defaults by accident.
     await initialiseAdmin();
+    // Careers are loaded here too, so the first player to join is told what they
+    // have done before rather than a row of zeroes.
+    await initialisePlayerStats();
 
     logger.info("Server starting", {
       env: serverConfig.nodeEnv,

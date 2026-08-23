@@ -54,17 +54,38 @@ export class PredictionController {
   private smoothingX = 0;
   private smoothingY = 0;
 
+  /**
+   * Where the last fixed step started, and how far into the next one we are.
+   *
+   * The simulation advances 60 times a second in whole steps; the display draws
+   * whenever it likes. Without these the player is redrawn at the same position
+   * for one frame and two steps' worth the next -- which is exactly the stutter
+   * you feel in a jump, where the vertical speed is large and changing.
+   */
+  private previousX = 0;
+  private previousY = 0;
+  private alpha = 1;
+
   private lastErrorPx = 0;
   private initialised = false;
 
   constructor(private readonly world: CollisionWorld) {}
 
   get renderX(): number {
-    return this.movement.x + this.smoothingX;
+    return this.previousX + (this.movement.x - this.previousX) * this.alpha + this.smoothingX;
   }
 
   get renderY(): number {
-    return this.movement.y + this.smoothingY;
+    return this.previousY + (this.movement.y - this.previousY) * this.alpha + this.smoothingY;
+  }
+
+  /**
+   * How far the frame being drawn falls between the last step and the next.
+   *
+   * The leftover in the scene's fixed-step accumulator, as a fraction of a step.
+   */
+  setStepProgress(alpha: number): void {
+    this.alpha = alpha < 0 ? 0 : alpha > 1 ? 1 : alpha;
   }
 
   get pendingCount(): number {
@@ -93,12 +114,19 @@ export class PredictionController {
     this.movement.jumpHeld = false;
     this.movement.speedMultiplier = player.speedMultiplier || 1;
     this.movement.knockbackTimer = player.knockbackTimer || 0;
+    this.previousX = this.movement.x;
+    this.previousY = this.movement.y;
     this.initialised = true;
   }
 
   /** Apply one input locally, ahead of the server. */
   predict(input: InputCommand): void {
     if (!this.initialised) return;
+
+    // Where this step began, so the frames drawn before the next one can be
+    // placed between the two rather than all on top of this one.
+    this.previousX = this.movement.x;
+    this.previousY = this.movement.y;
     stepPlayerMovement(this.movement, input, FIXED_DELTA, this.world, this.bounds);
     this.pending.push(input);
 
@@ -148,6 +176,12 @@ export class PredictionController {
     const errorY = previousY - this.movement.y;
     this.lastErrorPx = distance(0, 0, errorX, errorY);
 
+    // The correction moved the *end* of the current step; move its start by the
+    // same amount so the interpolation between them stays the size of one step
+    // rather than stretching across the whole correction.
+    this.previousX -= errorX;
+    this.previousY -= errorY;
+
     if (this.lastErrorPx < NETWORK.RECONCILE_IGNORE_DISTANCE) {
       // Float noise; not worth a correction.
       return;
@@ -157,6 +191,8 @@ export class PredictionController {
       // Too far to hide (teleport, respawn, a long stall): accept the jump.
       this.smoothingX = 0;
       this.smoothingY = 0;
+      this.previousX = this.movement.x;
+      this.previousY = this.movement.y;
       return;
     }
 

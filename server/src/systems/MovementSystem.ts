@@ -30,7 +30,7 @@ import type { WeaponSystem } from "./WeaponSystem.js";
 export class MovementSystem {
   constructor(
     private readonly context: RoomContext,
-    private readonly world: CollisionWorld,
+    private world: CollisionWorld,
     private readonly weapons: WeaponSystem,
     private readonly grenades: GrenadeSystem,
     /** The playable limits, which the closing walls narrow over a match. */
@@ -51,6 +51,11 @@ export class MovementSystem {
     runtime.highestAcceptedSeq = input.seq;
     runtime.inputQueue.push(input);
     return true;
+  }
+
+  /** Point at a different arena's geometry. Called when a room rotates maps. */
+  setWorld(world: CollisionWorld): void {
+    this.world = world;
   }
 
   /** Advance every player by as many queued inputs as their budget allows. */

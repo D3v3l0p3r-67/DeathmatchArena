@@ -1,4 +1,10 @@
-import type { ArenaDefinition, CollisionWorld, GameConfig, GameConfigView } from "@deathmatch/shared";
+import type {
+  ArenaDefinition,
+  CareerUpdate,
+  CollisionWorld,
+  GameConfig,
+  GameConfigView,
+} from "@deathmatch/shared";
 import type { Logger } from "../utils/logger.js";
 import type { GameState } from "./schema/GameState.js";
 import type { PlayerRuntime } from "./PlayerRuntime.js";
@@ -67,6 +73,28 @@ export interface RoomContext {
    * off their feet: true for damage, false for a shooter's own recoil, which
    * would otherwise hop them off the floor with every round.
    */
+  /**
+   * Move to a different arena for the next match.
+   *
+   * Called by the match manager as it resets the room, because "which map is
+   * next" belongs to the room rather than to the thing that ended the match.
+   * A no-op while only one arena is installed.
+   */
+  rotateArena(): void;
+
+  /**
+   * Fold a finished match into the players' records, and tell each of them
+   * their own.
+   *
+   * The room owns the mapping from a session to the id a browser filed its
+   * record under, so the match manager hands over the numbers and stays out of
+   * the question of who anybody is.
+   */
+  recordCareers(updates: readonly CareerUpdate[]): void;
+
+  /** The career id this session offered, or "" for a bot or an anonymous player. */
+  careerUpdateFor(sessionId: string): string;
+
   applyKnockback(
     sessionId: string,
     directionX: number,

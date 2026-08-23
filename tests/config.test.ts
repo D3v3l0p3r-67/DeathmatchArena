@@ -46,6 +46,7 @@ const RAILGUN: WeaponDefinition = {
     spread: 0,
     pellets: 1,
     falloff: null,
+    explosion: null,
     projectileStyle: { color: 0x88ccff, radius: 3, trailLength: 40 },
   },
   melee: null,
@@ -96,11 +97,15 @@ describe("the configuration field list", () => {
   });
 
   it("offers the weapon choice as a list of real weapons", () => {
-    const field = new ConfigRegistry(base()).get("powerUps.weapon-shotgun.weaponId")!;
+    // Generated from the catalogue, so a weapon added to it turns up here on its
+    // own -- which is the reason to build the field list from the config at all.
+    const config = base();
+    const field = new ConfigRegistry(config).get("powerUps.weapon-shotgun.weaponId")!;
+
     assert.equal(field.type, ConfigFieldType.SELECT);
     assert.deepEqual(
       field.options?.map((option) => option.value).sort(),
-      ["assault-rifle", "chainsaw", "shotgun"],
+      config.weapons.map((weapon) => weapon.id).sort(),
     );
   });
 
@@ -131,7 +136,9 @@ describe("reading and writing by key", () => {
     const registry = new ConfigRegistry(base());
     const config = base();
     assert.equal(registry.write(config, "player.__proto__", 1), false);
-    assert.equal(registry.write(config, "defaultWeaponId", "chainsaw"), false);
+    // A section is not a setting, and neither is a field nobody declared.
+    assert.equal(registry.write(config, "arenaShrink", 1), false);
+    assert.equal(registry.write(config, "player.notAThing", 1), false);
   });
 });
 

@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   CollisionWorld,
   FIXED_DELTA,
+  createEmptyArena,
   PLAYER_HALF_HEIGHT,
   PLAYER_HALF_WIDTH,
   createInputCommand,
@@ -118,6 +119,49 @@ describe("player movement", () => {
 
     assert.ok(state.x >= PLAYER_HALF_WIDTH, "player left the world through the wall");
     assert.ok(state.x >= 40, "player tunnelled into the wall surface");
+  });
+
+  it("slides past a ledge corner instead of stopping dead on it", () => {
+    // The single most common way a platformer feels like it snagged: clipping
+    // the edge of a ledge with the side of your head cancels the whole jump.
+    const ledgeArena = createEmptyArena("corner", "Corner", 2000, 1400);
+    ledgeArena.elements.push(
+      { id: "floor", type: "floor", x: 0, y: 1000, width: 2000, height: 40 },
+      { id: "ledge", type: "platform", x: 1000, y: 900, width: 400, height: 24 },
+    );
+    const ledgeWorld = new CollisionWorld(ledgeArena);
+
+    /** Jump straight up with `overlap` px of the head under the ledge. */
+    function apex(overlap: number): number {
+      const state = createMovementState(1000 - PLAYER_HALF_WIDTH + overlap, 1000 - PLAYER_HALF_HEIGHT);
+      state.onGround = true;
+
+      const input = createInputCommand();
+      input.jump = true;
+      let highest = state.y;
+      for (let i = 0; i < 40; i++) {
+        input.seq = i + 1;
+        stepPlayerMovement(state, input, FIXED_DELTA, ledgeWorld);
+        highest = Math.min(highest, state.y);
+      }
+      return highest;
+    }
+
+    // A sliver of overlap is forgiven and the jump carries on past the ledge; a
+    // squarely-blocked one still stops, or corner correction would be a wall
+    // that is not there.
+    const clipped = apex(4);
+    const blocked = apex(22);
+    const clear = apex(-40);
+
+    assert.ok(
+      clipped < blocked - 60,
+      `a clipped corner should not cost the jump, ${clipped} vs ${blocked}`,
+    );
+    assert.ok(
+      Math.abs(clipped - clear) < 2,
+      `and should reach the same height as an unobstructed one, ${clipped} vs ${clear}`,
+    );
   });
 
   it("is deterministic: identical inputs produce identical results", () => {

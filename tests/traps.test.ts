@@ -14,6 +14,7 @@ import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 import {
   FIXED_DELTA,
+  getPlayerConfig,
   MatchState,
   TrapActivation,
   createEmptyArena,
@@ -353,5 +354,92 @@ describe("traps", () => {
     harness.traps.reset();
     assert.equal(moved.y, 200, "and be back home for the next match");
     assert.equal(moved.phase, "idle");
+  });
+});
+
+describe("jump pads", () => {
+  let harness: Harness;
+
+  beforeEach(() => {
+    harness = createHarness();
+  });
+
+  /** A pad under a player, and the player's own movement state placed on it. */
+  function padUnder(x = 500, y = 500) {
+    harness.loadTraps(
+      arenaWith(place("jump-pad", x, y, { activation: TrapActivation.ALWAYS, params: { force: 2.6 } })),
+    );
+    const player = harness.addPlayer("jumper", x + 40, y - 10);
+    const movement = harness.runtimes.get("jumper")!.movement;
+    movement.x = x + 40;
+    movement.y = y - 10;
+    movement.onGround = true;
+    return { player, movement };
+  }
+
+  it("throws whoever stands on it", () => {
+    const { movement } = padUnder();
+    assert.equal(movement.velocityY, 0);
+
+    run(harness, 0.1);
+
+    assert.ok(movement.velocityY < -300, `expected real lift, got ${movement.velocityY}`);
+    assert.equal(movement.onGround, false, "and to have left the ground");
+  });
+
+  it("hurts nobody: it is a route, not a hazard", () => {
+    const { player } = padUnder();
+    run(harness, 2);
+    assert.equal(player.health, MAX_HEALTH);
+  });
+
+  it("throws once per contact rather than every tick", () => {
+    // A pad that fired on every tick would pin somebody in the air above it,
+    // adding another launch sixty times a second for as long as they overlapped.
+    const { movement } = padUnder();
+    run(harness, 0.1);
+    const first = movement.velocityY;
+
+    run(harness, 0.5);
+
+    assert.equal(movement.velocityY, first, "the launch should have fired exactly once");
+  });
+
+  it("throws harder when the arena says so", () => {
+    function launch(force: number): number {
+      const room = createHarness();
+      room.loadTraps(
+        arenaWith(place("jump-pad", 500, 500, { activation: TrapActivation.ALWAYS, params: { force } })),
+      );
+      room.addPlayer("jumper", 540, 490);
+      const movement = room.runtimes.get("jumper")!.movement;
+      movement.x = 540;
+      movement.y = 490;
+      movement.onGround = true;
+
+      run(room, 0.1);
+      return movement.velocityY;
+    }
+
+    assert.ok(launch(4) < launch(1.5), "a stronger pad should throw further");
+  });
+
+  it("is capped by the player's own knockback limit", () => {
+    // Physics that a configuration value can break is not really configurable:
+    // an absurd pad is still a pad.
+    const room = createHarness();
+    room.loadTraps(
+      arenaWith(place("jump-pad", 500, 500, { activation: TrapActivation.ALWAYS, params: { force: 500 } })),
+    );
+    room.addPlayer("jumper", 540, 490);
+    const movement = room.runtimes.get("jumper")!.movement;
+    movement.x = 540;
+    movement.y = 490;
+    movement.onGround = true;
+
+    run(room, 0.1);
+
+    const limit = getPlayerConfig().maxKnockbackSpeed;
+    assert.ok(Math.abs(movement.velocityY) <= limit + 1, `${movement.velocityY} exceeded the ${limit} limit`);
   });
 });

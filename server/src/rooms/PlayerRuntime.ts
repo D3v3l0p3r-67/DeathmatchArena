@@ -34,6 +34,13 @@ export class PlayerRuntime {
    * whoever a map iterator happens to yield first.
    */
   joinOrder = 0;
+  /**
+   * The id this client's browser filed its own record under, if it offered one.
+   *
+   * Empty for bots and for anyone who did not send one. Never used for anything
+   * but statistics: it is a claim, not an identity.
+   */
+  playerId = "";
 
   /** Inputs received but not yet simulated, ordered by sequence number. */
   readonly inputQueue: InputCommand[] = [];

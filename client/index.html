@@ -38,6 +38,14 @@
             <button class="menu__settings" id="menu-settings-button" type="button">Settings</button>
           </form>
 
+          <!-- This browser's own record. Hidden until there is one to show. -->
+          <dl class="career" id="menu-career" hidden>
+            <div><dt>Matches</dt><dd id="career-matches">0</dd></div>
+            <div><dt>Wins</dt><dd id="career-wins">0</dd></div>
+            <div><dt>Kills</dt><dd id="career-kills">0</dd></div>
+            <div><dt>K/D</dt><dd id="career-kd">0.0</dd></div>
+          </dl>
+
           <p class="hint">
             <kbd>A</kbd><kbd>D</kbd> move &middot; <kbd>Space</kbd> jump &middot;
             <kbd>Mouse</kbd> aim &middot; <kbd>Click</kbd> fire &middot; <kbd>R</kbd> reload
@@ -153,9 +161,33 @@
           </div>
         </div>
 
+        <!-- On-screen controls. Hidden until a touch says they are wanted; see
+             `TouchControls`. Buttons rather than canvas drawing so a finger on a
+             control never reaches the game's own pointer handling, which is what
+             lets you aim and shoot at the same time. -->
+        <div class="touch" id="touch-controls" hidden>
+          <div class="touch__cluster touch__cluster--move">
+            <button class="touch__button" id="touch-left" type="button" aria-label="Move left">&#8592;</button>
+            <button class="touch__button" id="touch-right" type="button" aria-label="Move right">&#8594;</button>
+          </div>
+          <div class="touch__cluster touch__cluster--act">
+            <button class="touch__button touch__button--small" id="touch-reload" type="button" aria-label="Reload">R</button>
+            <button class="touch__button touch__button--small" id="touch-grenade" type="button" aria-label="Grenade">G</button>
+            <button class="touch__button" id="touch-jump" type="button" aria-label="Jump">&#8593;</button>
+            <button class="touch__button touch__button--fire" id="touch-fire" type="button" aria-label="Fire">FIRE</button>
+          </div>
+        </div>
+
         <div class="crosshair" id="crosshair" aria-hidden="true"></div>
         <div class="hitmarker" id="hitmarker" aria-hidden="true"></div>
         <div class="damage-flash" id="damage-flash" aria-hidden="true"></div>
+      </div>
+
+      <!-- The connection dropped, but the seat is being held. Not a screen: the
+           match is still on the other side of it. -->
+      <div class="reconnect" id="reconnect" hidden>
+        <p class="reconnect__title">Connection lost</p>
+        <p class="reconnect__detail">Holding your place &middot; <b id="reconnect-timer">20s</b></p>
       </div>
 
       <!-- =========================== DEATH / SPECTATE ======================== -->
@@ -187,6 +219,7 @@
             </thead>
             <tbody id="results-body"></tbody>
           </table>
+          <p class="results__career" id="results-career"></p>
           <p class="results__next" id="results-next">Next match starting soon...</p>
           <div class="results__actions">
             <button class="button button--primary" id="play-again" type="button">Play again</button>

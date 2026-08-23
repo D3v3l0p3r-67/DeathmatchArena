@@ -43,6 +43,24 @@ export interface DamageFalloff {
 }
 
 /** Projectile-weapon specifics. Required when `type` is `ranged`. */
+/**
+ * A blast, wherever it comes from.
+ *
+ * Shared between grenades and explosive projectiles so a rocket and a grenade
+ * are the same physics with different numbers -- and so tuning one does not
+ * quietly leave the other behaving differently.
+ */
+export interface ExplosionConfig {
+  /** How far the blast reaches, in px. */
+  radius: number;
+  /** Damage at the very centre. */
+  damage: number;
+  /** Fraction of that damage still dealt at the outer edge. */
+  minDamageMultiplier: number;
+  /** How hard the blast throws whoever it catches, at the centre. */
+  knockbackForce: number;
+}
+
 export interface RangedWeaponConfig {
   /** Muzzle velocity in px/s. */
   bulletSpeed: number;
@@ -51,6 +69,14 @@ export interface RangedWeaponConfig {
   /** Projectiles per trigger pull. Shotguns fire several; rifles fire one. */
   pellets: number;
   falloff: DamageFalloff | null;
+  /**
+   * Detonate on impact rather than simply hitting.
+   *
+   * Null for anything that fires bullets. When set, the projectile's own damage
+   * is never applied directly: the blast is the weapon, and it catches the
+   * shooter too if they were careless about where they aimed.
+   */
+  explosion: ExplosionConfig | null;
   /** Cosmetic only — the client picks a projectile tint and size from this. */
   projectileStyle: {
     color: number;

@@ -1,0 +1,43 @@
+# Everything that has to be true before a change lands.
+#
+# The suite is deterministic and takes well under a minute, so there is no value
+# in splitting it across jobs: one machine, one checkout, one npm install, and a
+# single red or green.
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+# A second push to the same branch makes the first one's answer irrelevant.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # The floor the workspace declares, so CI fails on anything that needs
+          # a newer runtime rather than passing here and breaking on deploy.
+          node-version: "20"
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      # Both bundles, because a type error is not the only way to break a build:
+      # the client's is a multi-page Vite build and the server's is esbuild.
+      - name: Build
+        run: npm run build

@@ -1,11 +1,8 @@
+import { detonate, grenadeBlast } from "./explosion.js";
 import {
-  MatchState,
-  PLAYER_HALF_HEIGHT,
   PLAYER_HALF_WIDTH,
-  ServerMessage,
   clamp,
   type GrenadeConfig,
-  type GrenadeExplodedPayload,
   type InputCommand,
   type WorldBounds,
 } from "@deathmatch/shared";
@@ -267,86 +264,24 @@ export class GrenadeSystem {
    */
   private explode(runtime: GrenadeRuntime, config: GrenadeConfig, now: number): void {
     const { state } = runtime;
-    const { x, y } = state;
 
     this.runtimes.delete(state.id);
     this.context.state.grenades.delete(state.id);
 
-    const payload: GrenadeExplodedPayload = {
-      grenadeId: state.id,
-      ownerId: state.ownerId,
-      x,
-      y,
-      radius: config.explosionRadius,
-    };
-    this.context.broadcast(ServerMessage.GRENADE_EXPLODED, payload);
-
-    if (this.context.state.matchState !== MatchState.PLAYING) return;
-
-    for (const player of Array.from(this.context.state.players.values())) {
-      if (!player.alive || !player.inMatch) continue;
-
-      const distance = distanceToBox(x, y, player.x, player.y, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT);
-      const damage = explosionDamageAt(distance, config);
-      if (damage <= 0) continue;
-
-      this.context.applyDamage(player.sessionId, state.ownerId, damage, player.x, player.y, "grenade");
-
-      // Thrown outwards from the blast, falling off with it -- so a near miss
-      // shoves and a direct hit launches. A grenade landing exactly underfoot
-      // has no direction to push in, so it pushes straight up.
-      const awayX = player.x - x;
-      const awayY = player.y - y;
-      const spread = Math.hypot(awayX, awayY);
-      const falloff = 1 - clamp(distance / Math.max(1, config.explosionRadius), 0, 1);
-
-      this.context.applyKnockback(
-        player.sessionId,
-        spread > 1 ? awayX : 0,
-        spread > 1 ? awayY : -1,
-        config.knockbackForce * falloff,
-      );
-    }
-
-    // Blasts open crates as readily as bullets do.
-    for (const crate of Array.from(this.context.state.crates.values())) {
-      const distance = distanceToBox(x, y, crate.x, crate.y, crate.width / 2, crate.height / 2);
-      const damage = explosionDamageAt(distance, config);
-      if (damage > 0) this.context.damageCrate(crate.id, damage, state.ownerId, now);
-    }
+    // The blast itself is not this system's business: a grenade and a rocket go
+    // off the same way, and the day they stopped doing so would be the day one
+    // of them quietly stopped opening crates.
+    detonate(
+      this.context,
+      {
+        ...grenadeBlast(config),
+        id: state.id,
+        ownerId: state.ownerId,
+        x: state.x,
+        y: state.y,
+        weaponId: "grenade",
+      },
+      now,
+    );
   }
-}
-
-/**
- * Damage a blast deals at `distance`.
- *
- * Full damage at the centre, falling linearly to `minDamageMultiplier` at the
- * edge of the radius, and nothing at all beyond it.
- */
-export function explosionDamageAt(distance: number, config: GrenadeConfig): number {
-  const radius = Math.max(1, config.explosionRadius);
-  if (distance > radius) return 0;
-
-  const falloff = 1 - distance / radius;
-  const multiplier = config.minDamageMultiplier + (1 - config.minDamageMultiplier) * falloff;
-  return Math.round(config.maxDamage * clamp(multiplier, 0, 1));
-}
-
-/**
- * Distance from a point to the nearest edge of a box.
- *
- * Measured to the hitbox rather than to the centre, so a grenade landing against
- * someone's feet counts as a direct hit.
- */
-function distanceToBox(
-  fromX: number,
-  fromY: number,
-  boxX: number,
-  boxY: number,
-  halfWidth: number,
-  halfHeight: number,
-): number {
-  const dx = Math.max(Math.abs(fromX - boxX) - halfWidth, 0);
-  const dy = Math.max(Math.abs(fromY - boxY) - halfHeight, 0);
-  return Math.hypot(dx, dy);
 }

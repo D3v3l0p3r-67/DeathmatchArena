@@ -1,5 +1,6 @@
 import {
   MAX_BOT_DIFFICULTY,
+  type PlayerCareer,
   MIN_BOT_DIFFICULTY,
   MatchState,
   type MatchResultMessage,
@@ -63,6 +64,16 @@ export class UIManager {
 
   private readonly spectateTarget = requireElement("spectate-target");
   private readonly spectatePlacement = requireElement("spectate-placement");
+
+  private readonly menuCareer = requireElement("menu-career");
+  private readonly careerMatches = requireElement("career-matches");
+  private readonly careerWins = requireElement("career-wins");
+  private readonly careerKills = requireElement("career-kills");
+  private readonly careerKd = requireElement("career-kd");
+  private readonly resultsCareer = requireElement("results-career");
+
+  private readonly reconnect = requireElement("reconnect");
+  private readonly reconnectTimer = requireElement("reconnect-timer");
 
   private readonly notices = requireElement("notices");
 
@@ -286,6 +297,54 @@ export class UIManager {
     }
   }
 
+  // ------------------------------------------------------------- reconnecting
+
+  /**
+   * "Hold on, your seat is still yours."
+   *
+   * A banner rather than a screen: the match is still running on the other side
+   * of it, and throwing somebody back to the menu for a dropped packet -- while
+   * the server is still holding their place -- would be the client giving up
+   * before the server does.
+   */
+  showReconnecting(secondsLeft: number): void {
+    this.reconnect.hidden = false;
+    setText(this.reconnectTimer, `${Math.max(0, Math.ceil(secondsLeft))}s`);
+  }
+
+  hideReconnecting(): void {
+    this.reconnect.hidden = true;
+  }
+
+  // ----------------------------------------------------------------- career
+
+  /**
+   * Show what this player has done here before.
+   *
+   * Hidden entirely until they have finished a match: a row of zeroes on a first
+   * visit is noise, and it invites the reading that the game is keeping score of
+   * you rather than for you.
+   */
+  showCareer(career: PlayerCareer): void {
+    this.lastCareer = career;
+    this.menuCareer.hidden = career.matches === 0;
+
+    // The results screen may already be up: the standings and the updated record
+    // are two messages, and nothing promises which arrives first.
+    if (this.activeScreen === "results") this.renderCareerLine();
+    if (career.matches === 0) return;
+
+    setText(this.careerMatches, String(career.matches));
+    setText(this.careerWins, String(career.wins));
+    setText(this.careerKills, String(career.kills));
+    // Deaths of zero would divide by nothing; a player who has never died has a
+    // ratio equal to their kills, which is the answer they expect.
+    setText(this.careerKd, (career.kills / Math.max(1, career.deaths)).toFixed(1));
+  }
+
+  /** The most recent record, for the line under the standings. */
+  private lastCareer: PlayerCareer | null = null;
+
   // -------------------------------------------------------------- countdown
 
   updateCountdown(seconds: number): void {
@@ -333,7 +392,34 @@ export class UIManager {
       this.resultsBody.appendChild(row);
     }
 
+    this.renderCareerLine();
     this.showScreen("results");
+  }
+
+  /**
+   * A line under the standings saying where this leaves them.
+   *
+   * The server sends the updated record with the result, so by the time this
+   * runs the numbers already include the match just played.
+   */
+  private renderCareerLine(): void {
+    const career = this.lastCareer;
+    if (!career || career.matches === 0) {
+      this.resultsCareer.textContent = "";
+      return;
+    }
+
+    this.resultsCareer.replaceChildren(
+      document.createTextNode("Career: "),
+      strong(`${career.wins}`),
+      document.createTextNode(` win${career.wins === 1 ? "" : "s"} from `),
+      strong(`${career.matches}`),
+      document.createTextNode(" · "),
+      strong(`${career.kills}`),
+      document.createTextNode(" kills"),
+      document.createTextNode(career.bestPlacement > 0 ? " · best finish " : ""),
+      career.bestPlacement > 0 ? strong(ordinal(career.bestPlacement)) : document.createTextNode(""),
+    );
   }
 
   setResultsCountdown(message: string): void {
@@ -382,3 +468,15 @@ const DIFFICULTY_NAMES: Record<number, string> = {
   5: "Very Hard",
 };
 
+
+function strong(text: string): HTMLElement {
+  const element = document.createElement("b");
+  element.textContent = text;
+  return element;
+}
+
+/** 1 -> "1st". Only ever used for a handful of small numbers. */
+function ordinal(value: number): string {
+  const suffix = value === 1 ? "st" : value === 2 ? "nd" : value === 3 ? "rd" : "th";
+  return `${value}${suffix}`;
+}
