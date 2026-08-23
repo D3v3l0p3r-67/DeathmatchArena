@@ -63,6 +63,52 @@ export interface DebugConfigEntry {
   options?: { value: string; label: string }[];
 }
 
+/** One action's score at the moment a bot last decided. */
+export interface DebugNpcScore {
+  id: string;
+  label: string;
+  score: number;
+  /** True for the action actually running. */
+  chosen: boolean;
+}
+
+/**
+ * What a bot is thinking, for the console.
+ *
+ * Sent only to authorized sessions, and only while a console is open. It is a
+ * read-only picture: nothing here is an input, and a client that fabricated one
+ * would change nothing about how the bot plays.
+ */
+export interface DebugNpcSnapshot {
+  sessionId: string;
+  name: string;
+  profileId: string;
+  profileName: string;
+  /** Whatever the brain settled on, and where its state machine has got to. */
+  action: string;
+  state: string;
+  targetName: string;
+  scores: DebugNpcScore[];
+
+  /** The handful of context values worth watching while balancing. */
+  danger: number;
+  health: number;
+  ammo: number;
+  grenadeDanger: number;
+  weaponEffectiveness: number;
+  enemyDistance: number;
+  visibleEnemies: number;
+
+  /** True for the one bot whose decisions are being logged. */
+  watched: boolean;
+  /** Newest last. Empty for every bot but the watched one. */
+  log: string[];
+}
+
+export interface DebugNpcPayload {
+  npcs: DebugNpcSnapshot[];
+}
+
 /**
  * Everything an authorized console needs, sent only to granted sessions.
  *

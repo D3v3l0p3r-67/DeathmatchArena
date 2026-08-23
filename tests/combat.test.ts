@@ -9,13 +9,16 @@ import {
   ASSAULT_RIFLE_ID,
   CHAINSAW_ID,
   FIXED_DELTA,
+  KNOCKBACK_IMPULSE,
   MatchState,
   SHOTGUN_ID,
   ServerMessage,
   createInputCommand,
   getDamageAtDistance,
   getFireIntervalMs,
+  getPlayerConfig,
   getWeapon,
+  stepPlayerMovement,
   type KillPayload,
 } from "@deathmatch/shared";
 import { createHarness, fireAt, type Harness } from "./harness.js";
@@ -425,5 +428,186 @@ describe("chainsaw", () => {
     }
 
     assert.equal(victim.alive, false, `${swingsToKill} swings should be lethal`);
+  });
+});
+
+describe("knockback and recoil", () => {
+  let harness: Harness;
+
+  beforeEach(() => {
+    harness = createHarness();
+  });
+
+  /** Velocity as the movement integrator actually holds it. */
+  function velocity(sessionId: string) {
+    const movement = harness.runtimes.get(sessionId)!.movement;
+    return { x: movement.velocityX, y: movement.velocityY };
+  }
+
+  /**
+   * Two players on the open stretch of floor, with their movement states where
+   * they actually are.
+   *
+   * `addPlayer` positions the synchronised state; the integrator keeps its own,
+   * and a knockback lands on that one -- so a test that only set the first would
+   * be simulating somebody standing in the far wall.
+   */
+  function facingPair(target: Harness = harness, shooterX = 200, targetX = 600) {
+    const shooter = target.addPlayer("shooter", shooterX, 1700);
+    const victim = target.addPlayer("target", targetX, 1700);
+
+    for (const [id, x] of [["shooter", shooterX], ["target", targetX]] as const) {
+      const movement = target.runtimes.get(id)!.movement;
+      movement.x = x;
+      movement.y = 1700;
+    }
+
+    return { shooter, victim };
+  }
+
+  it("shoves the victim the way the bullet was going", () => {
+    facingPair();
+
+    assert.equal(velocity("target").x, 0);
+    fireAt(harness, "shooter", 0, 0);
+    harness.step(40);
+
+    assert.ok(velocity("target").x > 0, "a shot travelling right should push them right");
+  });
+
+  it("shoves them the other way when shot from the other side", () => {
+    facingPair(harness, 600, 200);
+
+    fireAt(harness, "shooter", Math.PI, 0);
+    harness.step(40);
+
+    assert.ok(velocity("target").x < 0);
+  });
+
+  it("pushes harder for a weapon configured to", () => {
+    /** Fire one shot with the rifle tuned to `force`, and report the shove. */
+    function shoveWith(force: number): number {
+      const room = createHarness();
+      const config = structuredClone(room.context.baselineConfig);
+      config.weapons.find((weapon) => weapon.id === "assault-rifle")!.knockbackForce = force;
+      room.replaceConfig(config);
+
+      const { shooter } = facingPair(room);
+      room.weapons.equip(shooter, room.runtimes.get("shooter")!, "assault-rifle");
+
+      fireAt(room, "shooter", 0, 0);
+      room.step(40);
+      return room.runtimes.get("target")!.movement.velocityX;
+    }
+
+    const soft = shoveWith(0.1);
+    const hard = shoveWith(1);
+
+    assert.ok(soft > 0, "even a light weapon should shove");
+    assert.ok(hard > soft * 3, `expected a much bigger shove, ${soft} vs ${hard}`);
+  });
+
+  it("never exceeds the configured limit, however absurd the weapon", () => {
+    // Physics that a configuration value can break is not really configurable.
+    const config = structuredClone(harness.context.baselineConfig);
+    config.weapons.find((weapon) => weapon.id === "assault-rifle")!.knockbackForce = 500;
+    harness.replaceConfig(config);
+
+    const { shooter } = facingPair();
+    harness.weapons.equip(shooter, harness.runtimes.get("shooter")!, "assault-rifle");
+
+    fireAt(harness, "shooter", 0, 0);
+    harness.step(40);
+
+    const limit = config.player.maxKnockbackSpeed;
+    assert.ok(velocity("target").x <= limit + 1, `${velocity("target").x} exceeded the ${limit} limit`);
+  });
+
+  it("adds to the speed already carried rather than replacing it", () => {
+    facingPair();
+
+    const movement = harness.runtimes.get("target")!.movement;
+    movement.velocityX = 200;
+
+    fireAt(harness, "shooter", 0, 0);
+    harness.step(40);
+
+    assert.ok(velocity("target").x > 200, "the shove should compound with the run");
+  });
+
+  it("moves the victim rather than teleporting them", () => {
+    // A teleport would put somebody through geometry and would read as a jump
+    // on every other client.
+    const { victim: target } = facingPair();
+    const before = target.x;
+
+    fireAt(harness, "shooter", 0, 0);
+    harness.step(40);
+
+    assert.equal(target.x, before, "position must only change through the integrator");
+    assert.ok(velocity("target").x > 0, "but the velocity should have changed");
+  });
+
+  it("kicks the shooter backwards", () => {
+    const shooter = harness.addPlayer("shooter", 200, 1700);
+    harness.weapons.equip(shooter, harness.runtimes.get("shooter")!, "shotgun");
+
+    fireAt(harness, "shooter", 0, 0);
+
+    assert.ok(velocity("shooter").x < 0, "firing right should push the shooter left");
+  });
+
+  it("kicks once per shot, not once per pellet", () => {
+    const config = structuredClone(harness.context.baselineConfig);
+    const shotgun = config.weapons.find((weapon) => weapon.id === "shotgun")!;
+    const pellets = shotgun.ranged!.pellets;
+    assert.ok(pellets > 1, "this test needs a multi-pellet weapon");
+    harness.replaceConfig(config);
+
+    const shooter = harness.addPlayer("shooter", 200, 1700);
+    harness.weapons.equip(shooter, harness.runtimes.get("shooter")!, "shotgun");
+    fireAt(harness, "shooter", 0, 0);
+
+    const kick = Math.abs(velocity("shooter").x);
+    const perShot = shotgun.recoilForce * KNOCKBACK_IMPULSE;
+    assert.ok(
+      Math.abs(kick - perShot) < 1,
+      `expected one shot's worth of recoil (${perShot}), got ${kick}`,
+    );
+  });
+
+  it("leaves a weapon with no recoil alone", () => {
+    const shooter = harness.addPlayer("shooter", 200, 1700);
+    harness.weapons.equip(shooter, harness.runtimes.get("shooter")!, "chainsaw");
+
+    fireAt(harness, "shooter", 0, 0);
+
+    assert.equal(velocity("shooter").x, 0, "a chainsaw has nothing to recoil against");
+  });
+
+  it("throws whoever a melee weapon catches, along the swing", () => {
+    const attacker = harness.addPlayer("attacker", 200, 1700);
+    harness.addPlayer("victim", 240, 1700);
+    harness.weapons.equip(attacker, harness.runtimes.get("attacker")!, "chainsaw");
+
+    fireAt(harness, "attacker", 0, 0);
+
+    assert.ok(velocity("victim").x > 0, "the chainsaw should push what it is pointed at");
+  });
+
+  it("does not knock a knocked-back player back to walking pace", () => {
+    // The interaction that quietly cancels the whole feature: the run-speed cap
+    // used to clip any velocity above it, so holding a movement key erased a
+    // shove the instant it landed.
+    facingPair();
+
+    const movement = harness.runtimes.get("target")!.movement;
+    movement.velocityX = 700;
+
+    const input = createInputCommand(1);
+    input.moveRight = true;
+    stepPlayerMovement(movement, input, FIXED_DELTA, harness.context.world, undefined, getPlayerConfig());
+
+    assert.ok(movement.velocityX > getPlayerConfig().moveSpeed, "the shove was clipped away");
   });
 });

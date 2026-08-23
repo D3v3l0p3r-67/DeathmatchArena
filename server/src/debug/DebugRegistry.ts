@@ -15,6 +15,7 @@ import type { MatchManager } from "../systems/MatchManager.js";
 import type { GrenadeSystem } from "../systems/GrenadeSystem.js";
 import type { PowerUpSystem } from "../systems/PowerUpSystem.js";
 import type { TrapSystem } from "../systems/TrapSystem.js";
+import type { NpcSystem } from "../npc/NpcSystem.js";
 import type { WeaponSystem } from "../systems/WeaponSystem.js";
 
 /** Everything a debug command is allowed to reach. */
@@ -24,6 +25,7 @@ export interface DebugCommandContext {
   powerUps: PowerUpSystem;
   grenades: GrenadeSystem;
   traps: TrapSystem;
+  npcs: NpcSystem;
   matchManager: MatchManager;
   /** The room's current configuration view. */
   config: GameConfigView;
@@ -122,6 +124,16 @@ export class DebugRegistry {
         label: `${field.category} / ${field.subcategory} / ${field.label}`,
       }));
     const maxHealth = context.config.getPlayerConfig().maxHealth;
+    const profiles = context.config
+      .listBrainProfiles()
+      .map((profile) => ({ value: profile.id, label: profile.name }));
+    const bots = [
+      { value: "", label: "Nobody" },
+      ...context.npcs.list().map((agent) => ({
+        value: agent.sessionId,
+        label: `${context.room.state.players.get(agent.sessionId)?.name ?? agent.sessionId} (${agent.brainProfile.name})`,
+      })),
+    ];
 
     return Array.from(this.commands.values()).map((command) => ({
       ...command.spec,
@@ -130,6 +142,8 @@ export class DebugRegistry {
         if (param.key === "weaponId") return { ...param, options: weapons };
         if (param.key === "powerUpId") return { ...param, options: powerUps };
         if (param.key === "path") return { ...param, options: tunables };
+        if (param.key === "profileId") return { ...param, options: profiles };
+        if (param.key === "npcId") return { ...param, options: bots };
         // The health limit follows the room's configuration rather than a
         // constant, so a room with a raised maximum can actually be set to it.
         if (param.key === "value" && command.spec.id === "set-health") {
@@ -350,6 +364,83 @@ export class DebugRegistry {
           const removed = context.powerUps.activeCrateCount + context.powerUps.activePickupCount;
           context.powerUps.clear();
           return { ok: true, message: `Removed ${removed} entities` };
+        },
+      },
+
+      {
+        spec: {
+          id: "add-npc",
+          label: "Add bot",
+          description: "Drop an NPC into this room. It plays through the same input queue a browser does.",
+          category: "Bots",
+          params: [
+            {
+              key: "profileId",
+              label: "Personality",
+              type: "select",
+              options: [],
+              hint: "Blank picks one at random",
+            },
+            { key: "count", label: "How many", type: "number", min: 1, max: 8, step: 1, defaultValue: 1 },
+          ],
+        },
+        run: (context, args) => {
+          const requested = String(args.profileId ?? "").trim();
+          const count = clampNumber(Number(args.count), 1, 8);
+
+          let added = 0;
+          for (let i = 0; i < count; i++) {
+            if (context.npcs.spawn(requested || undefined)) added += 1;
+          }
+
+          return added > 0
+            ? { ok: true, message: `Added ${added} bot(s)`, refreshState: true }
+            : { ok: false, message: "No room for another bot" };
+        },
+      },
+
+      {
+        spec: {
+          id: "remove-npc",
+          label: "Remove bots",
+          description: "Take one bot out, or all of them.",
+          category: "Bots",
+          params: [{ key: "npcId", label: "Bot", type: "select", options: [], hint: "Blank removes every bot" }],
+        },
+        run: (context, args) => {
+          const requested = String(args.npcId ?? "").trim();
+          if (!requested) {
+            const removed = context.npcs.count;
+            context.npcs.removeAll();
+            return { ok: true, message: `Removed ${removed} bot(s)`, refreshState: true };
+          }
+
+          return context.npcs.remove(requested)
+            ? { ok: true, message: "Bot removed", refreshState: true }
+            : { ok: false, message: "No such bot" };
+        },
+      },
+
+      {
+        spec: {
+          id: "watch-npc",
+          label: "Watch bot",
+          description: "Log one bot's decisions. Logging is off for everyone else, and off entirely by default.",
+          category: "Bots",
+          params: [{ key: "npcId", label: "Bot", type: "select", options: [], hint: "Blank stops logging" }],
+        },
+        run: (context, args) => {
+          const requested = String(args.npcId ?? "").trim();
+          if (requested && !context.npcs.get(requested)) {
+            return { ok: false, message: "No such bot" };
+          }
+
+          context.npcs.setLoggingFor(requested || null);
+          return {
+            ok: true,
+            message: requested ? "Logging this bot's decisions" : "Decision logging off",
+            refreshState: true,
+          };
         },
       },
 

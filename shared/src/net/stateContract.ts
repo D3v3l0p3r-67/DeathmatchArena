@@ -17,6 +17,8 @@ import type { MatchStateValue } from "../game/types.js";
 export interface SyncedPlayer {
   readonly sessionId: string;
   readonly name: string;
+  /** True for an NPC. Presentation only -- the simulation treats them alike. */
+  readonly bot: boolean;
   readonly x: number;
   readonly y: number;
   readonly velocityX: number;
@@ -81,6 +83,23 @@ export interface SyncedCrate {
   readonly maxHealth: number;
 }
 
+/**
+ * A crate that is about to land.
+ *
+ * Purely a warning: it has no collision, holds nothing, and -- like a sealed
+ * crate -- never says what is inside. `progress` runs 0 to 1 as the moment
+ * approaches, so the client can build an effect towards it without needing a
+ * synchronised clock.
+ */
+export interface SyncedPendingCrate {
+  readonly id: string;
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+  readonly progress: number;
+}
+
 /** A power-up revealed by a broken crate, waiting to be collected. */
 export interface SyncedPowerUp {
   /** Entity id, unique per spawned pickup. */
@@ -126,6 +145,8 @@ export interface SyncedGameState {
   readonly players: ReadonlyMap<string, SyncedPlayer>;
   readonly projectiles: ReadonlyMap<string, SyncedProjectile>;
   readonly crates: ReadonlyMap<string, SyncedCrate>;
+  /** Crates that have been announced but have not landed yet. */
+  readonly pendingCrates: ReadonlyMap<string, SyncedPendingCrate>;
   readonly powerUps: ReadonlyMap<string, SyncedPowerUp>;
   readonly grenades: ReadonlyMap<string, SyncedGrenade>;
   readonly traps: ReadonlyMap<string, SyncedTrap>;
@@ -138,6 +159,13 @@ export interface SyncedGameState {
   readonly matchStartedAt: number;
   readonly minPlayersToStart: number;
   readonly maxPlayers: number;
+  /**
+   * Whole seconds until bots take the lobby's free places; 0 when nothing is
+   * waiting. Whole seconds so it changes once a second rather than every patch.
+   */
+  readonly botFillSeconds: number;
+  /** True while somebody could skip that wait and start now. */
+  readonly canStartNow: boolean;
 
   /**
    * Current playable width, as the closing walls define it.

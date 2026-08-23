@@ -9,6 +9,7 @@ import {
 import { CrateState } from "./CrateState.js";
 import { GrenadeState } from "./GrenadeState.js";
 import { PlayerState } from "./PlayerState.js";
+import { PendingCrateState } from "./PendingCrateState.js";
 import { PowerUpState } from "./PowerUpState.js";
 import { ProjectileState } from "./ProjectileState.js";
 import { TrapState } from "./TrapState.js";
@@ -31,6 +32,14 @@ export class GameState extends Schema implements SyncedGameState {
 
   /** Unopened power-up crates. What is inside each one stays server-side. */
   @type({ map: CrateState }) crates = new MapSchema<CrateState>();
+
+  /**
+   * Crates that have been announced but have not landed yet.
+   *
+   * A warning, nothing more: no collision, no contents, and the client draws a
+   * marker that builds towards the arrival.
+   */
+  @type({ map: PendingCrateState }) pendingCrates = new MapSchema<PendingCrateState>();
 
   /** Power-ups revealed by broken crates, waiting to be collected. */
   @type({ map: PowerUpState }) powerUps = new MapSchema<PowerUpState>();
@@ -64,6 +73,15 @@ export class GameState extends Schema implements SyncedGameState {
   /** Advertised lobby thresholds so the client never hard-codes them. */
   @type("uint8") minPlayersToStart: number = getMatchConfig().minPlayers;
   @type("uint8") maxPlayers: number = getMatchConfig().maxPlayers;
+
+  /**
+   * Whole seconds until bots take the lobby's free places; 0 when nothing is
+   * waiting. The client shows it and offers to skip it -- but only the server
+   * decides when bots actually arrive.
+   */
+  @type("uint16") botFillSeconds = 0;
+  /** True while the wait could be skipped. Purely so the client knows to offer. */
+  @type("boolean") canStartNow = false;
 
   /**
    * The playable width, narrowed by the closing walls.

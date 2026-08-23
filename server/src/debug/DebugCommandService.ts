@@ -1,5 +1,7 @@
 import {
   ServerMessage,
+  type DebugNpcPayload,
+  type DebugNpcSnapshot,
   type DebugAuthRequest,
   type DebugParamSpec,
   type DebugCommandRequest,
@@ -105,6 +107,34 @@ export class DebugCommandService {
 
     // Config changes alter what the console displays, so push a fresh snapshot.
     if (outcome.refreshState) this.sendState(sessionId, { granted: true, reason: "" });
+  }
+
+  /**
+   * Stream what the bots are thinking to whoever is watching.
+   *
+   * Pushed on a timer rather than bundled into the state snapshot: scores change
+   * several times a second and the catalogue does not, so sending them together
+   * would mean re-sending the whole command list at the same rate.
+   *
+   * Costs nothing when nobody is authorized -- the caller checks first.
+   */
+  sendNpcState(snapshot: () => DebugNpcSnapshot[]): void {
+    let payload: DebugNpcPayload | null = null;
+
+    for (const sessionId of this.context.state.players.keys()) {
+      if (!this.authorization.canUseDebug(sessionId)) continue;
+      // Built once, on the first authorized session, and only if there is one.
+      payload ??= { npcs: snapshot() };
+      this.context.sendTo(sessionId, ServerMessage.DEBUG_NPC, payload);
+    }
+  }
+
+  /** True when at least one session could receive debug traffic. */
+  get hasAudience(): boolean {
+    for (const sessionId of this.context.state.players.keys()) {
+      if (this.authorization.canUseDebug(sessionId)) return true;
+    }
+    return false;
   }
 
   /** Re-send state to every authorized session. Used after a room-wide change. */

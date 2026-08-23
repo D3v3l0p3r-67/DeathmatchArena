@@ -3,6 +3,9 @@ import type { GameConfig } from "../config/types.js";
 import type { KillEvent, MatchResultPayload } from "../game/types.js";
 
 export type {
+  DebugNpcPayload,
+  DebugNpcScore,
+  DebugNpcSnapshot,
   DebugAuthRequest,
   DebugCommandRequest,
   DebugCommandResult,
@@ -20,6 +23,12 @@ export const ClientMessage = {
   PING: "ping",
   /** Player pressed "play again" from the results screen. */
   REQUEUE: "requeue",
+  /**
+   * "Do not wait for anyone else." Asks the server to fill the lobby's free
+   * places now rather than at the end of the hold. The server decides whether
+   * that is allowed; a client asking proves nothing.
+   */
+  START_NOW: "startNow",
   /**
    * Request debug access. The server decides; a client saying "I am an admin"
    * proves nothing.
@@ -62,6 +71,8 @@ export const ServerMessage = {
   DEBUG_STATE: "debugState",
   /** Outcome of one debug command. */
   DEBUG_RESULT: "debugResult",
+  /** What the bots are thinking. Streamed only while an authorized console is open. */
+  DEBUG_NPC: "debugNpc",
   /**
    * The room's configuration changed mid-match (only a debug command can do
    * this). Clients predict movement from these values, so they have to be told.

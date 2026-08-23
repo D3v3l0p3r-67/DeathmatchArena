@@ -76,18 +76,22 @@ describe("grenade loadout", () => {
     harness.grenades.resupply(player);
 
     assert.equal(player.grenades, getGrenadeConfig().startingCount);
-    assert.equal(getGrenadeConfig().startingCount, 1, "the default loadout is one grenade");
+    assert.equal(getGrenadeConfig().startingCount, 3, "the default loadout is three grenades");
   });
 
   it("spends one per throw and refuses to throw with none left", () => {
     const player = harness.addPlayer("p1", 600, 1700);
     harness.grenades.resupply(player);
 
+    const carried = player.grenades;
+    assert.ok(carried > 0, "the loadout should issue something to throw");
+
     assert.ok(throwGrenade(harness, "p1", 200), "the first throw happens");
-    assert.equal(player.grenades, 0);
+    assert.equal(player.grenades, carried - 1, "one throw costs exactly one grenade");
     assert.equal(harness.state.grenades.size, 1);
 
     // With none left, holding and releasing produces nothing at all.
+    player.grenades = 0;
     throwGrenade(harness, "p1", 200);
     assert.equal(harness.state.grenades.size, 1, "an empty player cannot throw");
     assert.equal(player.grenades, 0);

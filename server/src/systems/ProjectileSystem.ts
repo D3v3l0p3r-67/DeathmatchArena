@@ -145,6 +145,14 @@ export class ProjectileSystem {
           playerHit.y,
           state.weaponId,
         );
+        // Shoved the way the bullet was already going. Applied after the damage
+        // so a lethal hit still throws the body rather than nothing at all.
+        this.context.applyKnockback(
+          playerHit.player.sessionId,
+          state.velocityX,
+          state.velocityY,
+          runtime.weapon.knockbackForce,
+        );
         this.destroy(state.id);
         return;
       }

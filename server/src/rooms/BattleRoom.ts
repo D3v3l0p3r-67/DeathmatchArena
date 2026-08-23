@@ -8,6 +8,7 @@ import {
   MatchState,
   NETWORK,
   ServerMessage,
+  applyKnockback,
   createRandom,
   decodeInputBatch,
   generateFallbackName,
@@ -39,6 +40,7 @@ import { DebugRegistry, type DebugCommandContext } from "../debug/DebugRegistry.
 import { createLogger, type Logger } from "../utils/logger.js";
 import { ArenaShrinkSystem } from "../systems/ArenaShrinkSystem.js";
 import { TrapSystem } from "../systems/TrapSystem.js";
+import { NpcSystem } from "../npc/NpcSystem.js";
 import { CollisionSystem } from "../systems/CollisionSystem.js";
 import { GrenadeSystem } from "../systems/GrenadeSystem.js";
 import { MatchManager } from "../systems/MatchManager.js";
@@ -86,6 +88,7 @@ export class BattleRoom extends Room<{ state: GameState }> {
   private grenadeSystem!: GrenadeSystem;
   private movementSystem!: MovementSystem;
   private matchManager!: MatchManager;
+  private npcSystem!: NpcSystem;
 
   private readonly runtimes = new Map<string, PlayerRuntime>();
   private readonly clientsBySession = new Map<string, Client>();
@@ -104,6 +107,8 @@ export class BattleRoom extends Room<{ state: GameState }> {
 
   private accumulatorMs = 0;
   private random!: () => number;
+  /** Next time the bots' thinking is pushed to whoever is watching it. */
+  private nextNpcDebugAt = 0;
 
   // ---------------------------------------------------------------------------
   // Lifecycle
@@ -147,6 +152,13 @@ export class BattleRoom extends Room<{ state: GameState }> {
       this.grenadeSystem,
       this.trapSystem,
     );
+
+    // Bots feed the movement system the same input commands a browser sends, so
+    // they are created after it and go through no other door.
+    this.npcSystem = new NpcSystem(this.context, this.movementSystem, hashString(this.roomId), () =>
+      this.debugCommands?.refreshAll(),
+    );
+    this.matchManager.setNpcSystem(this.npcSystem);
 
     // Build the hazards this arena defines. An arena is data, so a room simply
     // constructs whatever it was handed rather than knowing about any trap.
@@ -290,6 +302,7 @@ export class BattleRoom extends Room<{ state: GameState }> {
   }
 
   override onDispose(): void {
+    this.npcSystem.removeAll();
     this.runtimes.clear();
     this.clientsBySession.clear();
     this.logger.info("Room disposed");
@@ -315,6 +328,9 @@ export class BattleRoom extends Room<{ state: GameState }> {
       steps++;
 
       const now = Date.now();
+      // Before movement: a bot's decisions become queued input, and the
+      // movement system then consumes that queue exactly as it does a human's.
+      this.npcSystem.update(FIXED_DELTA, now);
       this.movementSystem.update(FIXED_DELTA, now);
       this.projectileSystem.update(FIXED_DELTA, now);
       this.powerUpSystem.update(now);
@@ -323,6 +339,8 @@ export class BattleRoom extends Room<{ state: GameState }> {
       this.grenadeSystem.update(FIXED_DELTA, now);
       this.matchManager.update(now);
     }
+
+    this.streamNpcDebug(Date.now());
 
     if (steps === MAX_STEPS_PER_FRAME) this.accumulatorMs = 0;
   }
@@ -362,6 +380,20 @@ export class BattleRoom extends Room<{ state: GameState }> {
       const now = Date.now();
       if (runtime && !runtime.rateLimiters.allow("chatOrMisc", now)) return;
       this.matchManager.requestRequeue(client.sessionId, now);
+    });
+
+    /**
+     * "Do not wait for anyone else."
+     *
+     * The client only asks; the NPC system decides whether the lobby is in a
+     * state where that means anything, so a fabricated message achieves nothing
+     * beyond spending this connection's rate budget.
+     */
+    this.onMessage(ClientMessage.START_NOW, (client) => {
+      const runtime = this.runtimes.get(client.sessionId);
+      const now = Date.now();
+      if (runtime && !runtime.rateLimiters.allow("chatOrMisc", now)) return;
+      this.npcSystem.requestImmediateStart(client.sessionId);
     });
 
     /**
@@ -439,6 +471,18 @@ export class BattleRoom extends Room<{ state: GameState }> {
       },
       applyDamage: (victimId, attackerId, amount, x, y, weaponId) =>
         this.matchManager.applyDamage(victimId, attackerId, amount, x, y, weaponId),
+      applyKnockback: (sessionId, directionX, directionY, force) => {
+        const runtime = this.runtimes.get(sessionId);
+        const player = this.state.players.get(sessionId);
+        if (!runtime || !player?.alive || !player.inMatch) return;
+
+        applyKnockback(runtime.movement, directionX, directionY, force, this.configView.getPlayerConfig());
+        // Mirrored immediately so the change is in the next patch rather than a
+        // tick later; the client reconciles its prediction against these.
+        player.velocityX = runtime.movement.velocityX;
+        player.velocityY = runtime.movement.velocityY;
+        player.onGround = runtime.movement.onGround;
+      },
       damageCrate: (crateId, amount, attackerId, now) =>
         this.powerUpSystem.damageCrate(crateId, amount, attackerId, now),
     };
@@ -452,6 +496,7 @@ export class BattleRoom extends Room<{ state: GameState }> {
       powerUps: this.powerUpSystem,
       grenades: this.grenadeSystem,
       traps: this.trapSystem,
+      npcs: this.npcSystem,
       matchManager: this.matchManager,
       config: this.configView,
       replaceConfig: (config) => {
@@ -466,6 +511,23 @@ export class BattleRoom extends Room<{ state: GameState }> {
       },
       callerId,
     };
+  }
+
+  /**
+   * Push what the bots are thinking to any open console.
+   *
+   * Four times a second, and only when somebody is authorized -- a room with no
+   * console open does none of this work, which is why the check comes before the
+   * snapshot is built.
+   */
+  private streamNpcDebug(now: number): void {
+    if (now < this.nextNpcDebugAt) return;
+    this.nextNpcDebugAt = now + 250;
+
+    if (this.npcSystem.count === 0) return;
+    if (!this.debugCommands.hasAudience) return;
+
+    this.debugCommands.sendNpcState(() => this.npcSystem.describe());
   }
 
   /**

@@ -15,6 +15,7 @@ process.env.VERBOSE_LOGGING = "false";
 import {
   CollisionWorld,
   FIXED_DELTA,
+  applyKnockback,
   MatchState,
   createGameConfigView,
   createInputCommand,
@@ -36,6 +37,8 @@ const { MatchManager } = await import("../server/src/systems/MatchManager.js");
 const { ArenaShrinkSystem } = await import("../server/src/systems/ArenaShrinkSystem.js");
 const { GrenadeSystem } = await import("../server/src/systems/GrenadeSystem.js");
 const { TrapSystem } = await import("../server/src/systems/TrapSystem.js");
+const { MovementSystem } = await import("../server/src/systems/MovementSystem.js");
+const { NpcSystem } = await import("../server/src/npc/NpcSystem.js");
 
 type RoomContext = import("../server/src/rooms/RoomContext.js").RoomContext;
 
@@ -62,6 +65,8 @@ export interface Harness {
   arenaShrink: InstanceType<typeof ArenaShrinkSystem>;
   grenades: InstanceType<typeof GrenadeSystem>;
   traps: InstanceType<typeof TrapSystem>;
+  movement: InstanceType<typeof MovementSystem>;
+  npcs: InstanceType<typeof NpcSystem>;
   matchManager: InstanceType<typeof MatchManager>;
   runtimes: Map<string, InstanceType<typeof PlayerRuntime>>;
   damage: DamageRecord[];
@@ -79,6 +84,14 @@ export interface Harness {
   stepTraps(dt: number, now: number): void;
   /** Rebuild the trap simulation from an arena, e.g. one built for a test. */
   loadTraps(definition: ArenaDefinition): void;
+  /**
+   * Run the whole simulation for `seconds`, exactly as a room does.
+   *
+   * The only way to see what bots actually do: they decide, their input goes
+   * through the movement system, and the weapons and projectiles that follow are
+   * the real ones. Advances `clock.now` as it goes.
+   */
+  run(seconds: number): void;
   arena: ArenaDefinition;
   /** Swap the room's configuration, as a debug command would. */
   replaceConfig(config: GameConfig): void;
@@ -129,12 +142,26 @@ export function createHarness(): Harness {
       damage.push({ victimId, attackerId, amount, x, y });
       matchManager.applyDamage(victimId, attackerId, amount, x, y, weaponId);
     },
+    // The real impulse, on the real movement state, so a test can assert that a
+    // hit actually moved somebody rather than that a stub was called.
+    applyKnockback(sessionId: string, directionX: number, directionY: number, force: number) {
+      const runtime = runtimes.get(sessionId);
+      const player = state.players.get(sessionId);
+      if (!runtime || !player?.alive || !player.inMatch) return;
+
+      applyKnockback(runtime.movement, directionX, directionY, force, configView.getPlayerConfig());
+      player.velocityX = runtime.movement.velocityX;
+      player.velocityY = runtime.movement.velocityY;
+      player.onGround = runtime.movement.onGround;
+    },
     damageCrate(crateId: string, amount: number, attackerId: string, now: number) {
       powerUps.damageCrate(crateId, amount, attackerId, now);
     },
   } as unknown as RoomContext;
 
   const collision = new CollisionSystem(world);
+  let movement: InstanceType<typeof MovementSystem>;
+  let npcs: InstanceType<typeof NpcSystem>;
   const projectiles = new ProjectileSystem(context, collision);
   const weapons = new WeaponSystem(context, projectiles, collision);
   const arenaShrink = new ArenaShrinkSystem(context);
@@ -150,6 +177,10 @@ export function createHarness(): Harness {
     grenadeSystem,
     trapSystem,
   );
+
+  movement = new MovementSystem(context, world, weapons, grenadeSystem, () => arenaShrink.bounds);
+  npcs = new NpcSystem(context, movement, 12345);
+  matchManager.setNpcSystem(npcs);
   arenaShrink.reset();
 
   return {
@@ -162,6 +193,8 @@ export function createHarness(): Harness {
     arenaShrink,
     grenades: grenadeSystem,
     traps: trapSystem,
+    movement,
+    npcs,
     matchManager,
     runtimes,
     damage,
@@ -201,6 +234,22 @@ export function createHarness(): Harness {
     },
     loadTraps(definition) {
       trapSystem.load(definition);
+    },
+    run(seconds) {
+      const steps = Math.round(seconds / FIXED_DELTA);
+      for (let i = 0; i < steps; i++) {
+        clock.now += FIXED_DELTA * 1000;
+        const now = clock.now;
+
+        npcs.update(FIXED_DELTA, now);
+        movement.update(FIXED_DELTA, now);
+        projectiles.update(FIXED_DELTA, now);
+        powerUps.update(now);
+        arenaShrink.update(FIXED_DELTA, now);
+        grenadeSystem.update(FIXED_DELTA, now);
+        trapSystem.update(FIXED_DELTA, now);
+        matchManager.update(now);
+      }
     },
     arena,
     replaceConfig(config) {

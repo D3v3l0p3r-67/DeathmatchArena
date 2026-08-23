@@ -108,6 +108,7 @@ export const SoundId = {
   GrenadeBounce: "grenade-bounce",
   GrenadeBeep: "grenade-beep",
   Explosion: "explosion",
+  CrateIncoming: "crate-incoming",
   CrateHit: "crate-hit",
   CrateBreak: "crate-break",
   PickupWeapon: "pickup-weapon",
@@ -305,6 +306,17 @@ export const SOUNDS: Readonly<Record<string, SoundDefinition>> = Object.freeze({
   },
 
   // --- Crates and pickups --------------------------------------------------
+  [SoundId.CrateIncoming]: {
+    id: SoundId.CrateIncoming,
+    channel: WORLD,
+    volume: 0.36,
+    layers: [
+      // Two rising notes: an announcement rather than an alarm. The visual
+      // warning carries the urgency; this only says "look over there".
+      { kind: "tone", wave: "sine", frequency: 520, sweepTo: 700, gain: 0.32, attack: 0.01, duration: 0.16 },
+      { kind: "tone", wave: "sine", frequency: 700, sweepTo: 940, gain: 0.28, attack: 0.01, duration: 0.2, delay: 0.14 },
+    ],
+  },
   [SoundId.CrateHit]: {
     id: SoundId.CrateHit,
     channel: WORLD,

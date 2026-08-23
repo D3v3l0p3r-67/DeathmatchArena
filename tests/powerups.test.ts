@@ -515,3 +515,132 @@ describe("closing arena", () => {
     assert.equal(harness.state.shrinking, false);
   });
 });
+
+describe("crate landing warning", () => {
+  let harness: Harness;
+
+  beforeEach(() => {
+    harness = createHarness();
+    clock.now = 0;
+  });
+
+  /** A configuration whose crates announce themselves `warningMs` in advance. */
+  function withWarning(warningMs: number) {
+    const config = structuredClone(harness.context.baselineConfig);
+    config.powerUpSpawning.warningMs = warningMs;
+    config.powerUpSpawning.firstSpawnDelayMs = 0;
+    config.powerUpSpawning.intervalMs = 100000;
+    harness.replaceConfig(config);
+    harness.powerUps.onMatchStarted(0);
+    return config;
+  }
+
+  it("marks the spot before anything lands there", () => {
+    withWarning(5000);
+    harness.stepPowerUps(0);
+
+    assert.equal(harness.state.pendingCrates.size, 1, "the arena should have been warned");
+    assert.equal(harness.state.crates.size, 0, "and nothing should have landed yet");
+  });
+
+  it("puts the crate exactly where it was promised", () => {
+    withWarning(5000);
+    harness.stepPowerUps(0);
+
+    const warning = Array.from(harness.state.pendingCrates.values())[0]!;
+    const { x, y, width, height } = warning;
+
+    harness.stepPowerUps(5000);
+
+    const crate = Array.from(harness.state.crates.values())[0]!;
+    assert.equal(crate.x, x, "a warning that lies about the place is worse than none");
+    assert.equal(crate.y, y);
+    assert.equal(crate.width, width, "and it should be the size that was marked");
+    assert.equal(crate.height, height);
+  });
+
+  it("builds towards the landing", () => {
+    withWarning(4000);
+    harness.stepPowerUps(0);
+
+    const warning = Array.from(harness.state.pendingCrates.values())[0]!;
+    assert.equal(warning.progress, 0);
+
+    harness.stepPowerUps(1000);
+    const quarter = warning.progress;
+    harness.stepPowerUps(3000);
+    const most = warning.progress;
+
+    assert.ok(quarter > 0 && quarter < 1);
+    assert.ok(most > quarter, `expected the warning to build, ${quarter} -> ${most}`);
+  });
+
+  it("clears the warning the moment the crate arrives", () => {
+    withWarning(2000);
+    harness.stepPowerUps(0);
+    assert.equal(harness.state.pendingCrates.size, 1);
+
+    harness.stepPowerUps(2000);
+
+    assert.equal(harness.state.pendingCrates.size, 0, "the marker should be gone");
+    assert.equal(harness.state.crates.size, 1);
+  });
+
+  it("never says what is coming", () => {
+    // A warning gives away the place. Giving away the prize would defeat the
+    // crate exactly as seeing through one would.
+    withWarning(5000);
+    harness.stepPowerUps(0);
+
+    const warning = Array.from(harness.state.pendingCrates.values())[0]!;
+    assert.deepEqual(
+      Object.keys(warning.toJSON()).sort(),
+      ["height", "id", "progress", "width", "x", "y"],
+    );
+  });
+
+  it("holds the spot so nothing else claims it", () => {
+    const config = withWarning(5000);
+    config.powerUpSpawning.intervalMs = 10;
+    config.powerUpSpawning.maxActiveCrates = 32;
+    harness.replaceConfig(config);
+
+    const points = harness.arena.powerUpSpawns.filter((point) => point.enabled).length;
+    for (let i = 0; i < points * 2; i++) harness.stepPowerUps(i * 20);
+
+    const places = Array.from(harness.state.pendingCrates.values()).map((entry) => `${entry.x},${entry.y}`);
+    assert.equal(new Set(places).size, places.length, "two crates were promised the same spot");
+  });
+
+  it("counts what is on the way against the crate limit", () => {
+    const config = withWarning(5000);
+    config.powerUpSpawning.intervalMs = 10;
+    config.powerUpSpawning.maxActiveCrates = 3;
+    harness.replaceConfig(config);
+
+    for (let i = 0; i < 20; i++) harness.stepPowerUps(i * 20);
+
+    assert.ok(
+      harness.state.pendingCrates.size + harness.state.crates.size <= 3,
+      "three warnings and no crates is still three crates on the way",
+    );
+  });
+
+  it("drops crates with no warning when the wait is set to zero", () => {
+    withWarning(0);
+    harness.stepPowerUps(0);
+
+    assert.equal(harness.state.pendingCrates.size, 0);
+    assert.equal(harness.state.crates.size, 1, "the announcement is a courtesy, not a rule");
+  });
+
+  it("forgets everything that was on the way when a match ends", () => {
+    withWarning(5000);
+    harness.stepPowerUps(0);
+    assert.equal(harness.state.pendingCrates.size, 1);
+
+    harness.powerUps.clear();
+
+    assert.equal(harness.state.pendingCrates.size, 0);
+  });
+});

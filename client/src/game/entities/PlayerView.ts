@@ -1,6 +1,6 @@
 import Phaser from "phaser";
-import { PLAYER, clamp, getPlayerConfig, lerpAngle } from "@deathmatch/shared";
-import { TextureKeys, getPlayerColor } from "../TextureFactory.js";
+import { PLAYER, clamp, getPlayerConfig, getWeapon, lerpAngle } from "@deathmatch/shared";
+import { TextureKeys, getPlayerColor, weaponTextureKey } from "../TextureFactory.js";
 
 export interface PlayerViewState {
   x: number;
@@ -11,6 +11,10 @@ export interface PlayerViewState {
   onGround: boolean;
   health: number;
   speedX: number;
+  /** What they are carrying, so everyone can see who they are dealing with. */
+  weaponId: string;
+  /** Grenades on the belt. Server state, like everything else here. */
+  grenades: number;
 }
 
 /**
@@ -27,6 +31,7 @@ export class PlayerView {
   private readonly visor: Phaser.GameObjects.Image;
   private readonly shadow: Phaser.GameObjects.Image;
   private readonly weapon: Phaser.GameObjects.Image;
+  private readonly belt: Phaser.GameObjects.Graphics;
   private readonly label: Phaser.GameObjects.Text;
   private readonly healthBar: Phaser.GameObjects.Graphics;
   private readonly color: number;
@@ -35,6 +40,9 @@ export class PlayerView {
   private renderedAim = 0;
   private walkCycle = 0;
   private alive = true;
+  /** Tracked so the weapon texture is only swapped when it actually changes. */
+  private weaponId = "";
+  private beltCount = -1;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -49,11 +57,11 @@ export class PlayerView {
       .setOrigin(0.5, 0.5)
       .setAlpha(0.35);
 
-    this.weapon = scene.add
-      .image(0, PLAYER.AIM_ORIGIN_Y, TextureKeys.Weapon)
-      // Pivot at the grip so the barrel swings around the shoulder.
-      .setOrigin(0.15, 0.5)
-      .setTint(0xd7e2f5);
+    // The texture and pivot are set from the weapon on the first frame; this is
+    // only a placeholder until one is known.
+    this.weapon = scene.add.image(0, PLAYER.AIM_ORIGIN_Y, TextureKeys.Weapon).setOrigin(0.15, 0.5);
+
+    this.belt = scene.add.graphics();
 
     this.body = scene.add.image(0, 0, TextureKeys.PlayerBody).setOrigin(0.5, 0.5).setTint(this.color);
 
@@ -76,7 +84,15 @@ export class PlayerView {
     this.container = scene.add
       // Order matters: the weapon draws in front of the body so the barrel is
       // always visible, whichever way the player is aiming.
-      .container(0, 0, [this.shadow, this.body, this.visor, this.weapon, this.healthBar, this.label])
+      .container(0, 0, [
+        this.shadow,
+        this.body,
+        this.visor,
+        this.belt,
+        this.weapon,
+        this.healthBar,
+        this.label,
+      ])
       .setDepth(isLocal ? 20 : 10);
   }
 
@@ -99,6 +115,8 @@ export class PlayerView {
     }
     if (!state.alive) return;
 
+    this.applyWeapon(state.weaponId);
+
     // Aim is smoothed towards the target so 20Hz updates do not look like ratcheting.
     this.renderedAim = lerpAngle(this.renderedAim, state.aimAngle, clamp(deltaSeconds * 22, 0, 1));
     this.weapon.setRotation(this.renderedAim);
@@ -112,7 +130,62 @@ export class PlayerView {
 
     this.updateWalkCycle(state, deltaSeconds);
     this.updateShadow(state);
+    this.drawBelt(state.grenades, aimingLeft);
     this.drawHealthBar(state.health);
+  }
+
+  /**
+   * Show what this player is carrying.
+   *
+   * The silhouette comes from the weapon definition, so a weapon added through
+   * configuration is recognisable across the arena without a change here -- and
+   * the pivot comes with it, which is what keeps the muzzle flash on the barrel
+   * whatever shape the weapon is.
+   */
+  private applyWeapon(weaponId: string): void {
+    if (weaponId === this.weaponId) return;
+    this.weaponId = weaponId;
+
+    const shape = getWeapon(weaponId).silhouette;
+    const key = weaponTextureKey(weaponId);
+    if (!this.scene.textures.exists(key) || !shape) return;
+
+    this.weapon.setTexture(key);
+    this.weapon.setOrigin(shape.gripX / shape.length, shape.gripY / shape.height);
+  }
+
+  /**
+   * Grenades, worn on the belt.
+   *
+   * On the character rather than in a corner of the screen, because it is worth
+   * knowing how many the *other* player has left -- and because a number in the
+   * HUD tells you nothing about the figure charging at you.
+   */
+  private drawBelt(grenades: number, aimingLeft: boolean): void {
+    if (this.beltCount === grenades && this.belt.visible) {
+      // Only the side changes with the aim, and that is a flip, not a redraw.
+      this.belt.setScale(aimingLeft ? -1 : 1, 1);
+      return;
+    }
+    this.beltCount = grenades;
+
+    this.belt.clear();
+    this.belt.setScale(aimingLeft ? -1 : 1, 1);
+    if (grenades <= 0) return;
+
+    // Hip height, on the trailing side so the weapon never covers them.
+    const radius = 2.6;
+    const spacing = 6;
+    const startX = -PLAYER.WIDTH / 2 - 1;
+    const y = 6;
+
+    for (let i = 0; i < grenades; i++) {
+      const x = startX + i * spacing;
+      this.belt.fillStyle(0x0b1220, 0.85);
+      this.belt.fillCircle(x, y, radius + 1);
+      this.belt.fillStyle(0x8fd14f, 1);
+      this.belt.fillCircle(x, y, radius);
+    }
   }
 
   /** Cheap procedural "animation": a subtle bob while running, a lean while airborne. */

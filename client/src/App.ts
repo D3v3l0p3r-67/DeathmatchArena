@@ -91,6 +91,9 @@ export class App {
       onPlay: (name) => void this.handlePlay(name),
       onCancelMatchmaking: () => void this.returnToMenu(),
       onLeaveLobby: () => void this.returnToMenu(),
+      // Asking only. The server decides whether the lobby is in a state where
+      // this means anything.
+      onStartNow: () => this.network.requestImmediateStart(),
       onPlayAgain: () => this.handlePlayAgain(),
       onBackToMenu: () => void this.returnToMenu(),
     });
@@ -218,6 +221,7 @@ export class App {
       onLocalRespawn: () => this.ui.setSpectating(false, "", 0),
       onSpectateTargetChanged: (name) => this.updateSpectatorBanner(name),
       onPowerUpCollected: (payload) => this.handlePowerUpCollected(payload),
+      onCrateIncoming: (warning) => this.audio.playAt(SoundId.CrateIncoming, warning.x, warning.y, 0.8),
     });
   }
 
@@ -301,6 +305,7 @@ export class App {
       }
     });
     events.on("debugResult", (result) => this.debugConsole.appendResult(result));
+    events.on("debugNpc", (payload) => this.debugConsole.renderNpcs(payload));
 
     events.on("disconnected", ({ code, reason }) => {
       this.getGameScene()?.teardown();

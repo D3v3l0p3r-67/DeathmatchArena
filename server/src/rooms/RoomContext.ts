@@ -51,6 +51,18 @@ export interface RoomContext {
   applyDamage(victimId: string, attackerId: string, amount: number, x: number, y: number, weaponId: string): void;
 
   /**
+   * Shove a player along a direction, scaled by a weapon's knockback force.
+   *
+   * Goes through the room rather than each system reaching into a runtime,
+   * because the impulse has to land on the *authoritative* movement state --
+   * the same one the integrator steps and the client reconciles against.
+   *
+   * Like damage, this is only ever called from something the server computed
+   * itself: a client cannot ask to be pushed, or ask to push anyone.
+   */
+  applyKnockback(sessionId: string, directionX: number, directionY: number, force: number): void;
+
+  /**
    * Damage a power-up crate. Routed to the `PowerUpSystem`, which owns crate
    * health and decides what a broken crate reveals.
    *

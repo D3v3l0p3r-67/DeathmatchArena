@@ -142,6 +142,15 @@ export class WeaponSystem {
       this.projectiles.spawn(player.sessionId, weapon, origin.x, origin.y, aimAngle + deviation, now);
     }
 
+    // Recoil is per *shot*, not per pellet: a shotgun kicks once however many
+    // pellets leave the barrel.
+    this.context.applyKnockback(
+      player.sessionId,
+      -Math.cos(aimAngle),
+      -Math.sin(aimAngle),
+      weapon.recoilForce,
+    );
+
     if (ammoLimited && player.ammo === 0) this.tryStartReload(player, runtime, weapon, now);
     return true;
   }
@@ -189,6 +198,14 @@ export class WeaponSystem {
         target.x,
         target.y,
         weapon.id,
+      );
+      // Along the swing, not away from the attacker: a chainsaw pushes what it
+      // is pointed at.
+      this.context.applyKnockback(
+        target.sessionId,
+        Math.cos(aimAngle),
+        Math.sin(aimAngle),
+        weapon.knockbackForce,
       );
     }
 

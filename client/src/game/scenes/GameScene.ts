@@ -15,6 +15,7 @@ import {
   type MeleeSwingPayload,
   type PowerUpCollectedPayload,
   type SyncedCrate,
+  type SyncedPendingCrate,
   type GrenadeExplodedPayload,
   type SyncedGameState,
   type SyncedGrenade,
@@ -32,8 +33,10 @@ import { CameraController } from "../CameraController.js";
 import { EffectsSystem } from "../EffectsSystem.js";
 import { InputController } from "../InputController.js";
 import { ShrinkWallsView } from "../ShrinkWallsView.js";
+import { generateWeaponTextures } from "../TextureFactory.js";
 import { DEFAULT_EFFECTS_SETTINGS, type EffectsSettings } from "../fx/effects.js";
 import { CrateView } from "../entities/CrateView.js";
+import { CrateWarningView } from "../entities/CrateWarningView.js";
 import { GrenadeView } from "../entities/GrenadeView.js";
 import { PlayerView } from "../entities/PlayerView.js";
 import { PowerUpView } from "../entities/PowerUpView.js";
@@ -52,6 +55,8 @@ export interface GameSceneEvents {
   onSpectateTargetChanged(name: string): void;
   /** A power-up was collected by anyone; the shell decides whether to announce it. */
   onPowerUpCollected(payload: PowerUpCollectedPayload): void;
+  /** A crate has been announced and is on its way to this spot. */
+  onCrateIncoming(warning: SyncedPendingCrate): void;
 }
 
 /**
@@ -84,6 +89,7 @@ export class GameScene extends Phaser.Scene {
   private readonly remoteBuffers = new Map<string, SnapshotBuffer>();
   private readonly projectileViews = new Map<string, ProjectileView>();
   private readonly crateViews = new Map<string, CrateView>();
+  private readonly warningViews = new Map<string, CrateWarningView>();
   private readonly trapViews = new Map<string, TrapView>();
   /** Last seen phase per trap, so the moment one goes off can be recognised. */
   private readonly trapPhases = new Map<string, string>();
@@ -132,6 +138,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private buildWorld(): void {
+    // Weapons are administered data and only arrive with the welcome message,
+    // so their silhouettes cannot be drawn at boot with the rest of the art.
+    generateWeaponTextures(this);
+
     this.arenaRenderer = new ArenaRenderer(this, this.arena);
     this.cameraController = new CameraController(this, this.arena);
     this.inputController = new InputController(this);
@@ -166,6 +176,8 @@ export class GameScene extends Phaser.Scene {
     events.on("patch", ({ state, receivedAt }) => this.onPatch(state, receivedAt));
     events.on("damage", (payload) => this.onDamage(payload));
     events.on("matchStateChanged", ({ matchState }) => this.onMatchStateChanged(matchState));
+    // A debug command can retune a weapon mid-match, including how it looks.
+    events.on("configChanged", () => generateWeaponTextures(this));
   }
 
   // ---------------------------------------------------------------------------
@@ -179,6 +191,7 @@ export class GameScene extends Phaser.Scene {
     for (const [sessionId, player] of state.players) this.addPlayerView(player, sessionId);
     for (const projectile of state.projectiles.values()) this.addProjectileView(projectile);
     for (const crate of state.crates.values()) this.addCrateView(crate);
+    this.syncWarnings(state);
     for (const powerUp of state.powerUps.values()) this.addPowerUpView(powerUp);
     for (const grenade of state.grenades.values()) this.addGrenadeView(grenade);
     this.syncTraps(state);
@@ -211,6 +224,32 @@ export class GameScene extends Phaser.Scene {
       view.destroy();
       this.trapViews.delete(id);
       this.trapPhases.delete(id);
+    }
+  }
+
+  /**
+   * Keep the landing warnings in step with the state.
+   *
+   * Driven from the patch like the traps, and for the same reason: a warning is
+   * a position and a progress that change, not a stream of events to subscribe
+   * to. When one disappears the crate has landed, and the crate's own arrival
+   * effect takes over.
+   */
+  private syncWarnings(state: SyncedGameState): void {
+    for (const [id, warning] of state.pendingCrates) {
+      let view = this.warningViews.get(id);
+      if (!view) {
+        view = new CrateWarningView(this, warning);
+        this.warningViews.set(id, view);
+        this.hooks.onCrateIncoming(warning);
+      }
+      view.refresh(warning);
+    }
+
+    for (const [id, view] of this.warningViews) {
+      if (state.pendingCrates.has(id)) continue;
+      view.destroy();
+      this.warningViews.delete(id);
     }
   }
 
@@ -419,6 +458,7 @@ export class GameScene extends Phaser.Scene {
     for (const view of this.projectileViews.values()) view.syncFromServer(receivedAt);
 
     this.syncTraps(state);
+    this.syncWarnings(state);
 
     for (const [id, view] of this.crateViews) {
       const crate = state.crates.get(id);
@@ -556,6 +596,7 @@ export class GameScene extends Phaser.Scene {
     this.renderLocalPlayer(deltaSeconds);
     this.renderRemotePlayers(now, deltaSeconds);
     this.renderProjectiles(now);
+    for (const view of this.warningViews.values()) view.render(deltaSeconds);
     this.renderGrenades(now, deltaSeconds);
     this.renderShrinkWalls(deltaSeconds);
     this.updateCamera(deltaSeconds);
@@ -629,6 +670,8 @@ export class GameScene extends Phaser.Scene {
         onGround: this.prediction.movement.onGround,
         health: player.health,
         speedX: this.prediction.movement.velocityX,
+        weaponId: player.weaponId,
+        grenades: player.grenades,
       },
       deltaSeconds,
     );
@@ -656,6 +699,8 @@ export class GameScene extends Phaser.Scene {
           onGround: sample.onGround,
           health: player.health,
           speedX: sample.speedX,
+          weaponId: player.weaponId,
+          grenades: player.grenades,
         },
         deltaSeconds,
       );
@@ -824,6 +869,8 @@ export class GameScene extends Phaser.Scene {
     for (const view of this.projectileViews.values()) view.destroy();
     this.projectileViews.clear();
 
+    for (const view of this.warningViews.values()) view.destroy();
+    this.warningViews.clear();
     for (const view of this.trapViews.values()) view.destroy();
     this.trapViews.clear();
     this.trapPhases.clear();

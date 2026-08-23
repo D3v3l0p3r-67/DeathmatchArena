@@ -60,9 +60,22 @@
       <section class="screen screen--lobby" data-screen="lobby">
         <div class="panel">
           <h2 class="panel__title">Waiting for players</h2>
-          <p class="counter" id="lobby-count">Players: 0 / 10</p>
+          <p class="counter" id="lobby-count">Players: 0 / 5</p>
           <p class="panel__subtitle" id="lobby-hint">Need 2 players to start</p>
           <ul class="player-list" id="lobby-players"></ul>
+
+          <!-- Shown only while the lobby is holding places open for people. The
+               server decides whether the offer means anything; this only asks. -->
+          <div class="lobby__hold" id="lobby-hold">
+            <p class="lobby__hold-text">
+              Holding places for other players &middot;
+              <b id="lobby-hold-timer">1:00</b>
+            </p>
+            <button class="button button--primary" id="start-now" type="button">
+              Start now with bots
+            </button>
+          </div>
+
           <button class="button button--ghost" id="leave-lobby" type="button">Leave</button>
         </div>
       </section>
@@ -92,31 +105,35 @@
         <ul class="kill-feed" id="kill-feed"></ul>
 
         <div class="hud__bottom">
-          <div class="health">
-            <div class="health__bar">
-              <div class="health__fill" id="hud-health-fill"></div>
+          <!-- Health and ammunition read as one stack of gauges: the two
+               numbers that decide whether you keep fighting or back off. -->
+          <div class="gauges">
+            <div class="gauge gauge--health">
+              <div class="gauge__bar">
+                <div class="gauge__fill" id="hud-health-fill"></div>
+              </div>
+              <div class="gauge__value"><span id="hud-health">100</span> <small>HP</small></div>
             </div>
-            <div class="health__value"><span id="hud-health">100</span> <small>HP</small></div>
+
+            <div class="gauge gauge--ammo" id="hud-ammo-gauge">
+              <div class="gauge__bar">
+                <div class="gauge__fill" id="hud-ammo-fill"></div>
+                <!-- Sweeps over the ammo fill while reloading, so the wait is
+                     shown where the ammunition is rather than somewhere else. -->
+                <div class="gauge__reload" id="hud-reload"></div>
+              </div>
+              <div class="gauge__value">
+                <span id="hud-ammo">30</span><small>/<span id="hud-magazine">30</span></small>
+              </div>
+            </div>
           </div>
 
           <div class="weapon">
             <div class="weapon__name" id="hud-weapon">Assault Rifle</div>
-            <div class="weapon__ammo">
-              <span id="hud-ammo">30</span><span class="weapon__ammo-sep">/</span
-              ><span id="hud-magazine">30</span>
-            </div>
             <div class="weapon__melee" id="hud-melee">MELEE</div>
-            <div class="grenades" id="hud-grenades">
-              <span class="grenades__label">GRENADES</span>
-              <span class="grenades__count" id="hud-grenade-count">0</span>
-            </div>
             <div class="throw-power" id="hud-throw-power">
               <span class="throw-power__label">THROW</span>
               <div class="throw-power__bar"><div class="throw-power__fill" id="hud-throw-fill"></div></div>
-            </div>
-            <div class="weapon__reload" id="hud-reload">
-              <span class="weapon__reload-label">RELOADING</span>
-              <div class="weapon__reload-bar"><div class="weapon__reload-fill" id="hud-reload-fill"></div></div>
             </div>
           </div>
 
@@ -274,6 +291,16 @@
             <h3 class="debug-console__panel-title">Commands</h3>
             <div data-debug-commands></div>
           </div>
+          <!-- What the bots are thinking. Empty, and hidden, until the server
+               streams it -- which it only does for an authorized console. -->
+          <div class="debug-console__panel debug-console__panel--npc" data-debug-npc-panel>
+            <h3 class="debug-console__panel-title">NPC AI</h3>
+            <p class="debug-console__note">
+              Personalities are tuned under Room parameters &rarr; NPCs, and take effect on the bot's next decision.
+            </p>
+            <div data-debug-npc></div>
+          </div>
+
           <div class="debug-console__panel">
             <h3 class="debug-console__panel-title">Room parameters</h3>
             <p class="debug-console__note">

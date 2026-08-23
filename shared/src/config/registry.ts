@@ -21,7 +21,9 @@ import type {
   CrateConfig,
   GameConfig,
   GrenadeConfig,
+  BrainProfile,
   MatchConfig,
+  NpcConfig,
   PlayerConfig,
   PowerUpDefinition,
   PowerUpSpawnConfig,
@@ -155,6 +157,26 @@ export class GameConfigView {
   getTrapConfig(): TrapConfig {
     return this.config.traps;
   }
+
+  // -- NPCs -----------------------------------------------------------------
+
+  getNpcConfig(): NpcConfig {
+    return this.config.npc;
+  }
+
+  /**
+   * Look up a brain profile, falling back to something usable.
+   *
+   * Never returns undefined for the same reason `getWeapon` does not: an unknown
+   * id should give a bot a personality, not stop it from playing.
+   */
+  getBrainProfile(profileId: string): BrainProfile | null {
+    return this.config.npc.profiles.find((profile) => profile.id === profileId) ?? null;
+  }
+
+  listBrainProfiles(): readonly BrainProfile[] {
+    return this.config.npc.profiles;
+  }
 }
 
 /** Build an independent view over a deep copy of `config`. */
@@ -256,4 +278,12 @@ export function getMatchConfig(): MatchConfig {
 
 export function getTrapConfig(): TrapConfig {
   return current.getTrapConfig();
+}
+
+export function getNpcConfig(): NpcConfig {
+  return current.getNpcConfig();
+}
+
+export function listBrainProfiles(): readonly BrainProfile[] {
+  return current.listBrainProfiles();
 }

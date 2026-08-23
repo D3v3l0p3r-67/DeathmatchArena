@@ -39,6 +39,8 @@ const RAILGUN: WeaponDefinition = {
   magazineSize: 4,
   reloadTime: 3000,
   automatic: false,
+  knockbackForce: 2,
+  recoilForce: 0.7,
   ranged: {
     bulletSpeed: 4000,
     spread: 0,
@@ -47,6 +49,14 @@ const RAILGUN: WeaponDefinition = {
     projectileStyle: { color: 0x88ccff, radius: 3, trailLength: 40 },
   },
   melee: null,
+  silhouette: {
+    length: 34,
+    height: 14,
+    gripX: 12,
+    gripY: 7,
+    color: 0x88ccff,
+    parts: [{ x: 0, y: 4, width: 34, height: 6 }],
+  },
 };
 
 describe("the configuration field list", () => {

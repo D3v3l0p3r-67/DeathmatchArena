@@ -13,6 +13,7 @@ import {
   type DebugAuthRequest,
   type DebugCommandRequest,
   type DebugCommandResult,
+  type DebugNpcPayload,
   type DebugStatePayload,
   type GrenadeExplodedPayload,
   type InputCommand,
@@ -61,6 +62,8 @@ export interface NetworkEvents {
   /** Server's verdict on debug access, plus the catalogue when granted. */
   debugState: DebugStatePayload;
   debugResult: DebugCommandResult;
+  /** What the bots are thinking. Only arrives while a console is authorized. */
+  debugNpc: DebugNpcPayload;
   crateDestroyed: CrateDestroyedPayload;
   meleeSwing: MeleeSwingPayload;
   grenadeExploded: GrenadeExplodedPayload;
@@ -150,6 +153,17 @@ export class NetworkManager {
   private adoptServerWorld(arena: ArenaDefinition | undefined, config: WelcomePayload["config"] | undefined): void {
     if (config) loadGameConfig(config);
     if (arena) registerArena(arena);
+  }
+
+  /**
+   * Ask the server not to wait for more players.
+   *
+   * A request, not an instruction: the server checks that this session is a
+   * person in a lobby that is actually holding places open, so sending it at any
+   * other moment achieves nothing.
+   */
+  requestImmediateStart(): void {
+    this.room?.send(ClientMessage.START_NOW, {});
   }
 
   /** Approximate server clock, used only for debug output and trail fading. */
@@ -381,6 +395,9 @@ export class NetworkManager {
     );
     room.onMessage(ServerMessage.DEBUG_RESULT, (payload: DebugCommandResult) =>
       this.events.emit("debugResult", payload),
+    );
+    room.onMessage(ServerMessage.DEBUG_NPC, (payload: DebugNpcPayload) =>
+      this.events.emit("debugNpc", payload),
     );
     room.onMessage(ServerMessage.PONG, (payload: PongPayload) => this.handlePong(payload));
 

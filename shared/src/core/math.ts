@@ -12,6 +12,17 @@ export function clamp(value: number, min: number, max: number): number {
   return value < min ? min : value > max ? max : value;
 }
 
+/**
+ * Clamp to 0..1.
+ *
+ * The workhorse of the NPC utility system, which compares scores built from
+ * normalised terms -- a term that escapes 0..1 quietly overwhelms every other
+ * term it is added to, and the bug looks like a personality rather than a bug.
+ */
+export function clamp01(value: number): number {
+  return value < 0 ? 0 : value > 1 ? 1 : value;
+}
+
 export function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
 }

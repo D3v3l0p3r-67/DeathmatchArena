@@ -169,9 +169,12 @@ const FOUNDRY: ArenaDefinition = {
     // is not actually safe.
     trap("trap-3", "fire", 1250, 1600, 90, 140, TrapActivation.PERIODIC),
     // Patrols the length of the central mesa, the arena's most contested ledge.
-    trap("trap-4", "saw", 1300, 1264, 56, 56, TrapActivation.ALWAYS, {
+    // Starts clear of the two mesa spawn points: its old route came within
+    // thirty pixels of both, which is not a hazard, it is an ambush on whoever
+    // happens to spawn there.
+    trap("trap-4", "saw", 1440, 1264, 56, 56, TrapActivation.ALWAYS, {
       direction: "right",
-      travel: 560,
+      travel: 380,
     }),
     // Hangs under the top platform and drops on whoever climbs to it.
     trap("trap-5", "falling-object", 1550, 780, 90, 90, TrapActivation.PROXIMITY, {

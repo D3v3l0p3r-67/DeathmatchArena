@@ -45,8 +45,9 @@ Useful server endpoints in development:
 ### Other commands
 
 ```bash
-npm test           # 202 tests: physics, combat, grenades, power-ups, traps, arenas, configuration,
-                   #            administration, presentation, debug access, protocol and a real networked match
+npm test           # 290 tests: physics, combat, grenades, power-ups, traps, arenas, configuration,
+                   #            administration, NPC brains, presentation, debug access, protocol,
+                   #            and real networked matches
 npm run typecheck  # tsc --noEmit across all three packages
 npm run build      # bundles the server and builds the client
 npm start          # runs the built server
@@ -122,6 +123,7 @@ and is imported by both sides — nothing in `client/` or `server/` redefines it
 | `systems/ArenaShrinkSystem.ts` | The closing walls, and the damage they do |
 | `systems/GrenadeSystem.ts` | Throw charging, grenade flight and bounces, fuses and blasts |
 | `systems/TrapSystem.ts` | Trap activation, motion, overlap and damage — generic, with no per-trap code |
+| `npc/*` | The NPC brain: perception, memory, utility scoring, navigation, controllers |
 | `admin/AdminAuthorization.ts` | Who may administer the server; the only place that decides |
 | `admin/ArenaRepository.ts` | Where arenas are stored, behind an interface a database could implement |
 | `admin/ArenaService.ts` | Arena rules: validate, store, publish to the running server |
@@ -216,7 +218,9 @@ how long the match runs first, how fast the walls travel, how narrow the gap get
 before they stop, and how hard they hurt. The HUD counts down to it and then
 warns while it is happening, both driven by whole seconds the server sends.
 
-Two players are enough to start (configurable via `MIN_PLAYERS`); ten is the maximum.
+Two players are enough to start (configurable via `MIN_PLAYERS`); five is the
+maximum, and the free places are held open for people before bots take them —
+see [NPCs](#npcs).
 When a match starts the room locks itself, so Colyseus routes new arrivals into a fresh
 room instead of an ongoing fight. Dead players stay connected as spectators and can
 cycle through the survivors. After the results screen the room recycles itself so the
@@ -432,6 +436,167 @@ afterwards starts from.
 
 ---
 
+## NPCs
+
+Bots that play the game rather than simulate playing it. No LLM, no neural
+network, no external service: perception, a utility brain, a state machine and
+two controllers, which is what game AI has been made of for thirty years and
+what makes it debuggable.
+
+### An NPC is a player
+
+The constraint everything else follows from: a bot gets a `PlayerState` and a
+`PlayerRuntime` like anyone else, its decisions come out as `InputCommand`s, and
+those go into the same queue a browser's inputs go into. It is spawned by the
+same match manager, moved by the same integrator, bounded by the same input
+budget, and shot by the same collision code.
+
+So there is no bot movement code anywhere. If a bot could be moved by anything
+other than an input command it would stop being bound by the rules it is playing
+under, and "the AI cheats" is the one criticism a shooter never recovers from.
+
+### The parts
+
+```
+Perception → Context → Utility scoring → Intent → State machine → Controllers
+```
+
+| File | Responsibility |
+| --- | --- |
+| `npc/Perception.ts` | The only thing that reads the room, and it throws most of it away |
+| `npc/Memory.ts` | Where an enemy went, until it is forgotten |
+| `npc/context.ts` | What a bot believes, normalised to 0..1 |
+| `npc/TargetSelector.ts` | *Who*, scored separately from *what* |
+| `npc/Brain.ts` | Scores registered actions, with hysteresis and noise |
+| `npc/actions/*` | One file per action: a score and a small state machine |
+| `npc/CombatController.ts` | Aim, lead, shoot, throw — deliberately imperfect |
+| `npc/MovementController.ts` | Left, right, jump, double jump, drop, and nothing else |
+| `npc/Navigation.ts` | A graph of standing room, with walk / jump / drop links |
+| `npc/NpcAgent.ts` | One bot: owns the parts and runs them at the right rates |
+| `npc/NpcSystem.ts` | The bots in one room: population, input, debug |
+
+The layering is enforced by what each part is handed. The brain receives a
+context and returns an intent; it holds no reference to the controllers and could
+not move a bot if it wanted to. The controllers receive the intent and have no
+idea why they were asked. Only `NpcAgent` knows both.
+
+### Perception is the honesty boundary
+
+The server knows everything. Perception narrows that to what a bot could
+plausibly sense, and it is the only place with access to the room:
+
+- an enemy behind a wall is not in the result (three rays — head, chest, knees —
+  because one centre-to-centre ray is hidden by a knee-high crate);
+- an enemy beyond the configured sight range is not in the result;
+- **a crate never reports its contents**, because the server does not tell anyone
+  what is inside one, and a bot that knew would be cheating in exactly the way
+  crates exist to prevent.
+
+It runs at the configured perception rate — eight times a second by default,
+faster than a person reacts and a fraction of the cost of doing it per frame.
+
+### Behaviour is scored, not branched
+
+Nine actions ship: attack, chase, retreat, dodge, get power-up, get weapon, throw
+grenade, take position, search. Each is a score built from normalised terms and
+profile weights, and the highest wins:
+
+```ts
+score = lowHealth * danger * profile.survival * 100;
+```
+
+Not `if (health < 20) retreat()`. The same expression makes a Coward leave early
+and a Berserker ignore it, which a threshold cannot, and it can be balanced by
+moving a number rather than rewriting a condition. Even the emergencies are
+scored: a grenade at your feet simply produces a number no ordinary action can
+reach, so a Berserker one shot from a kill will occasionally eat it.
+
+Two mechanisms stop pure scoring from looking insane, both profile-driven:
+whatever a bot is already doing gets a bonus and a challenger must beat it by a
+threshold, and an action cannot be replaced until it has had a minimum time to
+show what it was going to do. Without them, two actions whose scores cross
+produce attack/retreat/attack/retreat several times a second. A small random
+spread on every score does the opposite job: it stops two bots with the same
+profile moving in lockstep.
+
+### Personality is configuration
+
+There is no `AggressiveNpc` class. Every bot runs the same brain and differs only
+by a `BrainProfile` — twelve of them ship (Aggressive, Defensive, Rusher, Hunter,
+Opportunist, Collector, Grenadier, Camper, Trickster, Coward, Berserker,
+Balanced), and every value is editable at `/admin` under **NPCs** or live in the
+debug console. A bot re-reads its profile on every decision, so a change lands on
+its next thought.
+
+The profile is who a bot *is*; the situation bends it into who they are right
+now. Being hurt lowers aggression and raises survival in proportion, a bad weapon
+raises the appetite for a pickup — expressed once, in `deriveEffectiveProfile`,
+so no action's scoring carries an "except when hurt" clause. A hurt Berserker is
+still the most aggressive thing in the room, just less so.
+
+### Being beatable
+
+A weak bot is not one with less health or a damage penalty. It is one that:
+
+- takes longer to notice you (`reactionTimeMs`),
+- swings its aim more slowly (`aimSkill`),
+- misjudges where you are going (`predictionSkill`),
+- and holds its crosshair a little off — a slow drift re-rolled a few times a
+  second, not per-tick noise, which averages to nothing and looks like a
+  vibrating gun.
+
+Targeting is scored separately from acting, so bots do not all converge on
+whoever is nearest: a Hunter peels off after the wounded one across the room
+while a Coward takes what is in front of it.
+
+### Watching one think
+
+The debug console (`Shift`+`D`) gains an **NPC AI** section: every bot's profile,
+current action and state, its target, and every action's score with the winner
+marked, alongside the context that produced them. **Add bot**, **Remove bots** and
+**Watch bot** are ordinary debug commands.
+
+Decision logging is off by default and only ever on for one bot at a time — a
+dozen of them logging at eight hertz is noise nobody can read.
+
+### Filling a lobby
+
+An arena seats five. A lobby holds its free places open for **people** first —
+a bot is a consolation prize, and given the choice a match should fill with
+players. Only once the hold expires do bots take what is left.
+
+```
+1 player joins  ->  "Holding places for other players · 58s"  +  Start now with bots
+   ...nobody else arrives...
+hold expires    ->  four bots join, the match starts
+```
+
+The hold starts when the first person arrives and deliberately does **not** reset
+when more do: a wait that keeps restarting is a wait nobody can plan around.
+Whoever is waiting can skip it at any point with **Start now with bots** — the
+client only asks, and the server checks that the request comes from a person in a
+lobby that is actually holding places open.
+
+There is always at least one person. Bots never play among themselves: an empty
+lobby stays empty, and if everybody leaves mid-match the bots are cleared, which
+ends the match rather than leaving a server simulating a fight nobody is
+watching. A dropped connection is not the same as leaving — that seat is held for
+the reconnection window.
+
+```
+npc.enabled          on by default
+npc.fillToPlayers    top a waiting lobby up to this many participants (5)
+npc.fillAfterMs      how long the places stay open for people (60s)
+npc.maxBots          hard cap (4, so one seat is always a person's)
+npc.sightRange       raise it and bots start feeling omniscient
+npc.thinkIntervalMs  8Hz by default
+```
+
+Bots are only added and removed between matches: dropping one into a running
+match would give it a free spawn among people who have been fighting.
+
+---
+
 ## Deploying to Colyseus Cloud
 
 `server/` is already shaped the way Colyseus Cloud expects:
@@ -590,6 +755,30 @@ tunable: starting and maximum count, minimum and maximum throw speed, maximum
 charge time, gravity, bounciness, friction, fuse, blast radius, maximum damage,
 damage at the edge, and how many a pickup grants.
 
+### Crates announce themselves
+
+A crate never simply appears. The spot it is about to land on is marked, the
+marking builds towards the moment, and only then does the crate arrive — so
+contesting one is a decision somebody had time to make rather than a race
+against a surprise.
+
+```
+spot chosen  ->  warning  ->  configurable delay (5s)  ->  crate lands  ->  warning gone
+```
+
+The marker is three things at once, because one alone is missable in a firefight:
+a ring that tightens onto the spot, a shadow growing underneath, and a flashing
+chevron above it — with the pulse quickening from a slow beat to an urgent one as
+the moment approaches.
+
+It is purely visual. A warning has no collision, holds nothing, and gives away
+only the *place*: the contents stay secret exactly as they do for a sealed crate.
+The spawn point is reserved for the whole wait, so the crate really does arrive
+where it was promised, and announced crates count against the crate limit —
+three warnings and no crates is still three crates on the way.
+
+`powerUpSpawning.warningMs` sets the wait; 0 drops crates with no warning at all.
+
 ### Spawn points
 
 Power-up spawn points live on the **arena**, not in the game config, because a
@@ -617,15 +806,15 @@ Configurable without touching TypeScript:
 
 | Area | Values |
 | --- | --- |
-| Player | max health, move speed, accelerations, frictions |
+| Player | max health, move speed, accelerations, frictions, knockback limit |
 | Jumping | gravity, jump strength, max jumps, mid-air jump strength, early-release cut, coyote time, jump buffer, fall speed |
 | Match | min/max players, countdown, result screen, maximum match length |
-| Weapons | enabled, damage, range, fire rate, magazine size, reload time, automatic |
+| Weapons | enabled, damage, range, fire rate, magazine size, reload time, automatic, knockback, recoil |
 | Shotgun | pellet count, spread, falloff curve, bullet speed |
 | Chainsaw | damage, contact range, attack interval, arc |
-| Grenades | starting and maximum count, min/max throw power, charge time, gravity, bounce, friction, fuse, blast radius, damage and falloff |
+| Grenades | starting and maximum count, min/max throw power, charge time, gravity, bounce, friction, fuse, blast radius, damage, falloff and knockback |
 | Power-ups | enabled, spawn weight, display name, and the effect each type carries |
-| Crates | health, size, lifetime |
+| Crates | health, size, lifetime, landing warning |
 | Spawning | interval, first-spawn delay, max active crates, pickup radius, revealed lifetime |
 | Closing walls | enabled, start time, wall speed, minimum width, crush damage |
 | Traps | global defaults for damage, delay, duration, cooldown, speed and trigger radius |
@@ -639,6 +828,45 @@ client prediction and server simulation must agree on them *exactly*. They are n
 configurable, and the agreement is explicit instead of implicit — the server sends
 the room's values with the welcome message and the client predicts with those, so
 both sides still step the same integrator with the same numbers.
+
+---
+
+## Knockback and recoil
+
+Getting shot moves you, and shooting moves you back.
+
+Both are **impulses**, never position changes: a teleport out of a hit would put
+somebody through geometry and would arrive on every other client as a jump rather
+than as a shove. The impulse is added to whatever the player was already doing,
+so a knockback compounds with a jump the way it should.
+
+Each weapon carries two separate numbers, because a weapon that throws people
+across the room need not also throw its owner:
+
+| | Knockback | Recoil |
+| --- | --- | --- |
+| Assault Rifle | 0.25 | 0.04 |
+| Shotgun | 0.3 *per pellet* | 0.4 |
+| Chainsaw | 0.9 | 0 |
+| Grenade blast | 1.4 at the centre | — |
+
+One unit is 260 px/s along the direction of travel, so the numbers read as
+multiples of each other rather than as raw speeds. Knockback is applied **per
+hit** — nine shotgun pellets landing at contact range deliver nine of them —
+while recoil is applied **per shot**, so a shotgun kicks once however many pellets
+leave the barrel. A grenade throws outwards from the blast and falls off with it,
+so a near miss shoves and a direct hit launches.
+
+`player.maxKnockbackSpeed` caps what any single hit may add. Physics that a
+configuration value can break is not really configurable, and it is the only
+thing standing between a mistyped weapon and somebody crossing the arena.
+
+One interaction is worth knowing about, because it silently cancels the whole
+feature if you get it wrong: the run-speed cap must not clip a velocity that is
+already above it. Clamping outright means a knocked-back player erases the shove
+by holding a movement key. The limit now never clips below the speed already
+carried — holding a key still cannot push you *past* the cap, and friction is what
+bleeds the excess.
 
 ---
 
@@ -795,6 +1023,11 @@ npm test
 - **`tests/combat.test.ts`** — projectile collision, tunnelling at high bullet speeds,
   friendly-fire-with-self, weapon validation, the elimination path, shotgun pellets
   and falloff, and chainsaw contact rules (range, arc, walls, attack interval).
+  Also knockback and recoil: the direction of the shove, that it scales with the
+  weapon, that it is capped however absurd the configuration, that it adds to the
+  speed already carried, that it never moves a position directly, that recoil is
+  per shot rather than per pellet — and that holding a movement key no longer
+  cancels a knockback.
 - **`tests/debug.test.ts`** — debug authorization over a real socket: a refusal leaks
   no catalogue, a hand-crafted command from an unauthorized session changes nothing,
   arguments are clamped, unknown config paths are refused, and a room override never
@@ -802,7 +1035,9 @@ npm test
 - **`tests/powerups.test.ts`** — the closing arena (timing, symmetry, minimum width,
   crush damage, disabling it) and the crate pipeline end to end: spawn points, weighted
   contents, crate damage and destruction, revealed pickups, collection, and every
-  power-up effect including expiry. Also asserts a crate never exposes its contents.
+  power-up effect including expiry. Also asserts a crate never exposes its contents —
+  including while it is only a warning, which lands exactly where it was promised,
+  holds its spot for the whole wait, and counts against the crate limit.
 - **`tests/grenades.test.ts`** — the loadout, charge-to-speed curve (including an
   absurd hold being clamped), flight under gravity, bouncing off geometry, the fuse,
   and a blast that falls off with distance and catches the thrower too.
@@ -830,6 +1065,15 @@ npm test
 - **`tests/admin.test.ts`** — the administration services: nothing reaches storage
   unvalidated, the last playable arena cannot be deleted, a save publishes to the
   running server, and reset works at every scope while storing only deltas.
+- **`tests/npc.test.ts`** — the bots. That perception throws away what a bot could
+  not sense (walls, range, a crate's contents), that behaviour comes out of scores
+  rather than thresholds, that hysteresis stops the attack/retreat flicker, that
+  targeting is genuinely separate from acting, and that the navigation graph
+  narrows when the configured jump does. Plus whole matches run end to end:
+  bots join a lobby, spawn, move under their own power through the ordinary input
+  queue, choose varied actions, and shoot each other. Also the lobby hold: places
+  stay open while it runs, fill when it expires, can be skipped by a person and
+  not by a bot, and never leave bots playing alone.
 
 ---
 
@@ -842,6 +1086,10 @@ The seams are already in place for the obvious next features:
   debug console on its own.
 - **More power-ups** — another entry in the same file. A new *weapon* power-up needs
   no code at all; a genuinely new kind of effect needs one applier in `PowerUpSystem`.
+- **More NPC behaviour** — `brain.registerAction({ id, label, score, execute })`.
+  The brain has no list of its own, so nothing else changes; registering an
+  existing id replaces that behaviour. New personalities are entries in
+  `npc.profiles`, and appear in the admin interface on their own.
 - **More trap types** — register a `TrapTypeDefinition` describing how it moves and
   how it meters damage. The simulation, the validator and the editor all pick it up;
   the server has no per-trap code to add to.

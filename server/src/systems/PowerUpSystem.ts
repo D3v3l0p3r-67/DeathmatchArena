@@ -3,6 +3,7 @@ import {
   PowerUpType,
   ServerMessage,
   applyHealthRestore,
+  clamp,
   type CrateDestroyedPayload,
   type PowerUpCollectedPayload,
   type PowerUpDefinition,
@@ -11,6 +12,7 @@ import {
 import type { PlayerRuntime } from "../rooms/PlayerRuntime.js";
 import type { RoomContext } from "../rooms/RoomContext.js";
 import { CrateState } from "../rooms/schema/CrateState.js";
+import { PendingCrateState } from "../rooms/schema/PendingCrateState.js";
 import type { PlayerState } from "../rooms/schema/PlayerState.js";
 import { PowerUpState } from "../rooms/schema/PowerUpState.js";
 import type { GrenadeSystem } from "./GrenadeSystem.js";
@@ -24,6 +26,21 @@ interface CrateRuntime {
   /** Index into the arena's power-up spawn points, so it can be freed again. */
   spawnIndex: number;
   expiresAt: number;
+}
+
+/**
+ * A crate that has been announced but has not landed.
+ *
+ * The contents live here for the length of the warning and are never
+ * synchronised: knowing *where* a crate is coming is the point, knowing what is
+ * in it would defeat the crate.
+ */
+interface PendingCrateRuntime {
+  state: PendingCrateState;
+  contents: PowerUpDefinition;
+  spawnIndex: number;
+  announcedAt: number;
+  landsAt: number;
 }
 
 interface PickupRuntime {
@@ -60,6 +77,7 @@ type PowerUpApplier = (
  */
 export class PowerUpSystem {
   private readonly crates = new Map<string, CrateRuntime>();
+  private readonly pending = new Map<string, PendingCrateRuntime>();
   private readonly pickups = new Map<string, PickupRuntime>();
 
   /** Spawn points currently holding a crate or an uncollected pickup. */
@@ -130,9 +148,11 @@ export class PowerUpSystem {
   /** Called when a match ends: nothing should linger into the lobby. */
   clear(): void {
     this.crates.clear();
+    this.pending.clear();
     this.pickups.clear();
     this.occupiedSpawns.clear();
     this.context.state.crates.clear();
+    this.context.state.pendingCrates.clear();
     this.context.state.powerUps.clear();
     this.nextSpawnAt = 0;
   }
@@ -150,6 +170,7 @@ export class PowerUpSystem {
 
     this.expireEntities(now);
     this.collectPickups(now);
+    this.updatePending(now);
     this.maybeSpawnCrate(now);
   }
 
@@ -207,7 +228,9 @@ export class PowerUpSystem {
     // the moment a single point frees up.
     this.nextSpawnAt = now + config.intervalMs;
 
-    if (this.crates.size >= config.maxActiveCrates) return;
+    // Announced crates count towards the limit: three warnings and no crates is
+    // still three crates on the way.
+    if (this.crates.size + this.pending.size >= config.maxActiveCrates) return;
 
     const spawnIndex = this.pickFreeSpawnIndex();
     if (spawnIndex === -1) return;
@@ -215,7 +238,79 @@ export class PowerUpSystem {
     const contents = this.context.config.pickWeightedPowerUp(this.context.random);
     if (!contents) return;
 
-    this.spawnCrate(spawnIndex, contents, now);
+    // With no warning configured, land it immediately -- the announcement is a
+    // courtesy, not a rule of the game.
+    if (config.warningMs <= 0) {
+      this.spawnCrate(spawnIndex, contents, now);
+      return;
+    }
+
+    this.announceCrate(spawnIndex, contents, now, config.warningMs);
+  }
+
+  /**
+   * Mark where a crate is going to land.
+   *
+   * The spawn point is reserved from this moment, so nothing else claims it
+   * while the warning runs and the crate really does arrive where it was
+   * promised. The contents are held here and never synchronised -- a warning
+   * gives away the place, never the prize.
+   */
+  private announceCrate(
+    spawnIndex: number,
+    contents: PowerUpDefinition,
+    now: number,
+    warningMs: number,
+  ): void {
+    const point = this.enabledSpawnPoints()[spawnIndex]!;
+    const crate = this.context.config.getCrateConfig();
+
+    const state = new PendingCrateState();
+    state.id = `w${this.nextEntityId++}`;
+    state.x = point.x;
+    state.y = point.y;
+    state.width = crate.width;
+    state.height = crate.height;
+    state.progress = 0;
+
+    this.pending.set(state.id, {
+      state,
+      contents,
+      spawnIndex,
+      announcedAt: now,
+      landsAt: now + warningMs,
+    });
+    this.occupiedSpawns.set(spawnIndex, state.id);
+    this.context.state.pendingCrates.set(state.id, state);
+
+    this.context.logger.debug("Crate announced", { warning: state.id, landsIn: warningMs });
+  }
+
+  /**
+   * Advance the warnings, and land the ones whose time is up.
+   *
+   * `progress` is recomputed every tick rather than counted down, so a warning
+   * stays truthful even if the configured time is changed underneath it.
+   */
+  private updatePending(now: number): void {
+    if (this.pending.size === 0) return;
+
+    for (const [id, entry] of Array.from(this.pending)) {
+      const span = Math.max(1, entry.landsAt - entry.announcedAt);
+      const progress = clamp((now - entry.announcedAt) / span, 0, 1);
+
+      if (progress < 1) {
+        entry.state.progress = progress;
+        continue;
+      }
+
+      // Landing: the reservation passes straight from the warning to the crate,
+      // so the point is never briefly free for something else to take.
+      this.pending.delete(id);
+      this.context.state.pendingCrates.delete(id);
+      this.occupiedSpawns.delete(entry.spawnIndex);
+      this.spawnCrate(entry.spawnIndex, entry.contents, now);
+    }
   }
 
   /**
@@ -228,7 +323,7 @@ export class PowerUpSystem {
     return this.context.arena.powerUpSpawns.filter((point) => point.enabled);
   }
 
-  /** Uniformly random choice among unoccupied power-up spawn points. */
+  /** Warnings and crates alike hold a spawn point, so nothing doubles up. */
   private pickFreeSpawnIndex(): number {
     const points = this.enabledSpawnPoints();
     const free: number[] = [];
