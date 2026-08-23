@@ -11,11 +11,12 @@ const PULSE_END_HZ = 7;
 /**
  * The mark left where a crate is about to land.
  *
- * Three things at once, because one of them alone is missable in a firefight: a
- * ring on the ground that tightens onto the landing spot, a shadow growing
- * underneath it, and a flashing chevron above. All three build as the moment
- * approaches -- the pulse quickens from a slow beat to an urgent one -- so the
- * arena can be read at a glance rather than counted.
+ * A ring on the ground that tightens onto the landing spot, with a shadow and a
+ * glow building underneath it. Round, and only round: an arrow above the spot
+ * was tried and read as an icon stuck to the crate rather than as a warning
+ * about the ground. All of it builds as the moment approaches -- the pulse
+ * quickens from a slow beat to an urgent one -- so the arena can be read at a
+ * glance rather than counted.
  *
  * Entirely presentational. It has no body, blocks nothing, and gives away only
  * the place: the contents stay secret exactly as they do for a sealed crate.
@@ -25,7 +26,6 @@ export class CrateWarningView {
 
   private readonly ring: Phaser.GameObjects.Arc;
   private readonly ground: Phaser.GameObjects.Ellipse;
-  private readonly marker: Phaser.GameObjects.Image;
   private readonly glow: Phaser.GameObjects.Image;
 
   private progress = 0;
@@ -48,16 +48,8 @@ export class CrateWarningView {
       .setBlendMode(Phaser.BlendModes.ADD)
       .setScale(size / 14);
 
-    // A chevron above the spot, so the warning is visible even when the ground
-    // itself is off the bottom of somebody's screen.
-    this.marker = scene.add
-      .image(0, -size * 1.6, TextureKeys.MuzzleFlash)
-      .setTint(WARNING_COLOR)
-      .setRotation(Math.PI / 2)
-      .setScale(0.9);
-
     this.container = scene.add
-      .container(warning.x, warning.y, [this.ground, this.ring, this.glow, this.marker])
+      .container(warning.x, warning.y, [this.ground, this.ring, this.glow])
       // Under the players and projectiles: a warning must never hide the fight.
       .setDepth(3);
 
@@ -84,9 +76,6 @@ export class CrateWarningView {
     // Sharp on, soft off: a sawtooth reads as a beat, a sine reads as a shimmer.
     const beat = 1 - this.pulse;
 
-    const size = this.ring.radius;
-    void size;
-
     // The ring closes from wide to the crate's own footprint.
     this.ring.setScale(1 - 0.62 * eased);
     this.ring.setStrokeStyle(2 + 3 * eased, WARNING_COLOR, 0.35 + 0.65 * beat);
@@ -96,9 +85,6 @@ export class CrateWarningView {
 
     this.glow.setAlpha(0.1 + 0.55 * eased * beat);
     this.glow.setScale((0.6 + 0.7 * eased) * (0.9 + 0.2 * beat));
-
-    this.marker.setAlpha(0.45 + 0.55 * beat);
-    this.marker.setScale(0.75 + 0.45 * eased);
   }
 
   destroy(): void {

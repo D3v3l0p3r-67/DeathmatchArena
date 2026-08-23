@@ -189,7 +189,11 @@ away over a few frames, and only a large divergence snaps.
 
 Remote players and projectiles are rendered ~110 ms in the past, interpolated between
 buffered snapshots, so they stay smooth even though updates arrive at 20 Hz while the
-client renders at 60+ FPS.
+client renders at 60+ FPS. A spawn is the exception, because it is a teleport
+rather than a journey: a player's snapshot history is dropped the moment they
+come alive, or the interpolator would glide them across the arena from wherever
+they last were — which at the start of a match is last match's death spot, and
+which read as everybody flying in to their spawn points.
 
 Physics never depends on frame rate or on packet arrival: both sides advance in exact
 multiples of a fixed 1/60 s step, carrying the remainder in an accumulator.
@@ -863,6 +867,72 @@ try once the arena has had a chance to change. Three tests drive the whole loop
 against a wall: over it when a jump can clear it, walking away when nothing can,
 and refusing the goal the brain keeps asking for.
 
+### A bot always knows where its own feet are
+
+The most expensive bug in the AI was a category error. A bot's picture of the
+world — enemies, traps, items, line of sight — is rebuilt eight times a second,
+and everything in between is deliberately stale: that staleness *is* the reaction
+time the design asks for. Its own body was in the same picture, and that is not
+perception. Nobody has to look to find out whether they are rising or falling.
+
+Flying a jump on a snapshot up to seven ticks old goes wrong in exactly one
+place, and it is the worst one. The jump machine holds the button while
+`velocityY < 0`; on the tick after the press the snapshot still said zero, so it
+concluded the jump was over, released — which is precisely the input the
+variable-jump-height rule cuts short — and then spent the mid-air jump at ankle
+height. A 170px climb came out as a 50px hop. On a test bench that handed the
+controller a fresh body every tick, all of this passed; in a match, two bots
+would stand either side of a block they could clear and hop against it until
+something killed them.
+
+The body is now refreshed every tick and the rest of the picture is not. Two
+tests hold the line: a bot's idea of itself never drifts from where it actually
+is, and a bot in a *real match* — perception at its cadence, brain at its own,
+input through the ordinary queue — gets on top of a block that takes both jumps.
+Both fail on the old code.
+
+### Seeing somebody is not having a shot
+
+Line of sight is generous on purpose: three rays, head, chest and knees, because
+a single centre-to-centre ray means a crate at shin height hides somebody
+standing in plain view. A shot is not generous at all — it leaves the chest and
+travels one line.
+
+Bots used to conflate the two, and it showed. A head above a low wall counted as
+a target, so a bot stood there emptying magazines into the wall; the same
+mistake with a launcher put the blast on its own feet. Perception now reports
+`shootable` alongside `visible` — one ray, from the pivot a shot actually leaves
+from — and it gates both the trigger and the *decision*: with no shot, attacking
+scores zero, chasing wins, and the bot goes and finds an angle. Which it can now
+do, because it can jump again.
+
+Grenades got the same treatment from the other end. The action already refused
+to throw at something inside its own blast radius, but distance to the target
+says nothing about the ledge overhead: a grenade that clips it comes straight
+back down. So a throw is now *flown* before it is made — the opening of the arc,
+up to the first thing it hits — and refused if it lands inside the thrower's own
+blast. Measured across the three arenas at two, four and six bots, self-inflicted
+damage fell from 1963 to 1222 over the same two-minute samples, and improved in
+every one of the nine.
+
+### Routes a bot cannot fly
+
+Three fixes in the navigation graph, all the same shape: a link that describes a
+journey nobody can make is worse than no link at all, because a bot will commit
+to it.
+
+- **Walk links through walls.** Two nodes on one floor were linked whenever they
+  were close, but a wall can stand *on* that floor between them. Walk links and
+  level hops are now corridor-checked with a body-sized box.
+- **Drops through solid ground.** You leave a surface by walking off its edge, so
+  a drop is only real if the column you would fall down is clear. This also rules
+  out the case that reads as a route and is not: a node directly beneath the
+  floor you are standing on.
+- **Wandering into a trap.** Steering flinches away from a hazard on the way
+  past, but a *destination* inside one is a bot walking into spikes deliberately
+  and then standing in them. Hazardous nodes are no longer offered as somewhere
+  to go, and neither is anywhere the bot gave up on in the last few seconds.
+
 ## Jump pads, and holding a seat open
 
 Two smaller things, both of which reuse a mechanism rather than adding one.
@@ -1127,10 +1197,10 @@ against a surprise.
 spot chosen  ->  warning  ->  configurable delay (5s)  ->  crate lands  ->  warning gone
 ```
 
-The marker is three things at once, because one alone is missable in a firefight:
-a ring that tightens onto the spot, a shadow growing underneath, and a flashing
-chevron above it — with the pulse quickening from a slow beat to an urgent one as
-the moment approaches.
+The marker is a ring that tightens onto the spot, with a shadow and a glow
+building underneath it — the pulse quickening from a slow beat to an urgent one as
+the moment approaches. Round, and only round: an arrow above the spot was tried
+and read as an icon stuck to the crate rather than as a warning about the ground.
 
 It is purely visual. A warning has no collision, holds nothing, and gives away
 only the *place*: the contents stay secret exactly as they do for a sealed crate.

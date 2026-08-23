@@ -59,6 +59,15 @@ export const throwGrenadeAction: BrainAction = {
     const freshness = clamp01(1 - target.ageMs / STALE_MEMORY_MS);
     if (!target.visible && freshness <= 0) return 0;
 
+    // And the throw has to get away. Distance to the target says nothing about
+    // the ledge overhead or the crate at knee height, and a grenade that hits
+    // one of those comes straight back down on the thrower -- which is where
+    // nearly all the damage bots did to themselves used to come from.
+    const lead = 0.35;
+    if (!agent.canLobAt(target.x + target.velocityX * lead, target.y + target.velocityY * lead)) {
+      return 0;
+    }
+
     let score = profile.grenadeUsage * 55;
 
     // What a grenade is actually *for*. Three situations, each of them something

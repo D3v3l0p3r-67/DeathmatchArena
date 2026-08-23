@@ -33,8 +33,10 @@ export const attackAction: BrainAction = {
    */
   score(context: BrainContext, profile: BrainProfile, agent: NpcAgent): number {
     const target = agent.target;
-    // Something we cannot currently see is a chase, not an attack.
-    if (!target || !target.visible || !context.playing) return 0;
+    // Something we cannot currently see is a chase, not an attack. So is
+    // something we can see but cannot shoot: standing still trading nothing
+    // through a wall is the one thing an attack must never become.
+    if (!target || !target.visible || !target.shootable || !context.playing) return 0;
 
     let score = profile.aggression * 40;
     score += clamp01(1 - target.health) * profile.finishWeakEnemies * 30;

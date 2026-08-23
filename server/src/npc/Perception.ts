@@ -1,5 +1,6 @@
 import {
   MatchState,
+  PLAYER,
   PLAYER_HALF_HEIGHT,
   TrapPhase,
   angleDelta,
@@ -123,23 +124,58 @@ export class Perception {
 
   private describeSelf(self: PlayerState, runtime: PlayerRuntime): SelfContext {
     const weapon = this.context.config.getWeapon(self.weaponId);
+
+    return this.refreshSelf(
+      {
+        x: 0,
+        y: 0,
+        velocityX: 0,
+        velocityY: 0,
+        onGround: false,
+        jumpsRemaining: 0,
+        health: 0,
+        ammo: 0,
+        reloading: false,
+        grenades: 0,
+        weapon,
+      },
+      self,
+      runtime,
+    );
+  }
+
+  /**
+   * Bring a bot's knowledge of *its own body* up to date, in place.
+   *
+   * Everything else in the context is deliberately stale between perception
+   * passes -- that is the honesty boundary, and 125ms of not noticing an enemy
+   * move is exactly the reaction time it is there to model. Your own body is
+   * not perception, though. A person always knows whether they are rising or
+   * falling, and flying a jump on a snapshot up to seven ticks old is how a bot
+   * ends up releasing the button before it has left the ground: the machine
+   * checks `velocityY < 0`, the snapshot still says zero, and what should have
+   * been a 170px climb becomes a 50px hop with the mid-air jump spent on the
+   * way. So this is called every tick, and costs a handful of field copies.
+   */
+  refreshSelf(target: SelfContext, self: PlayerState, runtime: PlayerRuntime): SelfContext {
+    const weapon = this.context.config.getWeapon(self.weaponId);
     const maxHealth = this.context.config.getPlayerConfig().maxHealth;
 
-    return {
-      x: self.x,
-      y: self.y,
-      velocityX: runtime.movement.velocityX,
-      velocityY: runtime.movement.velocityY,
-      onGround: runtime.movement.onGround,
-      jumpsRemaining: runtime.movement.jumpsRemaining,
-      health: clamp01(self.health / Math.max(1, maxHealth)),
-      // A weapon with no magazine is never short of ammunition, so it reports
-      // full rather than empty -- otherwise a chainsaw would look desperate.
-      ammo: usesAmmo(weapon) ? clamp01(self.ammo / Math.max(1, weapon.magazineSize)) : 1,
-      reloading: self.reloading,
-      grenades: self.grenades,
-      weapon,
-    };
+    target.x = self.x;
+    target.y = self.y;
+    target.velocityX = runtime.movement.velocityX;
+    target.velocityY = runtime.movement.velocityY;
+    target.onGround = runtime.movement.onGround;
+    target.jumpsRemaining = runtime.movement.jumpsRemaining;
+    target.health = clamp01(self.health / Math.max(1, maxHealth));
+    // A weapon with no magazine is never short of ammunition, so it reports
+    // full rather than empty -- otherwise a chainsaw would look desperate.
+    target.ammo = usesAmmo(weapon) ? clamp01(self.ammo / Math.max(1, weapon.magazineSize)) : 1;
+    target.reloading = self.reloading;
+    target.grenades = self.grenades;
+    target.weapon = weapon;
+
+    return target;
   }
 
   // -------------------------------------------------------------------------
@@ -179,6 +215,7 @@ export class Perception {
         distance,
         angle,
         visible: true,
+        shootable: this.hasFiringLine(self, other),
         ageMs: 0,
         facingUs,
       });
@@ -206,6 +243,17 @@ export class Perception {
       if (this.rayReaches(self.x, self.y + offset, other.x, other.y + offset)) return true;
     }
     return false;
+  }
+
+  /**
+   * Would a shot get there?
+   *
+   * One ray, from the pivot a shot leaves from to the middle of them -- which
+   * is the line the projectile actually travels, unlike the three generous rays
+   * that decide whether somebody has been *noticed*.
+   */
+  private hasFiringLine(self: PlayerState, other: PlayerState): boolean {
+    return this.rayReaches(self.x, self.y + PLAYER.AIM_ORIGIN_Y, other.x, other.y);
   }
 
   /** True when nothing solid stands between the two points. */
@@ -257,6 +305,9 @@ export class Perception {
         distance,
         angle: Math.atan2(entry.lastSeenY - self.y, entry.lastSeenX - self.x),
         visible: false,
+        // Not seen, so certainly not shot at: a memory is a place to walk to,
+        // never a thing to fire at.
+        shootable: false,
         ageMs: now - entry.lastSeenAt,
         facingUs: 0,
       });

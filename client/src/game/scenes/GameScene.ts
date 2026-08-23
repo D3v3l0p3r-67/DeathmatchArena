@@ -106,6 +106,8 @@ export class GameScene extends Phaser.Scene {
   /** When each remote player was first seen winding up a grenade. */
   private readonly throwStartedAt = new Map<string, number>();
   private readonly remoteBuffers = new Map<string, SnapshotBuffer>();
+  /** Last seen alive flag per remote player, to catch the moment they spawn. */
+  private readonly remoteAlive = new Map<string, boolean>();
   private readonly projectileViews = new Map<string, ProjectileView>();
   private readonly crateViews = new Map<string, CrateView>();
   private readonly warningViews = new Map<string, CrateWarningView>();
@@ -463,6 +465,7 @@ export class GameScene extends Phaser.Scene {
     this.playerViews.delete(sessionId);
     this.throwStartedAt.delete(sessionId);
     this.remoteBuffers.delete(sessionId);
+    this.remoteAlive.delete(sessionId);
 
     if (this.spectateTargetId === sessionId) this.cycleSpectateTarget(1);
   }
@@ -511,7 +514,15 @@ export class GameScene extends Phaser.Scene {
         continue;
       }
 
-      this.remoteBuffers.get(sessionId)?.push({
+      // A spawn is a teleport, not a journey. Without dropping the history the
+      // interpolator glides them from wherever they last were -- which at the
+      // start of a match is last match's death spot -- and everybody appears to
+      // fly in to their spawn point.
+      const buffer = this.remoteBuffers.get(sessionId);
+      if (player.alive && this.remoteAlive.get(sessionId) === false) buffer?.reset();
+      this.remoteAlive.set(sessionId, player.alive);
+
+      buffer?.push({
         receivedAt,
         x: player.x,
         y: player.y,
@@ -1185,6 +1196,7 @@ export class GameScene extends Phaser.Scene {
     for (const view of this.playerViews.values()) view.destroy();
     this.playerViews.clear();
     this.remoteBuffers.clear();
+    this.remoteAlive.clear();
 
     for (const view of this.projectileViews.values()) view.destroy();
     this.projectileViews.clear();

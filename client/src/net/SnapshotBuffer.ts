@@ -50,6 +50,17 @@ export class SnapshotBuffer {
     if (this.samples.length > NETWORK.SNAPSHOT_BUFFER_SIZE) this.samples.shift();
   }
 
+  /**
+   * Forget everything seen so far.
+   *
+   * Used when somebody spawns: the history describes where they *were*, and
+   * interpolating from it to a spawn point on the other side of the arena is
+   * what made players appear to fly in at the start of a match.
+   */
+  reset(): void {
+    this.samples.length = 0;
+  }
+
   get latest(): Snapshot | undefined {
     return this.samples[this.samples.length - 1];
   }

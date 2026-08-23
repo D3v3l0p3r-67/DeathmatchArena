@@ -16,6 +16,7 @@ import {
 } from "@deathmatch/shared";
 
 const { PredictionController } = await import("../client/src/net/PredictionController.js");
+const { SnapshotBuffer } = await import("../client/src/net/SnapshotBuffer.js");
 
 const world = new CollisionWorld(getArena("foundry"));
 
@@ -248,5 +249,58 @@ describe("predicting your own recoil", () => {
     let shots = 0;
     for (let seq = 2; seq <= 120; seq++) if (fire(prediction, seq)) shots++;
     assert.equal(shots, 0, "holding the trigger on a semi-automatic fires nothing more");
+  });
+});
+
+
+describe("drawing somebody else", () => {
+  /** One snapshot of a remote player standing still at `x`. */
+  function sampleAt(receivedAt: number, x: number) {
+    return {
+      receivedAt,
+      x,
+      y: 500,
+      velocityX: 0,
+      velocityY: 0,
+      aimAngle: 0,
+      facing: 1,
+      alive: true,
+      onGround: true,
+    };
+  }
+
+  it("does not fly them in from where they used to be", () => {
+    /*
+     * A spawn is a teleport, not a journey. Remote players are drawn ~110ms in
+     * the past by interpolating between buffered snapshots, so at the start of
+     * a match the history from the *previous* one made everybody glide across
+     * the arena to their spawn point.
+     */
+    const buffer = new SnapshotBuffer();
+    buffer.push(sampleAt(0, 200));
+    buffer.push(sampleAt(50, 200));
+    buffer.push(sampleAt(100, 200));
+
+    buffer.reset();
+    buffer.push(sampleAt(150, 2000));
+
+    // Well after the interpolation delay, and still exactly at the spawn: with
+    // the old samples still in the buffer this reads somewhere in between.
+    const drawn = buffer.sample(400);
+    assert.equal(drawn?.x, 2000, "a spawned player is drawn at their spawn");
+  });
+
+  it("still interpolates ordinary movement", () => {
+    const buffer = new SnapshotBuffer();
+    buffer.push(sampleAt(0, 100));
+    buffer.push(sampleAt(100, 300));
+
+    // Halfway between the two samples, allowing for the render delay.
+    const drawn = buffer.sample(50 + 110);
+    assert.ok(drawn, "two samples are enough to draw between");
+    assert.ok(
+      drawn!.x > 100 && drawn!.x < 300,
+      `interpolation should land between the samples, got ${drawn!.x}`,
+    );
   });
 });
