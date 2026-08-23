@@ -8,6 +8,7 @@
  * Only the data modules are imported; neither touches the DOM.
  */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import { PLAYER, PLAYER_HALF_WIDTH, listWeapons } from "@deathmatch/shared";
 
@@ -189,16 +190,19 @@ describe("reading a player at a glance", () => {
     }
   });
 
-  it("never covers the visor, whatever is being carried", () => {
+  it("keeps a level aim off the visor, whatever is being carried", () => {
     /*
-     * The weapon draws in front of the body, so nothing but geometry keeps it
-     * off the face -- and pushing it forward is not enough on its own, because a
-     * bulky weapon's stock reaches back past the grip. What does the work is the
-     * hold *height*: at the shoulder the rocket launcher covered 56px² of a
-     * 84px² visor; at chest height every weapon clears it.
+     * The visor is the one part of the figure that says where somebody is
+     * looking, so it must stay readable. Two things keep it that way, and this
+     * is the first: the hold. Held at chest height and forward along the aim,
+     * no weapon in the catalogue touches the face while the aim is level --
+     * which is most of a match, since most shots are at somebody standing on
+     * the same floor.
      *
-     * Measured with the aim horizontal, which is where a weapon sits highest
-     * against the head.
+     * Aiming steeply up is the case geometry cannot win. A weapon held in front
+     * of the chest and pointed at the sky crosses the head at *some* offset:
+     * lowering the hold only moves the angle at which it starts. There the draw
+     * order does the work instead, which the next test pins.
      */
     const visor = { left: -3, right: 11, top: -15, bottom: -9 };
 
@@ -220,5 +224,28 @@ describe("reading a player at a glance", () => {
         );
       }
     }
+  });
+
+  it("draws the visor in front of the weapon", () => {
+    /*
+     * The second half of the guarantee, and the half a refactor can silently
+     * undo: the visor is the last thing drawn over the body, so a weapon swung
+     * across the face at a steep angle passes behind the eyes rather than
+     * blanking them. Read from the source because the order lives in a Phaser
+     * container, and this file deliberately never touches Phaser.
+     */
+    const source = readFileSync(
+      new URL("../client/src/game/entities/PlayerView.ts", import.meta.url),
+      "utf8",
+    );
+    const children = source.slice(source.indexOf(".container(0, 0, ["));
+
+    const weapon = children.indexOf("this.weapon,");
+    const visor = children.indexOf("this.visor,");
+    const body = children.indexOf("this.body,");
+
+    assert.ok(weapon > 0 && visor > 0 && body > 0, "the player container no longer lists its parts");
+    assert.ok(weapon > body, "the weapon is drawn behind the body, hiding the silhouette");
+    assert.ok(visor > weapon, "the weapon is drawn over the visor, hiding which way a player looks");
   });
 });

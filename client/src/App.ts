@@ -335,6 +335,8 @@ export class App {
       onSpectateTargetChanged: (name) => this.updateSpectatorBanner(name),
       onPowerUpCollected: (payload) => this.handlePowerUpCollected(payload),
       onCrateIncoming: (warning) => this.audio.playAt(SoundId.CrateIncoming, warning.x, warning.y, 0.8),
+      // The predicted shot: the flash and kick were the scene's; the bang is ours.
+      onLocalShot: (shot, muzzleX, muzzleY) => this.sound.localShot(shot.weaponId, muzzleX, muzzleY),
       onFinaleComplete: () => {
         if (this.pendingResult) this.showResults(this.pendingResult);
       },

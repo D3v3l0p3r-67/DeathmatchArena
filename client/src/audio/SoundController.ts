@@ -40,7 +40,10 @@ const PICKUP_SOUND: Record<string, string> = {
  * "this happened, so play that" is far easier to reason about than `play()`
  * calls sprinkled through the renderer.
  *
- * Everything here reads from state the server sent. Nothing decides anything.
+ * Everything here reads from state the server sent, with one deliberate
+ * exception: the local player's own shot is played from the client's predicted
+ * fire (`localShot`), because a bang that arrives a round trip late is the
+ * audible half of network lag. Nothing else decides anything.
  */
 export class SoundController {
   /** Tracked so a change can be recognised as an event worth a sound. */
@@ -97,11 +100,28 @@ export class SoundController {
   // -------------------------------------------------------------------------
 
   private onShot(projectile: SyncedProjectile): void {
+    // Our own shots are predicted: `localShot` already played them on the tick
+    // of the trigger pull, so the projectile coming back over the wire is old
+    // news rather than a second bang.
+    if (projectile.ownerId === this.network.sessionId) return;
+
     const weapon = getWeapon(projectile.weaponId);
     // Read from the definition, not from an id, so a new weapon sounds sensible
     // without a change here.
     const sound = RANGED_SHOT_BY_PELLETS(weapon.ranged?.pellets ?? 1);
     this.audio.playAt(sound, projectile.x, projectile.y);
+  }
+
+  /**
+   * The local player's own shot, on the tick it was predicted.
+   *
+   * The one sound in this controller that does not come from server state: the
+   * client's fire model mirrors the server's gate, and firing is the moment
+   * where feedback a round trip late reads as lag.
+   */
+  localShot(weaponId: string, x: number, y: number): void {
+    const weapon = getWeapon(weaponId);
+    this.audio.playAt(RANGED_SHOT_BY_PELLETS(weapon.ranged?.pellets ?? 1), x, y);
   }
 
   private onProjectileGone(projectile: SyncedProjectile): void {

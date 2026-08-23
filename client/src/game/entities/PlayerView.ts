@@ -59,6 +59,10 @@ export class PlayerView {
   /** Tracked so the weapon texture is only swapped when it actually changes. */
   private weaponId = "";
   private beltCount = -1;
+  /** What the bar last drew, so a full-health crowd costs no redraws. */
+  private drawnHealth = -1;
+  /** Whether the throw arrow drew anything last frame; a clear is only owed if so. */
+  private throwArrowDrawn = false;
 
   /** Elapsed time in the celebration, in ms. Negative when not celebrating. */
   private celebratingFor = -1;
@@ -110,20 +114,24 @@ export class PlayerView {
 
     this.container = scene.add
       /*
-       * Order matters: the weapon draws in front of the body, so the whole of it
+       * Order matters. The weapon draws in front of the body, so the whole of it
        * is visible whichever way the player is aiming -- which is the point of
-       * giving each weapon a silhouette at all.
+       * giving each weapon a silhouette at all. The visor draws in front of the
+       * weapon, because it is the one part of the figure that says where someone
+       * is looking and it must never be hidden.
        *
-       * That it does not cover the face is geometry rather than layering: it is
-       * held forward, at chest height rather than at the shoulder, which clears
-       * the visor for every weapon in the catalogue. See `PLAYER.AIM_ORIGIN_Y`.
+       * Holding the weapon forward at chest height keeps it off the face for any
+       * roughly level aim (a test pins that). Aiming steeply up is the case
+       * geometry cannot win: a weapon held in front of the chest and pointed at
+       * the sky crosses the head whatever the offsets, so the layering decides
+       * it there.
        */
       .container(0, 0, [
         this.shadow,
         this.body,
-        this.visor,
         this.belt,
         this.weapon,
+        this.visor,
         this.healthBar,
         this.throwArrow,
         this.label,
@@ -214,6 +222,7 @@ export class PlayerView {
   /** Put everything back for a new life. */
   private reviveVisuals(): void {
     this.dyingFor = -1;
+    this.drawnHealth = -1;
     this.container.setVisible(true);
     this.container.setAlpha(1);
     this.body.setRotation(0);
@@ -375,6 +384,11 @@ export class PlayerView {
   }
 
   private drawHealthBar(health: number): void {
+    // Redrawing a Graphics object means re-tessellating it; health changes on
+    // hits, not on frames, so a bar that has not changed is not redrawn.
+    if (health === this.drawnHealth) return;
+    this.drawnHealth = health;
+
     const width = 34;
     const height = 4;
     const ratio = clamp(health / getPlayerConfig().maxHealth, 0, 1);
@@ -412,8 +426,18 @@ export class PlayerView {
    * `progress` is 0..1; anything at or below zero clears it.
    */
   setThrowCharge(progress: number): void {
+    // Nobody charging is the common case, and it should cost nothing: the
+    // arrow is only cleared when there is something drawn to clear.
+    if (progress <= 0) {
+      if (this.throwArrowDrawn) {
+        this.throwArrow.clear();
+        this.throwArrowDrawn = false;
+      }
+      return;
+    }
+
     this.throwArrow.clear();
-    if (progress <= 0) return;
+    this.throwArrowDrawn = true;
 
     const charge = clamp(progress, 0, 1);
     const originX = Math.cos(this.renderedAim) * THROW_ARROW_START;
