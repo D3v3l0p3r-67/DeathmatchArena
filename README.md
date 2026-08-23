@@ -1175,15 +1175,23 @@ part of the bar is drawn too, so a short bar reads as short rather than as small
 **The weapon is held out in front, at chest height.** With the grip on the body's
 centre line a rifle's stock lay across the face, and the visor is the only part of
 the figure that says which way somebody is looking. Moving the grip forward alone
-was not enough: a long weapon aimed steeply up or down still swung its barrel back
-across the head. The fix is the hold, not the draw order — the grip sits
-`WEAPON_FORWARD_X` along the aim from a pivot at `AIM_ORIGIN_Y`, the chest rather
-than the shoulder, and from there no weapon in the catalogue overlaps the visor at
-any angle. That leaves the weapon free to be drawn *in front of* the figure, where
-a held object belongs, instead of hidden beneath it. Two tests hold the line: the
-barrel must reach past the body, and no weapon may touch the visor rectangle.
-`MUZZLE_OFFSET_X` moved with the grip, so the drawn barrel, the muzzle flash and
-the point the server spawns projectiles from still agree.
+was not enough: a bulky weapon's stock reaches back past the grip, so at the
+shoulder the rocket launcher still covered 56px² of an 84px² visor. Lowering the
+hold fixes that — the grip sits `WEAPON_FORWARD_X` along the aim from a pivot at
+`AIM_ORIGIN_Y`, the chest rather than the shoulder, and from there no weapon in
+the catalogue touches the face at a level aim. That leaves the weapon free to be
+drawn *in front of* the figure, where a held object belongs, instead of hidden
+beneath it.
+
+Aiming steeply up is the one case geometry cannot win: a weapon held in front of
+the chest and pointed at the sky crosses the head at any offset, and lowering the
+hold only changes the angle at which it starts. So the draw order finishes the
+job — the visor is the last thing drawn over the body, and a weapon swung across
+the face passes behind the eyes instead of blanking them. Three tests hold the
+line: the barrel must reach past the body, no weapon may touch the visor at a
+level aim, and the visor must draw after the weapon. `MUZZLE_OFFSET_X` moved with
+the grip, so the drawn barrel, the muzzle flash and the point the server spawns
+projectiles from still agree.
 
 **A throw is drawn at the hand, not on the HUD.** A wind-up used to be a power bar
 at the bottom of your own screen — which could only tell you something you already

@@ -110,20 +110,24 @@ export class PlayerView {
 
     this.container = scene.add
       /*
-       * Order matters: the weapon draws in front of the body, so the whole of it
+       * Order matters. The weapon draws in front of the body, so the whole of it
        * is visible whichever way the player is aiming -- which is the point of
-       * giving each weapon a silhouette at all.
+       * giving each weapon a silhouette at all. The visor draws in front of the
+       * weapon, because it is the one part of the figure that says where someone
+       * is looking and it must never be hidden.
        *
-       * That it does not cover the face is geometry rather than layering: it is
-       * held forward, at chest height rather than at the shoulder, which clears
-       * the visor for every weapon in the catalogue. See `PLAYER.AIM_ORIGIN_Y`.
+       * Holding the weapon forward at chest height keeps it off the face for any
+       * roughly level aim (a test pins that). Aiming steeply up is the case
+       * geometry cannot win: a weapon held in front of the chest and pointed at
+       * the sky crosses the head whatever the offsets, so the layering decides
+       * it there.
        */
       .container(0, 0, [
         this.shadow,
         this.body,
-        this.visor,
         this.belt,
         this.weapon,
+        this.visor,
         this.healthBar,
         this.throwArrow,
         this.label,
