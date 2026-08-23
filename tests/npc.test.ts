@@ -1811,3 +1811,110 @@ describe("how a bot flies a jump", () => {
     assert.ok(highest <= 210, `the graph plans a ${Math.round(highest)}px climb a bot cannot fly`);
   });
 });
+
+describe("meeting a wall", () => {
+  /**
+   * Put a bot on a floor with a solid wall between it and its goal, drive the
+   * whole loop -- controller decides, buttons go through the real movement step
+   * -- and watch what it does about the wall. The failure this pins came from a
+   * live match: a bot pressed flat against a block taller than any jump,
+   * leaping on the spot at a goal just the other side of it, for as long as its
+   * memory of the enemy lasted.
+   */
+  function meetTheWall(wallHeight: number, seconds = 5) {
+    const arena = createEmptyArena("wall", "Wall", 1600, 1200);
+    arena.elements.push(
+      { id: "floor", type: "floor", x: 0, y: 1000, width: 1600, height: 40 },
+      { id: "wall", type: "obstacle", x: 700, y: 1000 - wallHeight, width: 60, height: wallHeight },
+    );
+
+    const world = new CollisionWorld(arena);
+    const graph = new NavGraph(arena, world, getPlayerConfig());
+    const controller = new MovementController(graph, world);
+
+    const state = createMovementState(560, 1000 - PLAYER_HALF_HEIGHT);
+    state.onGround = true;
+    const input = createInputCommand();
+    const goal = { x: 860, y: 1000 - PLAYER_HALF_HEIGHT };
+
+    let jumpPresses = 0;
+    let jumping = false;
+
+    for (let tick = 0; tick < 60 * seconds; tick++) {
+      const self = {
+        x: state.x,
+        y: state.y,
+        velocityX: state.velocityX,
+        velocityY: state.velocityY,
+        onGround: state.onGround,
+        jumpsRemaining: state.jumpsRemaining,
+        health: 1,
+        ammo: 1,
+        reloading: false,
+        grenades: 0,
+        weapon: null,
+      } as never;
+
+      // The brain's contribution to the bug: it asks for the same goal on
+      // every thought, so the controller has to be the one that says no.
+      controller.setGoal(goal.x, goal.y, self, tick * 16.67);
+      controller.steer(self, tick * 16.67);
+      const buttons = controller.takeButtons();
+
+      if (buttons.jump && !jumping) jumpPresses++;
+      jumping = buttons.jump;
+
+      input.seq = tick + 1;
+      input.moveLeft = buttons.moveLeft;
+      input.moveRight = buttons.moveRight;
+      input.jump = buttons.jump;
+      stepPlayerMovement(state, input, FIXED_DELTA, world);
+    }
+
+    return { state, controller, jumpPresses };
+  }
+
+  it("hops over a wall a jump can clear", () => {
+    const { state } = meetTheWall(100);
+    assert.ok(state.x > 780, `should end up past the wall, got x=${Math.round(state.x)}`);
+  });
+
+  it("gives up on a wall no jump can clear, instead of leaping at it", () => {
+    const { state, controller, jumpPresses } = meetTheWall(400);
+
+    assert.equal(controller.goal, null, "an unreachable goal behind a wall should be dropped");
+    assert.ok(
+      jumpPresses <= 2,
+      `a wall taller than any jump is not answered with jumping; pressed jump ${jumpPresses} times`,
+    );
+    // And it stopped trying to walk through it: not pressed against the face.
+    assert.ok(state.x < 690, `should not be grinding against the wall, got x=${Math.round(state.x)}`);
+  });
+
+  it("keeps refusing the goal the brain keeps asking for", () => {
+    const { controller, state } = meetTheWall(400);
+
+    const self = {
+      x: state.x,
+      y: state.y,
+      velocityX: 0,
+      velocityY: 0,
+      onGround: true,
+      jumpsRemaining: 2,
+      health: 1,
+      ammo: 1,
+      reloading: false,
+      grenades: 0,
+      weapon: null,
+    } as never;
+
+    // The very next brain tick hands the same goal straight back.
+    controller.setGoal(860, 1000 - PLAYER_HALF_HEIGHT, self, 5 * 1000 + 100);
+    assert.equal(controller.goal, null, "a goal just abandoned as unreachable is refused");
+
+    // Memory, not a ban: once enough has changed for the memory to expire, the
+    // same place is worth another try.
+    controller.setGoal(860, 1000 - PLAYER_HALF_HEIGHT, self, 60 * 1000);
+    assert.notEqual(controller.goal, null, "the refusal expires with the memory");
+  });
+});
