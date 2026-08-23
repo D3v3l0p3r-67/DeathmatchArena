@@ -8,6 +8,7 @@ import {
   type MatchStateValue,
   getGrenadeConfig,
   getNpcConfig,
+  type PlayerCareer,
   type PowerUpCollectedPayload,
 } from "@deathmatch/shared";
 import { AudioEngine, DEFAULT_AUDIO_SETTINGS } from "./audio/AudioEngine.js";
@@ -27,6 +28,41 @@ import { UIManager } from "./ui/UIManager.js";
 
 /** HUD text does not need to change 60 times a second. */
 const HUD_UPDATE_INTERVAL_MS = 80;
+
+/**
+ * Where this player's own record is kept locally.
+ *
+ * A cache, not the truth: the server sends the real one on joining and after
+ * every match. It exists so the menu can show a returning player their record
+ * before they have joined anything, which is exactly where they want to see it.
+ */
+const CAREER_KEY = "deathmatch-arena:career";
+
+function loadCareer(): PlayerCareer | null {
+  try {
+    const raw = window.localStorage.getItem(CAREER_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<PlayerCareer>;
+    if (!Number.isFinite(parsed.matches)) return null;
+    return {
+      matches: Number(parsed.matches),
+      wins: Number(parsed.wins ?? 0),
+      kills: Number(parsed.kills ?? 0),
+      deaths: Number(parsed.deaths ?? 0),
+      bestPlacement: Number(parsed.bestPlacement ?? 0),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function saveCareer(career: PlayerCareer): void {
+  try {
+    window.localStorage.setItem(CAREER_KEY, JSON.stringify(career));
+  } catch {
+    // Blocked storage: the server still knows, and will say so on the next join.
+  }
+}
 
 /** Where the last bot setup is remembered between sessions. */
 const BOT_PREFERENCE_KEY = "deathmatch-arena:bots";
@@ -159,6 +195,8 @@ export class App {
     });
 
     this.restoreStoredName();
+    const remembered = loadCareer();
+    if (remembered) this.ui.showCareer(remembered);
     this.ui.setPreferredDifficulty(this.botPreference.difficulty);
     this.subscribeToNetwork();
     this.sound.attach();
@@ -366,6 +404,11 @@ export class App {
     });
 
     events.on("notice", (notice) => this.ui.showNotice(notice));
+    // Their own record, sent on joining and again after every match they finish.
+    events.on("career", (career) => {
+      saveCareer(career);
+      this.ui.showCareer(career);
+    });
 
     // The server's verdict is the only thing that opens any debug tooling.
     events.on("debugState", (state) => {

@@ -38,6 +38,14 @@
             <button class="menu__settings" id="menu-settings-button" type="button">Settings</button>
           </form>
 
+          <!-- This browser's own record. Hidden until there is one to show. -->
+          <dl class="career" id="menu-career" hidden>
+            <div><dt>Matches</dt><dd id="career-matches">0</dd></div>
+            <div><dt>Wins</dt><dd id="career-wins">0</dd></div>
+            <div><dt>Kills</dt><dd id="career-kills">0</dd></div>
+            <div><dt>K/D</dt><dd id="career-kd">0.0</dd></div>
+          </dl>
+
           <p class="hint">
             <kbd>A</kbd><kbd>D</kbd> move &middot; <kbd>Space</kbd> jump &middot;
             <kbd>Mouse</kbd> aim &middot; <kbd>Click</kbd> fire &middot; <kbd>R</kbd> reload
@@ -187,6 +195,7 @@
             </thead>
             <tbody id="results-body"></tbody>
           </table>
+          <p class="results__career" id="results-career"></p>
           <p class="results__next" id="results-next">Next match starting soon...</p>
           <div class="results__actions">
             <button class="button button--primary" id="play-again" type="button">Play again</button>

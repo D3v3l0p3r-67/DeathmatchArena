@@ -1,4 +1,10 @@
-import type { ArenaDefinition, CollisionWorld, GameConfig, GameConfigView } from "@deathmatch/shared";
+import type {
+  ArenaDefinition,
+  CareerUpdate,
+  CollisionWorld,
+  GameConfig,
+  GameConfigView,
+} from "@deathmatch/shared";
 import type { Logger } from "../utils/logger.js";
 import type { GameState } from "./schema/GameState.js";
 import type { PlayerRuntime } from "./PlayerRuntime.js";
@@ -75,6 +81,19 @@ export interface RoomContext {
    * A no-op while only one arena is installed.
    */
   rotateArena(): void;
+
+  /**
+   * Fold a finished match into the players' records, and tell each of them
+   * their own.
+   *
+   * The room owns the mapping from a session to the id a browser filed its
+   * record under, so the match manager hands over the numbers and stays out of
+   * the question of who anybody is.
+   */
+  recordCareers(updates: readonly CareerUpdate[]): void;
+
+  /** The career id this session offered, or "" for a bot or an anonymous player. */
+  careerUpdateFor(sessionId: string): string;
 
   applyKnockback(
     sessionId: string,

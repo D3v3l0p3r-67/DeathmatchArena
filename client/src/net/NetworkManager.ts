@@ -18,12 +18,14 @@ import {
   type DebugStatePayload,
   type ExplosionPayload,
   type InputCommand,
+  type JoinOptions,
   type MeleeSwingPayload,
   type KillPayload,
   type MatchResultMessage,
   type MatchStateValue,
   type NoticePayload,
   type PingPayload,
+  type PlayerCareer,
   type PongPayload,
   type PowerUpCollectedPayload,
   type AddBotRequest,
@@ -72,6 +74,8 @@ export interface NetworkEvents {
   explosion: ExplosionPayload;
   /** The room moved to a different arena for the next match. */
   arenaChanged: ArenaDefinition;
+  /** This player's own record across matches. */
+  career: PlayerCareer;
   /** The room retuned its configuration; anything derived from it must refresh. */
   configChanged: ConfigChangedPayload;
   disconnected: { code: number; reason: string };
@@ -206,7 +210,8 @@ export class NetworkManager {
    * once a match starts so nobody drops into a fight in progress.
    */
   async join(name: string): Promise<WelcomePayload> {
-    const room = (await this.client.joinOrCreate(clientConfig.roomName, { name })) as GameRoom;
+    const options: JoinOptions = { name, playerId: clientConfig.playerId };
+    const room = (await this.client.joinOrCreate(clientConfig.roomName, options)) as GameRoom;
     this.room = room;
     this.handshakeComplete = false;
 
@@ -416,6 +421,10 @@ export class NetworkManager {
     room.onMessage(ServerMessage.MELEE_SWING, (payload: MeleeSwingPayload) =>
       this.events.emit("meleeSwing", payload),
     );
+    room.onMessage(ServerMessage.CAREER, (payload: PlayerCareer) =>
+      this.events.emit("career", payload),
+    );
+
     room.onMessage(ServerMessage.ARENA_CHANGED, (payload: ArenaChangedPayload) => {
       if (!payload?.arena) return;
       // Adopted the same way the welcome's arena is, so prediction and rendering

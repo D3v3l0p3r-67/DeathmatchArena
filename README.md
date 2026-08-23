@@ -756,6 +756,33 @@ level 5              217ms                     122
 
 ---
 
+## A record, not a ranking
+
+Every player carries a small career across matches: matches played, matches won,
+kills, deaths and the best finish ever reached. It appears on the menu once there
+is something to show, and as a line under the standings when a match ends.
+
+The identity behind it is deliberately weak. There are no accounts: the client
+generates a UUID, keeps it in `localStorage`, and offers it when joining. That is
+a *claim*, not an identity — anyone can send any id — so the design follows the
+strength of the evidence:
+
+- a career is only ever sent to the player it belongs to;
+- there is no leaderboard, and no comparison between players anywhere;
+- nothing in the game is unlocked, weighted or matched by it.
+
+Which makes forging one pointless rather than merely detectable. Losing it — a
+cleared cache, a different machine — starts a fresh record, and that is the
+honest cost of not asking anybody to sign up.
+
+Storage follows the same shape as the administration data: a repository
+interface, a JSON file behind it, an in-memory fallback when the directory turns
+out to be unusable. A match ending never waits on the disk — the write is
+coalesced and fire-and-forget, because losing a kill count is not worth
+interrupting a game for.
+
+---
+
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs on every push and pull request: typecheck, the

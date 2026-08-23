@@ -174,6 +174,11 @@ export function createHarness(): Harness {
     },
     /** The harness plays one arena; rotation belongs to the room, not here. */
     rotateArena() {},
+    /** Careers belong to the room's storage, which a harness has none of. */
+    recordCareers() {},
+    careerUpdateFor() {
+      return "";
+    },
   } as unknown as RoomContext;
 
   const collision = new CollisionSystem(world);

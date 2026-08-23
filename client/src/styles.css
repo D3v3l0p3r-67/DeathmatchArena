@@ -266,6 +266,46 @@ kbd {
   color: var(--accent);
 }
 
+/* This browser's own record, on the menu. */
+.career {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin: 4px 0 14px;
+  padding: 12px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.career div {
+  text-align: center;
+}
+
+.career dt {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.career dd {
+  margin: 2px 0 0;
+  font-family: var(--mono);
+  font-size: 18px;
+  color: var(--text);
+}
+
+.results__career {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.results__career b {
+  color: var(--accent);
+}
+
 /* "Ada's Room", above the panel title. */
 .panel__eyebrow {
   margin: 0 0 4px;

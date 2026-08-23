@@ -52,6 +52,7 @@ import { MovementSystem } from "../systems/MovementSystem.js";
 import { PowerUpSystem } from "../systems/PowerUpSystem.js";
 import { ProjectileSystem } from "../systems/ProjectileSystem.js";
 import { WeaponSystem } from "../systems/WeaponSystem.js";
+import { playerStats } from "../stats/index.js";
 import { PlayerRuntime } from "./PlayerRuntime.js";
 import type { RoomContext } from "./RoomContext.js";
 import { GameState } from "./schema/GameState.js";
@@ -248,7 +249,13 @@ export class BattleRoom extends Room<{ state: GameState }> {
     // Somebody has to own the room, and the first person here is the obvious
     // candidate. `joinOrder` is what makes the handover deterministic later.
     runtime.joinOrder = this.nextJoinOrder++;
+    runtime.playerId = typeof options.playerId === "string" ? options.playerId.slice(0, 64) : "";
     this.refreshHost();
+
+    // Tell them what they have done here before. Only ever their own record.
+    if (runtime.playerId) {
+      this.sendTo(client.sessionId, ServerMessage.CAREER, playerStats().get(runtime.playerId));
+    }
 
     this.matchManager.onPlayerJoined();
     this.logger.info("Player joined", { sessionId: client.sessionId, name, players: this.state.playerCount });
@@ -612,6 +619,21 @@ export class BattleRoom extends Room<{ state: GameState }> {
       applyDamage: (victimId, attackerId, amount, x, y, weaponId) =>
         this.matchManager.applyDamage(victimId, attackerId, amount, x, y, weaponId),
       rotateArena: () => this.rotateArena(),
+      recordCareers: (updates) => {
+        // Bots and anyone who never offered an id are simply absent from this.
+        const careers = playerStats().record(updates);
+        for (const [playerId, career] of careers) {
+          for (const [sessionId, runtime] of this.runtimes) {
+            if (runtime.playerId === playerId) {
+              this.sendTo(sessionId, ServerMessage.CAREER, career);
+            }
+          }
+        }
+      },
+      careerUpdateFor: (sessionId) => {
+        const runtime = this.runtimes.get(sessionId);
+        return runtime?.playerId ?? "";
+      },
       applyKnockback: (sessionId, directionX, directionY, force, lift = true) => {
         const runtime = this.runtimes.get(sessionId);
         const player = this.state.players.get(sessionId);

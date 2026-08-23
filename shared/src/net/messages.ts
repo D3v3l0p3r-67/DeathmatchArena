@@ -71,6 +71,8 @@ export const ServerMessage = {
   MATCH_RESULT: "matchResult",
   /** Human-readable rejection (bad name, throttled, ...). */
   NOTICE: "notice",
+  /** This player's own record across matches. Sent to them alone. */
+  CAREER: "career",
   /** A player collected a power-up; drives the pickup toast and a sound cue. */
   POWERUP_COLLECTED: "powerUpCollected",
   /** A crate broke open. Ephemeral, so it is a message rather than state. */
@@ -109,6 +111,16 @@ export type ServerMessageType = (typeof ServerMessage)[keyof typeof ServerMessag
 /** Options passed to `client.joinOrCreate`. */
 export interface JoinOptions {
   name: string;
+  /**
+   * A stable id this browser generated for itself.
+   *
+   * There are no accounts: this is what a player's own record is filed under, and
+   * it never leaves the machine that made it except to say "this is me again".
+   * Trivially forgeable, which is precisely why nothing is built on top of it
+   * that would reward forging one -- no leaderboard, and nobody is ever shown
+   * anybody else's totals.
+   */
+  playerId?: string;
 }
 
 export interface WelcomePayload {
@@ -211,6 +223,31 @@ export interface ExplosionPayload {
   y: number;
   /** Blast radius in px, so the effect matches the damage that was applied. */
   radius: number;
+}
+
+/**
+ * What one player has done across every match they have played here.
+ *
+ * Sent only to the player it belongs to: the id it is filed under comes from
+ * their own browser, so treating it as a ranking would be treating a claim as a
+ * fact.
+ */
+export interface PlayerCareer {
+  matches: number;
+  wins: number;
+  kills: number;
+  deaths: number;
+  /** Best finishing position ever reached; 1 is a win. 0 means none yet. */
+  bestPlacement: number;
+}
+
+/** One player's contribution from one match, ready to be folded into a career. */
+export interface CareerUpdate {
+  playerId: string;
+  kills: number;
+  deaths: number;
+  /** Finishing position in this match; 1 is a win. */
+  placement: number;
 }
 
 /** Payload of {@link ServerMessage.ARENA_CHANGED}. */

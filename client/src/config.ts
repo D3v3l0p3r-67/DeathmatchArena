@@ -51,6 +51,30 @@ function resolveDebugToken(): string {
 }
 
 const DEBUG_TOKEN_KEY = "deathmatch-arena:debug-token";
+const PLAYER_ID_KEY = "deathmatch-arena:player-id";
+
+/**
+ * A stable id for this browser.
+ *
+ * There are no accounts here, and this is not one: it is the key a player's own
+ * record is filed under on the server, generated locally and never shown to
+ * anybody else. Losing it (a cleared cache, another machine) means starting a
+ * fresh record, which is the honest cost of not asking anyone to sign up.
+ */
+function resolvePlayerId(): string {
+  try {
+    const stored = window.localStorage.getItem(PLAYER_ID_KEY);
+    if (stored) return stored;
+
+    const created = crypto.randomUUID();
+    window.localStorage.setItem(PLAYER_ID_KEY, created);
+    return created;
+  } catch {
+    // Private browsing or blocked storage: play without a record rather than
+    // failing to play.
+    return "";
+  }
+}
 
 export const clientConfig = {
   serverUrl: resolveServerUrl(),
@@ -62,6 +86,8 @@ export const clientConfig = {
    * by a server-side grant, never by the build or the environment.
    */
   debugToken: resolveDebugToken(),
+  /** Who this browser says it is, for its own statistics. See `resolvePlayerId`. */
+  playerId: resolvePlayerId(),
   /** Key that remembers the player's display name between sessions. */
   nameStorageKey: "deathmatch-arena:name",
 } as const;

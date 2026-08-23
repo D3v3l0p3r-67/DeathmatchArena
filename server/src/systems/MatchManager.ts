@@ -7,6 +7,7 @@ import {
   type DamagePayload,
   type KillPayload,
   type MatchResultMessage,
+  type CareerUpdate,
   type MatchStanding,
 } from "@deathmatch/shared";
 import type { PlayerRuntime } from "../rooms/PlayerRuntime.js";
@@ -246,6 +247,7 @@ export class MatchManager {
       standings,
     };
     this.context.broadcast(ServerMessage.MATCH_RESULT, payload);
+    this.recordCareers();
 
     this.context.logger.info("Match finished", { winner: state.winnerName || "(nobody)" });
   }
@@ -491,6 +493,34 @@ export class MatchManager {
       if (player.kills !== best.kills) return player.kills > best.kills ? player : best;
       return player.health > best.health ? player : best;
     });
+  }
+
+  /**
+   * Fold this match into the players' records.
+   *
+   * People only: a bot has no record to keep, and neither does somebody whose
+   * browser never offered an id. Deaths come from the state rather than from
+   * "did they win", because a match can end with several people already down.
+   */
+  private recordCareers(): void {
+    const updates: CareerUpdate[] = [];
+
+    for (const player of this.context.state.players.values()) {
+      if (player.bot) continue;
+      if (player.placement <= 0 && !player.inMatch) continue;
+
+      const playerId = this.context.careerUpdateFor(player.sessionId);
+      if (!playerId) continue;
+
+      updates.push({
+        playerId,
+        kills: player.kills,
+        deaths: player.deaths,
+        placement: player.placement > 0 ? player.placement : 1,
+      });
+    }
+
+    if (updates.length > 0) this.context.recordCareers(updates);
   }
 
   private buildStandings(): MatchStanding[] {
