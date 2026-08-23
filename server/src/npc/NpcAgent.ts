@@ -117,6 +117,16 @@ export class NpcAgent {
     this.difficultyLevel = level;
   }
 
+  /** The room changed arena: forget the old one's geometry and memories. */
+  onArenaChanged(): void {
+    this.movement.retarget(
+      getNavGraph(this.room.arena, this.room.world, this.room.config.getPlayerConfig()),
+      this.room.world,
+    );
+    this.memory.clear();
+    this.context = null;
+  }
+
   get profileId(): string {
     return this.profile.id;
   }

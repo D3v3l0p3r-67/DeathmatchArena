@@ -294,6 +294,11 @@ export class MatchManager {
 
     this.context.setLocked(false);
     this.startRequested = false;
+
+    // A new lobby is the moment to change map: the fight is over, nobody is
+    // standing on anything, and the next one deserves somewhere different.
+    this.context.rotateArena();
+
     this.refreshCounters();
     this.context.logger.info("Room reset, waiting for players");
   }

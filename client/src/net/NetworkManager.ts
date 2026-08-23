@@ -6,6 +6,7 @@ import {
   encodeInputBatch,
   loadGameConfig,
   registerArena,
+  type ArenaChangedPayload,
   type ArenaDefinition,
   type ConfigChangedPayload,
   type CrateDestroyedPayload,
@@ -69,6 +70,8 @@ export interface NetworkEvents {
   crateDestroyed: CrateDestroyedPayload;
   meleeSwing: MeleeSwingPayload;
   explosion: ExplosionPayload;
+  /** The room moved to a different arena for the next match. */
+  arenaChanged: ArenaDefinition;
   /** The room retuned its configuration; anything derived from it must refresh. */
   configChanged: ConfigChangedPayload;
   disconnected: { code: number; reason: string };
@@ -137,8 +140,15 @@ export class NetworkManager {
    * build has never heard of.
    */
   get arena(): ArenaDefinition | null {
-    return this.welcome?.arena ?? null;
+    return this.currentArena ?? this.welcome?.arena ?? null;
   }
+
+  /**
+   * The arena being played now.
+   *
+   * Set when a room rotates maps; until then the welcome's is the current one.
+   */
+  private currentArena: ArenaDefinition | null = null;
 
   get isConnected(): boolean {
     return this.room !== null;
@@ -406,6 +416,15 @@ export class NetworkManager {
     room.onMessage(ServerMessage.MELEE_SWING, (payload: MeleeSwingPayload) =>
       this.events.emit("meleeSwing", payload),
     );
+    room.onMessage(ServerMessage.ARENA_CHANGED, (payload: ArenaChangedPayload) => {
+      if (!payload?.arena) return;
+      // Adopted the same way the welcome's arena is, so prediction and rendering
+      // are both looking at the map that is about to be played.
+      this.adoptServerWorld(payload.arena, undefined);
+      this.currentArena = payload.arena;
+      this.events.emit("arenaChanged", payload.arena);
+    });
+
     room.onMessage(ServerMessage.EXPLOSION, (payload: ExplosionPayload) =>
       this.events.emit("explosion", payload),
     );

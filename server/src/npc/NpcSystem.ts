@@ -269,6 +269,11 @@ export class NpcSystem {
     for (const agent of this.agents.values()) agent.onSpawn(now);
   }
 
+  /** The room changed arena: every bot's navigation describes the old one. */
+  onArenaChanged(): void {
+    for (const agent of this.agents.values()) agent.onArenaChanged();
+  }
+
   onMatchEnded(): void {
     for (const agent of this.agents.values()) agent.rest();
   }

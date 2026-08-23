@@ -187,7 +187,230 @@ const FOUNDRY: ArenaDefinition = {
   updatedAt: 0,
 };
 
+/**
+ * "The Gantry" -- 3600x1200, wide and low.
+ *
+ * The opposite shape to the Foundry: four long horizontal decks with the gaps
+ * staggered so no lane is a straight run, and sightlines the length of the map
+ * for anyone holding a sniper. Vertical spacing is 180px, which is above a
+ * single jump (~138px) and inside a double one, so moving up a level is a
+ * deliberate act rather than something you do by accident.
+ */
+const GANTRY: ArenaDefinition = {
+  id: "gantry",
+  name: "The Gantry",
+  enabled: true,
+  width: 3600,
+  height: 1200,
+  backgroundColor: 0x0f1620,
+  fogColor: 0x1a2734,
+
+  elements: [
+    // --- Arena shell -------------------------------------------------------
+    element("floor-1", 0, 1140, 3600, 60, FLOOR),
+    element("wall-1", 0, 0, 3600, 40, WALL),
+    element("wall-2", 0, 0, 40, 1200, WALL),
+    element("wall-3", 3560, 0, 40, 1200, WALL),
+    // --- Lower catwalks ----------------------------------------------------
+    element("catwalk-1", 300, 960, 400, 24, PLATFORM),
+    element("catwalk-2", 900, 960, 400, 24, PLATFORM),
+    element("catwalk-3", 1500, 960, 600, 24, PLATFORM),
+    element("catwalk-4", 2300, 960, 400, 24, PLATFORM),
+    element("catwalk-5", 2900, 960, 400, 24, PLATFORM),
+    // --- Middle catwalks, offset so no lane is a straight run --------------
+    element("gantry-1", 140, 780, 380, 24, PLATFORM),
+    element("gantry-2", 720, 780, 400, 24, PLATFORM),
+    element("gantry-3", 1320, 780, 400, 24, PLATFORM),
+    element("gantry-4", 1920, 780, 400, 24, PLATFORM),
+    element("gantry-5", 2520, 780, 400, 24, PLATFORM),
+    element("gantry-6", 3120, 780, 340, 24, PLATFORM),
+    // --- Upper walkways ----------------------------------------------------
+    element("walk-1", 360, 600, 400, 24, PLATFORM),
+    element("walk-2", 1000, 600, 700, 24, PLATFORM),
+    element("walk-3", 1900, 600, 700, 24, PLATFORM),
+    element("walk-4", 2840, 600, 400, 24, PLATFORM),
+    // --- The roof ----------------------------------------------------------
+    element("roof-1", 700, 420, 400, 22, PLATFORM),
+    element("roof-2", 1500, 420, 600, 22, PLATFORM),
+    element("roof-3", 2500, 420, 400, 22, PLATFORM),
+    element("mast-1", 1600, 260, 400, 22, PLATFORM),
+    // --- Cover on the floor ------------------------------------------------
+    element("obstacle-1", 520, 1020, 120, 120, OBSTACLE),
+    element("obstacle-2", 1720, 1050, 160, 90, OBSTACLE),
+    element("obstacle-3", 2940, 1020, 120, 120, OBSTACLE),
+    element("wall-4", 1180, 1000, 26, 140, WALL),
+    element("wall-5", 2380, 1000, 26, 140, WALL),
+  ],
+
+  powerUpSpawns: [
+    { id: "crate-1", x: 500, y: 938, enabled: true },
+    { id: "crate-2", x: 1100, y: 938, enabled: true },
+    { id: "crate-3", x: 1800, y: 938, enabled: true },
+    { id: "crate-4", x: 2500, y: 938, enabled: true },
+    { id: "crate-5", x: 3100, y: 938, enabled: true },
+    { id: "crate-6", x: 330, y: 758, enabled: true },
+    { id: "crate-7", x: 1520, y: 758, enabled: true },
+    { id: "crate-8", x: 2720, y: 758, enabled: true },
+    { id: "crate-9", x: 1350, y: 578, enabled: true },
+    { id: "crate-10", x: 2250, y: 578, enabled: true },
+    { id: "crate-11", x: 1800, y: 398, enabled: true },
+    { id: "crate-12", x: 900, y: 1118, enabled: true },
+    { id: "crate-13", x: 2700, y: 1118, enabled: true },
+    { id: "crate-14", x: 1800, y: 238, enabled: true },
+  ],
+
+  playerSpawns: [
+    { id: "spawn-1", x: 300, y: 1115, enabled: true },
+    { id: "spawn-2", x: 3300, y: 1115, enabled: true },
+    { id: "spawn-3", x: 1500, y: 1115, enabled: true },
+    { id: "spawn-4", x: 2100, y: 1115, enabled: true },
+    { id: "spawn-5", x: 400, y: 935, enabled: true },
+    { id: "spawn-6", x: 3200, y: 935, enabled: true },
+    { id: "spawn-7", x: 900, y: 755, enabled: true },
+    { id: "spawn-8", x: 2700, y: 755, enabled: true },
+    { id: "spawn-9", x: 1200, y: 575, enabled: true },
+    { id: "spawn-10", x: 2400, y: 575, enabled: true },
+  ],
+
+  traps: [
+    // Under the two widest gaps in the lower deck: falling short is punished.
+    trap("trap-1", "spikes", 760, 1116, 130, 24, TrapActivation.ALWAYS),
+    trap("trap-2", "spikes", 2740, 1116, 130, 24, TrapActivation.ALWAYS),
+    // The long middle walkway is the best position on the map, so it is also
+    // the one thing patrolling back and forth.
+    trap("trap-3", "saw", 1100, 544, 56, 56, TrapActivation.ALWAYS, {
+      direction: "right",
+      travel: 520,
+    }),
+    // Vents at both ends of the middle deck, on the routes between the towers.
+    trap("trap-4", "fire", 1360, 640, 80, 140, TrapActivation.PERIODIC),
+    trap("trap-5", "fire", 2240, 640, 80, 140, TrapActivation.PERIODIC),
+    // Hangs over the mast, the highest and most exposed perch.
+    trap("trap-6", "falling-object", 1780, 300, 80, 80, TrapActivation.PROXIMITY, {
+      direction: "down",
+      travel: 420,
+      fallGravity: 2400,
+    }),
+  ],
+
+  updatedAt: 0,
+};
+
+/**
+ * "The Silo" -- 2000x2400, tall and narrow.
+ *
+ * A vertical fight. A solid column runs up the middle of the lower half, so the
+ * bottom is two rooms rather than one, and the way up is a spiral of ledges
+ * alternating left and right with a stepping stone between each pair. Falls are
+ * long, cover is scarce, and the crown at the top is worth holding and hard to
+ * hold -- which is what the crusher hanging over it is for.
+ */
+const SILO: ArenaDefinition = {
+  id: "silo",
+  name: "The Silo",
+  enabled: true,
+  width: 2000,
+  height: 2400,
+  backgroundColor: 0x14101a,
+  fogColor: 0x241d2e,
+
+  elements: [
+    // --- Arena shell -------------------------------------------------------
+    element("floor-1", 0, 2340, 2000, 60, FLOOR),
+    element("wall-1", 0, 0, 2000, 40, WALL),
+    element("wall-2", 0, 0, 40, 2400, WALL),
+    element("wall-3", 1960, 0, 40, 2400, WALL),
+    // --- The column the whole map winds around -----------------------------
+    element("column-1", 940, 900, 120, 1140, WALL),
+    element("column-2", 820, 2040, 360, 40, PLATFORM),
+    // --- The spiral: alternating ledges, 180px apart -----------------------
+    element("ledge-1", 140, 2160, 420, 24, PLATFORM),
+    element("step-1", 660, 2070, 200, 22, PLATFORM),
+    element("ledge-2", 1300, 1980, 420, 24, PLATFORM),
+    element("step-2", 900, 1890, 200, 22, PLATFORM),
+    element("ledge-3", 140, 1800, 420, 24, PLATFORM),
+    element("step-3", 660, 1710, 200, 22, PLATFORM),
+    element("ledge-4", 1300, 1620, 420, 24, PLATFORM),
+    element("step-4", 900, 1530, 200, 22, PLATFORM),
+    element("ledge-5", 140, 1440, 420, 24, PLATFORM),
+    element("step-5", 660, 1350, 200, 22, PLATFORM),
+    element("ledge-6", 1300, 1260, 420, 24, PLATFORM),
+    element("step-6", 900, 1170, 200, 22, PLATFORM),
+    element("ledge-7", 140, 1080, 420, 24, PLATFORM),
+    element("step-7", 660, 990, 200, 22, PLATFORM),
+    element("ledge-8", 1300, 900, 420, 24, PLATFORM),
+    element("step-8", 900, 810, 200, 22, PLATFORM),
+    element("ledge-9", 140, 720, 420, 24, PLATFORM),
+    element("step-9", 660, 630, 200, 22, PLATFORM),
+    element("ledge-10", 1300, 540, 420, 24, PLATFORM),
+    element("step-10", 900, 450, 200, 22, PLATFORM),
+    // --- The top of the silo -----------------------------------------------
+    element("crown-1", 700, 380, 600, 26, PLATFORM),
+    element("crown-2", 300, 260, 260, 22, PLATFORM),
+    element("crown-3", 1440, 260, 260, 22, PLATFORM),
+    element("crown-4", 860, 200, 280, 22, PLATFORM),
+    // --- Cover at the bottom -----------------------------------------------
+    element("obstacle-1", 420, 2220, 120, 120, OBSTACLE),
+    element("obstacle-2", 1460, 2220, 120, 120, OBSTACLE),
+  ],
+
+  powerUpSpawns: [
+    { id: "crate-1", x: 300, y: 2138, enabled: true },
+    { id: "crate-2", x: 1500, y: 1958, enabled: true },
+    { id: "crate-3", x: 300, y: 1778, enabled: true },
+    { id: "crate-4", x: 1500, y: 1598, enabled: true },
+    { id: "crate-5", x: 300, y: 1418, enabled: true },
+    { id: "crate-6", x: 1500, y: 1238, enabled: true },
+    { id: "crate-7", x: 300, y: 1058, enabled: true },
+    { id: "crate-8", x: 1500, y: 878, enabled: true },
+    { id: "crate-9", x: 1000, y: 358, enabled: true },
+    // On the lip of the column's base that sticks out past the column itself.
+    { id: "crate-10", x: 1140, y: 2018, enabled: true },
+    { id: "crate-11", x: 700, y: 2318, enabled: true },
+    { id: "crate-12", x: 1300, y: 2318, enabled: true },
+  ],
+
+  playerSpawns: [
+    { id: "spawn-1", x: 250, y: 2315, enabled: true },
+    { id: "spawn-2", x: 1750, y: 2315, enabled: true },
+    { id: "spawn-3", x: 300, y: 2135, enabled: true },
+    { id: "spawn-4", x: 1500, y: 1955, enabled: true },
+    { id: "spawn-5", x: 300, y: 1775, enabled: true },
+    { id: "spawn-6", x: 1500, y: 1595, enabled: true },
+    { id: "spawn-7", x: 300, y: 1415, enabled: true },
+    { id: "spawn-8", x: 1500, y: 1235, enabled: true },
+    { id: "spawn-9", x: 300, y: 1055, enabled: true },
+    { id: "spawn-10", x: 860, y: 2015, enabled: true },
+  ],
+
+  traps: [
+    // The bottom of a long fall is not a good place to land.
+    trap("trap-1", "spikes", 860, 2316, 280, 24, TrapActivation.ALWAYS),
+    // Crushes anyone holding the crown, which is the only reason not to.
+    trap("trap-2", "crusher", 880, 220, 240, 90, TrapActivation.PERIODIC, {
+      direction: "down",
+      travel: 150,
+    }),
+    // Two vents on the spiral, on opposite sides, so neither route up is free.
+    trap("trap-3", "fire", 620, 1660, 80, 130, TrapActivation.PERIODIC),
+    trap("trap-4", "fire", 1320, 1120, 80, 130, TrapActivation.PERIODIC),
+    // Patrols the wide ledge halfway up.
+    trap("trap-5", "saw", 1340, 1544, 52, 52, TrapActivation.ALWAYS, {
+      direction: "right",
+      travel: 320,
+    }),
+    // Hangs over the two-room floor.
+    trap("trap-6", "falling-object", 1420, 2100, 80, 80, TrapActivation.PROXIMITY, {
+      direction: "down",
+      travel: 220,
+      fallGravity: 2400,
+    }),
+  ],
+
+  updatedAt: 0,
+};
+
 /** The arenas built into the build, keyed by id. Seeds for the repository. */
-export const BUILT_IN_ARENAS: readonly ArenaDefinition[] = Object.freeze([FOUNDRY]);
+export const BUILT_IN_ARENAS: readonly ArenaDefinition[] = Object.freeze([FOUNDRY, GANTRY, SILO]);
 
 export const DEFAULT_ARENA_ID = FOUNDRY.id;

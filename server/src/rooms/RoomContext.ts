@@ -67,6 +67,15 @@ export interface RoomContext {
    * off their feet: true for damage, false for a shooter's own recoil, which
    * would otherwise hop them off the floor with every round.
    */
+  /**
+   * Move to a different arena for the next match.
+   *
+   * Called by the match manager as it resets the room, because "which map is
+   * next" belongs to the room rather than to the thing that ended the match.
+   * A no-op while only one arena is installed.
+   */
+  rotateArena(): void;
+
   applyKnockback(
     sessionId: string,
     directionX: number,

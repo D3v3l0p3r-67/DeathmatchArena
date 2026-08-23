@@ -28,6 +28,7 @@ import {
   encodeInputBatch,
   createInputCommand,
   getWeapon,
+  type ArenaChangedPayload,
   type KillPayload,
   type MatchResultMessage,
   type InputCommand,
@@ -126,9 +127,20 @@ describe("match lifecycle", () => {
     assert.equal(kills[0]!.endsMatch, true, "the last elimination must announce itself");
 
     // The room recycles itself so the same players can queue again.
+    const arenaBefore = alice.state.arenaId;
+    const arenas: string[] = [];
+    alice.onMessage(ServerMessage.ARENA_CHANGED, (payload) =>
+      arenas.push((payload as ArenaChangedPayload).arena.id),
+    );
+
     await waitFor(() => alice.state.matchState === MatchState.WAITING, "room to reset", 5000);
     assert.equal(alice.state.winnerId, "");
     assert.equal(alice.state.players.get(alice.sessionId)!.placement, 0);
+
+    // And it is somewhere new: the next match deserves a different map, and the
+    // client is sent the whole definition because it draws and predicts from it.
+    assert.notEqual(alice.state.arenaId, arenaBefore, "the room should have rotated");
+    assert.deepEqual(arenas, [alice.state.arenaId], "the client is told, once");
 
     await alice.leave(true);
   });

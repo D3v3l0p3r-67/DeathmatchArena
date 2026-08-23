@@ -14,12 +14,14 @@ import {
   generateFallbackName,
   createGameConfigView,
   getArena,
+  listPlayableArenas,
   getCollisionWorld,
   getGameConfig,
   CollisionWorld,
   isFiniteNumber,
   makeNameUnique,
   validatePlayerName,
+  type ArenaChangedPayload,
   type ArenaDefinition,
   type ConfigChangedPayload,
   type GameConfig,
@@ -295,6 +297,53 @@ export class BattleRoom extends Room<{ state: GameState }> {
   }
 
   /**
+   * Move the room to a different arena.
+   *
+   * Everything that reads geometry goes through `context.arena` and
+   * `context.world`, which are getters, so most of the room follows on its own.
+   * What is left is the handful of places holding a direct reference: the two
+   * systems that raycast, the traps this arena defines, the closing walls, and
+   * the bots, whose navigation graph describes a map that no longer exists.
+   *
+   * Only ever called between matches. Swapping the floor out from under a
+   * running fight would be a different kind of feature.
+   */
+  private switchArena(arena: ArenaDefinition): void {
+    if (arena.id === this.arena.id) return;
+
+    this.arena = arena;
+    this.world = getCollisionWorld(arena);
+    this.state.arenaId = arena.id;
+
+    this.collisionSystem.setWorld(this.world);
+    this.movementSystem.setWorld(this.world);
+    this.trapSystem.load(arena);
+    this.arenaShrinkSystem.reset();
+    this.npcSystem.onArenaChanged();
+
+    // The client draws the arena and predicts against it, so it needs the
+    // definition rather than an id it might not have.
+    const payload: ArenaChangedPayload = { arena };
+    this.broadcast(ServerMessage.ARENA_CHANGED, payload);
+    this.logger.info("Arena changed", { arena: arena.id });
+  }
+
+  /**
+   * Pick the next arena.
+   *
+   * Anything playable except the one just played, so a group does not get the
+   * same map twice running. With only one arena installed this is a no-op, which
+   * is why rotation needs no switch to turn it off.
+   */
+  private rotateArena(): void {
+    const choices = listPlayableArenas().filter((arena) => arena.id !== this.arena.id);
+    if (choices.length === 0) return;
+
+    const next = choices[Math.floor(this.random() * choices.length)];
+    if (next) this.switchArena(next);
+  }
+
+  /**
    * Decide whose room this is.
    *
    * The person who has been here longest, so a handover is predictable rather
@@ -525,8 +574,16 @@ export class BattleRoom extends Room<{ state: GameState }> {
     const self = this;
     return {
       state: this.state,
-      arena: this.arena,
-      world: this.world,
+      // Getters, because a room changes arena between matches: everything that
+      // reads geometry -- traps, the closing walls, spawn points, the bots'
+      // navigation -- has to see the one being played now, not the one this
+      // room happened to be created with.
+      get arena() {
+        return self.arena;
+      },
+      get world() {
+        return self.world;
+      },
       logger: this.logger,
       runtimes: this.runtimes,
       roomId: this.roomId,
@@ -554,6 +611,7 @@ export class BattleRoom extends Room<{ state: GameState }> {
       },
       applyDamage: (victimId, attackerId, amount, x, y, weaponId) =>
         this.matchManager.applyDamage(victimId, attackerId, amount, x, y, weaponId),
+      rotateArena: () => this.rotateArena(),
       applyKnockback: (sessionId, directionX, directionY, force, lift = true) => {
         const runtime = this.runtimes.get(sessionId);
         const player = this.state.players.get(sessionId);

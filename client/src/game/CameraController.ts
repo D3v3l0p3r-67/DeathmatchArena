@@ -26,6 +26,11 @@ export class CameraController {
     this.camera.setRoundPixels(true);
   }
 
+  /** A different arena is a different box to stay inside. */
+  setArena(arena: ArenaDefinition): void {
+    this.camera.setBounds(0, 0, arena.width, arena.height);
+  }
+
   /** Jump straight to a position, e.g. on spawn or when switching spectator target. */
   snapTo(x: number, y: number): void {
     this.targetX = x;

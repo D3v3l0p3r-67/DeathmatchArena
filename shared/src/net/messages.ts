@@ -81,6 +81,14 @@ export const ServerMessage = {
   /** A grenade or a rocket went off; the client draws the blast. */
   EXPLOSION: "explosion",
   /**
+   * The room has moved to a different arena for the next match.
+   *
+   * Carries the whole definition for the same reason the welcome does: an
+   * administrator can create an arena after the client was built, and the client
+   * predicts movement against this geometry.
+   */
+  ARENA_CHANGED: "arenaChanged",
+  /**
    * Debug authorization result plus, when granted, the command catalogue and the
    * room's tunable values. Unauthorized sessions receive only a refusal.
    */
@@ -203,6 +211,11 @@ export interface ExplosionPayload {
   y: number;
   /** Blast radius in px, so the effect matches the damage that was applied. */
   radius: number;
+}
+
+/** Payload of {@link ServerMessage.ARENA_CHANGED}. */
+export interface ArenaChangedPayload {
+  arena: ArenaDefinition;
 }
 
 export interface NoticePayload {

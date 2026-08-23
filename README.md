@@ -559,6 +559,30 @@ marked, alongside the context that produced them. **Add bot**, **Remove bots** a
 Decision logging is off by default and only ever on for one bot at a time — a
 dozen of them logging at eight hertz is noise nobody can read.
 
+### Three arenas, and the room moves between them
+
+```
+The Foundry   3200x1800   three lanes, a central mesa, a passage underneath
+The Gantry    3600x1200   wide and low: four staggered decks and long sightlines
+The Silo      2000x2400   tall and narrow: a spiral around a solid column
+```
+
+A room changes arena while it resets between matches — never mid-fight, and
+never to the one just played. Everything that reads geometry does so through
+`context.arena` and `context.world`, which are getters, so most of the server
+follows on its own; what is left is the handful of places holding a direct
+reference: the two systems that raycast, the traps the arena defines, the closing
+walls, and the bots, whose navigation graph describes a map that no longer
+exists. The client is sent the whole definition rather than an id, for the same
+reason the welcome carries one: an administrator can create an arena after the
+client was built, and prediction steps against this geometry.
+
+Every shipped arena is checked in the suite for more than validity: that it seats
+a full room, that its traps are types the simulation knows, that it produces no
+warnings at all — and that **every spawn can reach every other**. That last one
+catches the failure a validator cannot: a map that looks fine and plays as two
+separate arenas, where half the players never meet anybody.
+
 ### The room, and whose it is
 
 **A room belongs to a person, not to a number.** It seats ten, it starts at two,

@@ -172,6 +172,8 @@ export function createHarness(): Harness {
     damageCrate(crateId: string, amount: number, attackerId: string, now: number) {
       powerUps.damageCrate(crateId, amount, attackerId, now);
     },
+    /** The harness plays one arena; rotation belongs to the room, not here. */
+    rotateArena() {},
   } as unknown as RoomContext;
 
   const collision = new CollisionSystem(world);

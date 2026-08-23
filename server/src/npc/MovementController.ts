@@ -74,9 +74,24 @@ export class MovementController {
   private navigationSkill = 1;
 
   constructor(
-    private readonly graph: NavGraph,
-    private readonly world: CollisionWorld,
+    private graph: NavGraph,
+    private world: CollisionWorld,
   ) {}
+
+  /**
+   * Learn a different arena.
+   *
+   * A room rotates maps between matches, and a bot steering by the last one's
+   * navigation graph would walk confidently into walls. Everything in flight is
+   * dropped with it: a path through geometry that no longer exists is worse than
+   * no path at all.
+   */
+  retarget(graph: NavGraph, world: CollisionWorld): void {
+    this.graph = graph;
+    this.world = world;
+    this.clearGoal();
+    this.stop();
+  }
 
   // -------------------------------------------------------------------------
   // The verbs

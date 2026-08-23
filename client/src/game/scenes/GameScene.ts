@@ -196,6 +196,42 @@ export class GameScene extends Phaser.Scene {
     events.on("matchStateChanged", ({ matchState }) => this.onMatchStateChanged(matchState));
     // A debug command can retune a weapon mid-match, including how it looks.
     events.on("configChanged", () => generateWeaponTextures(this));
+    events.on("arenaChanged", (arena) => this.onArenaChanged(arena));
+  }
+
+  /**
+   * The room moved to a different arena for the next match.
+   *
+   * Only the pieces that describe geometry are rebuilt -- the drawing, the
+   * camera's limits, the closing walls, the collision world and the prediction
+   * that steps against it. Everything else (views, buffers, the HUD) is about
+   * players and survives a change of scenery.
+   *
+   * Between matches by construction: the server only rotates while resetting the
+   * room, so nothing is standing on the floor being replaced.
+   */
+  private onArenaChanged(arena: ArenaDefinition): void {
+    this.arena = arena;
+    this.world = getCollisionWorld(arena);
+
+    this.arenaRenderer?.destroy();
+    this.arenaRenderer = new ArenaRenderer(this, arena);
+    this.cameraController.setArena(arena);
+    this.shrinkWalls?.destroy();
+    this.shrinkWalls = new ShrinkWallsView(this, arena);
+
+    for (const view of this.trapViews.values()) view.destroy();
+    this.trapViews.clear();
+    this.trapPhases.clear();
+
+    // Prediction steps against the world it was built with, so it needs a new
+    // one rather than a new arena inside the old one.
+    this.prediction = new PredictionController(this.world);
+    const local = this.network.state?.players.get(this.network.sessionId);
+    if (local) this.prediction.reset(local);
+
+    const state = this.network.state;
+    if (state) this.syncTraps(state);
   }
 
   // ---------------------------------------------------------------------------
