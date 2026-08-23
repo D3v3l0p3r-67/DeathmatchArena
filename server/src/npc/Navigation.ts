@@ -304,9 +304,14 @@ export class NavGraph {
           const kind: NavLinkKind = rise < -4 ? "drop" : "jump";
           // A level hop is flown roughly along the line between the nodes, so
           // anything solid on that line -- a wall between two floors -- makes
-          // the link a lie. Climbs arc far above the line and drops fall below
-          // it, so only the level case is checked.
+          // the link a lie. A climb arcs far above the line, so it is not
+          // checked here; a drop has its own test.
           if (kind === "jump" && this.corridorBlocked(a, b)) continue;
+          // You leave a surface by walking off its edge and then falling, so a
+          // drop is only real if the column you would fall down is clear. This
+          // also rules out the impossible case that reads as a route: a node
+          // directly beneath the floor the bot is standing on.
+          if (kind === "drop" && this.columnBlocked(b.x, a.y, b.y)) continue;
           this.links[i]!.push({
             to: j,
             kind,
@@ -346,6 +351,18 @@ export class NavGraph {
       if (this.world.isBoxBlocked(x, y, PLAYER_HALF_WIDTH * 0.8, PLAYER_HALF_HEIGHT * 0.8)) {
         return true;
       }
+    }
+
+    return false;
+  }
+
+  /** Something solid in the column a falling body would pass down. */
+  private columnBlocked(x: number, fromY: number, toY: number): boolean {
+    const steps = Math.ceil(Math.abs(toY - fromY) / 24);
+
+    for (let step = 1; step < steps; step++) {
+      const y = fromY + ((toY - fromY) * step) / steps;
+      if (this.world.isBoxBlocked(x, y, PLAYER_HALF_WIDTH * 0.8, PLAYER_HALF_HEIGHT * 0.8)) return true;
     }
 
     return false;

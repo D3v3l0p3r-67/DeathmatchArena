@@ -11,6 +11,7 @@ import {
   type GrenadeConfig,
 } from "@deathmatch/shared";
 import type { BrainContext, PerceivedEnemy } from "./context.js";
+import { throwAngleFor, throwSpeedFor } from "./throwArc.js";
 
 /** Worst-case aim error at zero skill, in radians (~17°). */
 const MAX_AIM_ERROR = 0.3;
@@ -140,7 +141,17 @@ export class CombatController {
       target.distance < weapon.ranged.explosion.radius + SELF_BLAST_MARGIN;
 
     const canFire =
-      reacted && onTarget && inRange && target.visible && !empty && !context.self.reloading && !tooCloseToDetonate;
+      reacted &&
+      onTarget &&
+      inRange &&
+      target.visible &&
+      // Seeing them is not having a shot. A head over a low wall is visible and
+      // unhittable, and a bot that fired anyway put its rounds into the wall --
+      // or, with a launcher, put the blast on its own feet.
+      target.shootable &&
+      !empty &&
+      !context.self.reloading &&
+      !tooCloseToDetonate;
 
     return {
       aimAngle: this.aimAngle,
@@ -178,8 +189,7 @@ export class CombatController {
     const dy = target.y - context.self.y;
 
     // Aim above the target: a thrown grenade falls, so throwing flat lands short.
-    const loft = clamp(Math.abs(dx) / 900, 0, 1) * 0.55;
-    const desired = normalizeAngle(Math.atan2(dy, dx) - loft + this.throwAngleError);
+    const desired = normalizeAngle(throwAngleFor(dx, dy) + this.throwAngleError);
     this.aimAt(desired, profile, dt, context.now);
 
     const needed = this.chargeForDistance(Math.hypot(dx, dy), config) * this.throwChargeScale;
@@ -297,10 +307,10 @@ export class CombatController {
     const min = config.minThrowSpeed;
     const max = Math.max(min + 1, config.maxThrowSpeed);
 
-    // Ballistic range for a 45-degree-ish lob: v² / g. Solve for the speed that
-    // covers the distance, then map that back onto the charge curve.
-    const needed = Math.sqrt(Math.max(0, distance) * config.gravity);
-    const fraction = clamp01((needed - min) / (max - min));
+    // Ballistic range for a 45-degree-ish lob: v² / g. `throwSpeedFor` solves
+    // for the speed that covers the distance; this maps it back onto the charge
+    // curve, so what the bot plans and what it throws are the same number.
+    const fraction = clamp01((throwSpeedFor(distance, config) - min) / (max - min));
 
     return fraction * config.maxChargeMs;
   }

@@ -252,7 +252,12 @@ export class MovementController {
    * meeting. Biased away from where the bot already is, so a "search" actually
    * covers ground.
    */
-  wanderTarget(random: () => number, fromX: number, fromY: number): { x: number; y: number } | null {
+  wanderTarget(
+    random: () => number,
+    fromX: number,
+    fromY: number,
+    now = 0,
+  ): { x: number; y: number } | null {
     const nodes = this.graph.nodes;
     if (nodes.length === 0) return null;
 
@@ -261,8 +266,19 @@ export class MovementController {
 
     // A handful of candidates, the furthest of which wins. Cheap, and enough
     // randomness that two bots do not pick the same corner.
+    //
+    // Somewhere recently given up on is skipped rather than offered and then
+    // refused: this is biased towards the furthest candidate, so a corner that
+    // cannot be reached would otherwise be proposed over and over while the bot
+    // stood still waiting for the refusal to expire.
     for (let i = 0; i < 6; i++) {
       const node = nodes[Math.floor(random() * nodes.length)]!;
+      if (this.isFailedGoal(node.x, node.y, now)) continue;
+      // Never wander to a spot inside a trap. Steering will flinch away from
+      // one on the way past, but a *destination* standing in spikes is a bot
+      // walking into them on purpose and then standing there.
+      if (node.hazardous) continue;
+
       const score = Math.hypot(node.x - fromX, node.y - fromY) * (0.6 + random() * 0.8);
       if (score > bestScore) {
         bestScore = score;

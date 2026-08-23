@@ -53,6 +53,8 @@ export interface DamageRecord {
   amount: number;
   x: number;
   y: number;
+  /** What did it: a weapon id, or `trap:<type>` for the arena itself. */
+  weaponId: string;
 }
 
 export interface Harness {
@@ -97,13 +99,21 @@ export interface Harness {
   replaceConfig(config: GameConfig): void;
 }
 
-const arena: ArenaDefinition = getArena("foundry");
-const world = new CollisionWorld(arena);
+const defaultArena: ArenaDefinition = getArena("foundry");
 
 /** Mutable stand-in for the wall clock, so tests control every deadline. */
 export const clock = { now: 0 };
 
-export function createHarness(): Harness {
+/**
+ * A room, wired the way the real one is.
+ *
+ * Takes an arena so a test can build the geometry its question is about -- a
+ * wall of a particular height, a trap in a doorway -- instead of hunting for a
+ * corner of the shipped map that happens to look like it.
+ */
+export function createHarness(arenaOverride?: ArenaDefinition): Harness {
+  const arena = arenaOverride ?? defaultArena;
+  const world = new CollisionWorld(arena);
   const state = new GameState();
   state.matchState = MatchState.PLAYING;
 
@@ -139,7 +149,7 @@ export function createHarness(): Harness {
     // Damage resolution is the real thing, so a lethal hit runs the actual
     // elimination path rather than a stub that only subtracts health.
     applyDamage(victimId: string, attackerId: string, amount: number, x: number, y: number, weaponId: string) {
-      damage.push({ victimId, attackerId, amount, x, y });
+      damage.push({ victimId, attackerId, amount, x, y, weaponId });
       matchManager.applyDamage(victimId, attackerId, amount, x, y, weaponId);
     },
     // The real impulse, on the real movement state, so a test can assert that a

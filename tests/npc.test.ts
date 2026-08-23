@@ -36,6 +36,7 @@ import {
   clamp01,
   createEmptyArena,
   getNpcConfig,
+  getGrenadeConfig,
   getPlayerConfig,
   getWeapon,
   listBrainProfiles,
@@ -51,6 +52,7 @@ const { TargetSelector } = await import("../server/src/npc/TargetSelector.js");
 const { CombatController } = await import("../server/src/npc/CombatController.js");
 const { NavGraph } = await import("../server/src/npc/Navigation.js");
 const { MovementController } = await import("../server/src/npc/MovementController.js");
+const { throwAngleFor, throwClearance, throwSpeedFor } = await import("../server/src/npc/throwArc.js");
 const actions = await import("../server/src/npc/actions/index.js");
 
 type BrainContext = import("../server/src/npc/context.js").BrainContext;
@@ -112,6 +114,9 @@ function enemy(overrides: Partial<PerceivedEnemy> = {}): PerceivedEnemy {
     distance: 300,
     angle: 0,
     visible: true,
+    // Seen and shootable unless a test says otherwise: the interesting cases
+    // set one without the other.
+    shootable: true,
     ageMs: 0,
     facingUs: 0,
     ...overrides,
@@ -123,6 +128,9 @@ function agentWith(target: PerceivedEnemy | null, profileOverride?: BrainProfile
   return {
     target,
     effectiveProfile: profileOverride ?? profile(),
+    // Whether a throw would clear the geometry is about the arena, and is
+    // tested against a real one below; scoring tests are about the decision.
+    canLobAt: () => true,
   } as never;
 }
 
@@ -1027,7 +1035,13 @@ describe("bots in a real match", () => {
     const harness = startMatch(["aggressive", "rusher"]);
 
     assert.equal(harness.state.matchState, MatchState.PLAYING);
-    assert.equal(harness.state.aliveCount, 3, "a human and two bots");
+    // Everybody was *put into* the match. Not everybody is still alive: the
+    // human here is a dummy that never moves or shoots, and two bots need
+    // rather less than the eight seconds this runs for.
+    assert.equal(harness.state.players.size, 3, "a human and two bots");
+    for (const player of harness.state.players.values()) {
+      assert.equal(player.inMatch, true, `${player.sessionId} was left out of the match`);
+    }
 
     for (const agent of harness.npcs.list()) {
       const player = harness.state.players.get(agent.sessionId)!;
@@ -1718,17 +1732,18 @@ describe("how a bot flies a jump", () => {
    * the jump -- only whether it worked.
    */
   function climbs(rise: number, seconds = 12): boolean {
+    // The arena comes with a floor of its own; adding a second one above it
+    // would leave a sealed storey underneath, and routes that cross it are
+    // routes nobody can fly.
     const arena = createEmptyArena("climb", "Climb", 1600, 1200);
-    arena.elements.push(
-      { id: "floor", type: "floor", x: 0, y: 1000, width: 1600, height: 40 },
-      { id: "ledge", type: "platform", x: 700, y: 1000 - rise, width: 400, height: 20 },
-    );
+    const floorY = 1200 - 60;
+    arena.elements.push({ id: "ledge", type: "platform", x: 700, y: floorY - rise, width: 400, height: 20 });
 
     const world = new CollisionWorld(arena);
     const graph = new NavGraph(arena, world, getPlayerConfig());
     const controller = new MovementController(graph, world);
 
-    const state = createMovementState(400, 1000 - PLAYER_HALF_HEIGHT);
+    const state = createMovementState(400, floorY - PLAYER_HALF_HEIGHT);
     state.onGround = true;
     const input = createInputCommand();
 
@@ -1747,7 +1762,7 @@ describe("how a bot flies a jump", () => {
         weapon: null,
       } as never;
 
-      controller.setGoal(900, 1000 - rise - PLAYER_HALF_HEIGHT, self, tick * 16.67);
+      controller.setGoal(900, floorY - rise - PLAYER_HALF_HEIGHT, self, tick * 16.67);
       controller.steer(self, tick * 16.67);
       const buttons = controller.takeButtons();
 
@@ -1757,7 +1772,7 @@ describe("how a bot flies a jump", () => {
       input.jump = buttons.jump;
       stepPlayerMovement(state, input, FIXED_DELTA, world);
 
-      if (state.onGround && state.y < 1000 - rise) return true;
+      if (state.onGround && state.y < floorY - rise) return true;
     }
     return false;
   }
@@ -1823,19 +1838,24 @@ describe("meeting a wall", () => {
    */
   function meetTheWall(wallHeight: number, seconds = 5) {
     const arena = createEmptyArena("wall", "Wall", 1600, 1200);
-    arena.elements.push(
-      { id: "floor", type: "floor", x: 0, y: 1000, width: 1600, height: 40 },
-      { id: "wall", type: "obstacle", x: 700, y: 1000 - wallHeight, width: 60, height: wallHeight },
-    );
+    const floorY = 1200 - 60;
+    arena.elements.push({
+      id: "wall",
+      type: "obstacle",
+      x: 700,
+      y: floorY - wallHeight,
+      width: 60,
+      height: wallHeight,
+    });
 
     const world = new CollisionWorld(arena);
     const graph = new NavGraph(arena, world, getPlayerConfig());
     const controller = new MovementController(graph, world);
 
-    const state = createMovementState(560, 1000 - PLAYER_HALF_HEIGHT);
+    const state = createMovementState(560, floorY - PLAYER_HALF_HEIGHT);
     state.onGround = true;
     const input = createInputCommand();
-    const goal = { x: 860, y: 1000 - PLAYER_HALF_HEIGHT };
+    const goal = { x: 860, y: floorY - PLAYER_HALF_HEIGHT };
 
     let jumpPresses = 0;
     let jumping = false;
@@ -1909,12 +1929,233 @@ describe("meeting a wall", () => {
     } as never;
 
     // The very next brain tick hands the same goal straight back.
-    controller.setGoal(860, 1000 - PLAYER_HALF_HEIGHT, self, 5 * 1000 + 100);
+    controller.setGoal(860, 1140 - PLAYER_HALF_HEIGHT, self, 5 * 1000 + 100);
     assert.equal(controller.goal, null, "a goal just abandoned as unreachable is refused");
 
-    // Memory, not a ban: once enough has changed for the memory to expire, the
-    // same place is worth another try.
-    controller.setGoal(860, 1000 - PLAYER_HALF_HEIGHT, self, 60 * 1000);
-    assert.notEqual(controller.goal, null, "the refusal expires with the memory");
+    // Memory, not a ban: once it expires the same place is worth another look,
+    // which here means being turned down again on its merits rather than by
+    // recall -- there really is no way over a wall that tall.
+    controller.setGoal(860, 1140 - PLAYER_HALF_HEIGHT, self, 60 * 1000);
+    assert.equal(controller.goal, null, "still nowhere to go: the wall has not moved");
+  });
+});
+
+describe("knowing your own body", () => {
+  /*
+   * What a bot knows about *other people* is deliberately a few frames old --
+   * that staleness is the reaction time the design asks for. Its own body is a
+   * different thing entirely, and conflating the two produced the most visible
+   * bug bots have had: flying a jump by a snapshot up to seven ticks old, the
+   * state machine saw `velocityY === 0` right after the press, decided the jump
+   * was over, released, and spent the mid-air jump at ankle height. A 170px
+   * climb came out as a 50px hop, which is a bot hammering itself against a
+   * wall it could clear.
+   */
+  it("tracks its own position every tick, not every perception pass", () => {
+    const harness = createHarness();
+    harness.state.matchState = MatchState.WAITING;
+    const human = harness.addPlayer("human", 400, 1700);
+    human.connected = true;
+    human.alive = false;
+    human.inMatch = false;
+    harness.state.hostId = "human";
+    harness.npcs.spawn("aggressive");
+    harness.matchManager.requestStart();
+    harness.run(8);
+
+    const agent = harness.npcs.list()[0]!;
+    let worst = 0;
+
+    for (let tick = 0; tick < 240; tick++) {
+      const player = harness.state.players.get(agent.sessionId)!;
+      // Where the body was when this tick began, which is exactly what the bot
+      // gets to look at: it decides first, and the movement system runs after.
+      const before = { x: player.x, y: player.y, alive: player.alive };
+
+      harness.run(1 / 60);
+
+      const self = agent.lastContext?.self;
+      if (!self || !before.alive) continue;
+      worst = Math.max(worst, Math.hypot(self.x - before.x, self.y - before.y));
+    }
+
+    assert.ok(
+      worst < 1,
+      `a bot should always know where it is standing; its idea of itself was ${worst.toFixed(1)}px out`,
+    );
+  });
+
+  it("climbs an obstacle in a real match, not just on a test bench", () => {
+    // The bench version of this passed the whole time the game was broken,
+    // because it handed the controller a fresh body every tick. This runs the
+    // room: perception at its own cadence, the brain at its own, and the same
+    // input queue a person's keyboard goes through.
+    const arena = createEmptyArena("block", "Block", 1800, 1000);
+    const floorY = 1000 - 60;
+    arena.elements.push({
+      id: "block",
+      type: "obstacle",
+      x: 850,
+      // Above one jump (about 138px), inside two (about 200px).
+      y: floorY - 155,
+      width: 260,
+      height: 155,
+    });
+
+    const harness = createHarness(arena);
+    harness.state.matchState = MatchState.WAITING;
+    const human = harness.addPlayer("human", 1400, floorY - PLAYER_HALF_HEIGHT);
+    human.connected = true;
+    harness.state.hostId = "human";
+    harness.npcs.spawn("aggressive");
+    harness.matchManager.requestStart();
+    harness.run(8);
+
+    const agent = harness.npcs.list()[0]!;
+    const player = harness.state.players.get(agent.sessionId)!;
+    const runtime = harness.runtimes.get(agent.sessionId)!;
+    // Positions live on the runtime and are written back to the state every
+    // tick, so moving somebody means moving both.
+    const humanRuntime = harness.runtimes.get("human")!;
+
+    /*
+     * A person on the far side of the block, and the bot against the near face
+     * of it. There is no shot through 260px of solid obstacle, so a bot that
+     * cannot tell "seen" from "shootable" stands here trading nothing; one that
+     * can has to come over the top, which takes both jumps.
+     */
+    player.x = runtime.movement.x = 800;
+    player.y = runtime.movement.y = floorY - PLAYER_HALF_HEIGHT;
+
+    let highest = player.y;
+    for (let i = 0; i < 30; i++) {
+      harness.run(0.5);
+      // Keep the target standing there rather than letting the fight resolve.
+      human.x = humanRuntime.movement.x = 1400;
+      human.y = humanRuntime.movement.y = floorY - PLAYER_HALF_HEIGHT;
+      human.health = 100;
+      human.alive = true;
+      if (player.alive) highest = Math.min(highest, player.y);
+    }
+
+    assert.ok(
+      highest <= floorY - 155,
+      `a bot should get on top of a block two jumps high; best was ${Math.round(floorY - highest)}px up`,
+    );
+  });
+});
+
+describe("having a shot, as opposed to a view", () => {
+  it("does not attack a target it can see but cannot hit", () => {
+    const seen = enemy({ visible: true, shootable: true });
+    const behindCover = enemy({ visible: true, shootable: false });
+
+    assert.ok(actions.attackAction.score(emptyContext(), profile(), agentWith(seen)) > 0);
+    assert.equal(actions.attackAction.score(emptyContext(), profile(), agentWith(behindCover)), 0);
+  });
+
+  it("holds fire on a head showing over a wall", () => {
+    /** Hold the trigger for a second and report whether anything came out. */
+    function firedAt(target: ReturnType<typeof enemy>): boolean {
+      const combat = new CombatController(createRandom(5));
+      const context = emptyContext({ enemies: [target], visibleEnemies: [target] });
+
+      let fired = false;
+      for (let elapsed = 0; elapsed < 1500; elapsed += 1000 / 60) {
+        context.now = elapsed;
+        if (combat.engage(target, context, profile(), 1 / 60).fire) fired = true;
+      }
+      return fired;
+    }
+
+    const overCover = enemy({ x: 900, distance: 300, visible: true, shootable: false });
+    const inTheOpen = enemy({ x: 900, distance: 300, visible: true, shootable: true });
+
+    assert.equal(firedAt(overCover), false, "no shot at a head behind a wall");
+    assert.equal(firedAt(inTheOpen), true, "and a shot the moment there is one");
+  });
+});
+
+describe("throwing a grenade somewhere useful", () => {
+  const grenadeConfig = getGrenadeConfig();
+
+  it("sees the wall it would bounce off", () => {
+    const arena = createEmptyArena("lob", "Lob", 1600, 1000);
+    const floorY = 1000 - 60;
+    arena.elements.push({
+      id: "wall",
+      type: "obstacle",
+      x: 700,
+      y: floorY - 300,
+      width: 40,
+      height: 300,
+    });
+    const world = new CollisionWorld(arena);
+
+    const fromX = 640;
+    const fromY = floorY - PLAYER_HALF_HEIGHT;
+    // Straight at a target on the far side of a wall 60px in front.
+    const angle = throwAngleFor(400, 0);
+    const speed = throwSpeedFor(400, grenadeConfig);
+    const blocked = throwClearance(world, grenadeConfig, fromX, fromY, angle, speed);
+
+    assert.ok(
+      blocked < grenadeConfig.explosionRadius,
+      `a grenade thrown into a wall 60px away lands inside its own blast, got ${Math.round(blocked)}px`,
+    );
+
+    // Nothing in the way: the same throw, from further back.
+    const clear = throwClearance(world, grenadeConfig, 200, fromY, angle, speed);
+    assert.ok(
+      clear > grenadeConfig.explosionRadius,
+      `a clear throw should get well away from the thrower, got ${Math.round(clear)}px`,
+    );
+  });
+
+  it("never wanders into a trap on purpose", () => {
+    // Steering flinches away from a hazard on the way past; a *destination*
+    // inside one is a bot walking into spikes deliberately and standing there.
+    const arena = createEmptyArena("spiked", "Spiked", 2000, 1000);
+    arena.traps = [
+      {
+        id: "spikes",
+        type: "spikes",
+        x: 900,
+        y: 1000 - 60 - 24,
+        width: 300,
+        height: 24,
+        activation: "always",
+        enabled: true,
+        damage: null,
+        activationDelayMs: null,
+        activeDurationMs: null,
+        cooldownMs: null,
+        moveSpeed: null,
+        triggerRadius: null,
+        params: {},
+      },
+    ];
+
+    const world = new CollisionWorld(arena);
+    const graph = new NavGraph(arena, world, getPlayerConfig());
+    const controller = new MovementController(graph, world);
+
+    assert.ok(
+      graph.nodes.some((node) => node.hazardous),
+      "the test arena should have somewhere dangerous to stand",
+    );
+
+    let random = 0;
+    const sequence = () => {
+      random = (random + 0.137) % 1;
+      return random;
+    };
+
+    for (let attempt = 0; attempt < 200; attempt++) {
+      const target = controller.wanderTarget(sequence, 100, 900, attempt * 100);
+      if (!target) continue;
+      const node = graph.nodes.find((candidate) => candidate.x === target.x && candidate.y === target.y);
+      assert.notEqual(node?.hazardous, true, `wandered to a spot inside a trap at ${target.x}`);
+    }
   });
 });

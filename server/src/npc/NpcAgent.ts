@@ -6,6 +6,7 @@ import {
   type InputCommand,
 } from "@deathmatch/shared";
 import type { RoomContext } from "../rooms/RoomContext.js";
+import { throwAngleFor, throwClearance, throwSpeedFor } from "./throwArc.js";
 import { Brain, deriveEffectiveProfile, type ScoreEntry } from "./Brain.js";
 import { CombatController, type CombatOutput } from "./CombatController.js";
 import { Memory } from "./Memory.js";
@@ -30,6 +31,8 @@ export interface DecisionLogEntry {
 }
 
 const LOG_LIMIT = 40;
+/** How much daylight a throw needs beyond its own blast, in px. */
+const SELF_LOB_MARGIN = 40;
 
 /**
  * One NPC.
@@ -210,6 +213,34 @@ export class NpcAgent {
     this.actionState = state;
   }
 
+  /**
+   * Would a grenade thrown at this spot actually get away from us?
+   *
+   * The action decides whether a grenade is the right idea; this answers the
+   * one question it cannot see from the context -- whether the ledge overhead
+   * or the crate in front would send it straight back. Kept on the agent
+   * because it needs the arena, and actions deliberately never touch the room.
+   */
+  canLobAt(x: number, y: number): boolean {
+    const context = this.context;
+    if (!context) return false;
+
+    const config = this.room.config.getGrenadeConfig();
+    const dx = x - context.self.x;
+    const dy = y - context.self.y;
+    const clearance = throwClearance(
+      this.room.world,
+      config,
+      context.self.x,
+      context.self.y,
+      throwAngleFor(dx, dy),
+      throwSpeedFor(Math.hypot(dx, dy), config),
+    );
+
+    // Anything that lands inside our own blast is a grenade thrown at our feet.
+    return clearance > config.explosionRadius + SELF_LOB_MARGIN;
+  }
+
   moveTo(x: number, y: number): void {
     if (!this.context) return;
     this.movement.setGoal(x, y, this.context.self, this.context.now);
@@ -281,6 +312,11 @@ export class NpcAgent {
     // Keep the clock fresh between perception passes so reaction timing and
     // aim slew stay honest at tick rate.
     context.now = now;
+    // And the body with it. What a bot knows about *others* is deliberately a
+    // few frames old; where its own feet are is not something anybody has to
+    // perceive, and steering a jump by a stale snapshot is how a climb turns
+    // into a hop. See `Perception.refreshSelf`.
+    this.perception.refreshSelf(context.self, player, runtime);
 
     if (now >= this.nextThinkAt) {
       // A poorer bot reconsiders less often, so a fight that turns against it

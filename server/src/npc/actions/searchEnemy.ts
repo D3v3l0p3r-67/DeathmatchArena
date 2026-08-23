@@ -62,7 +62,12 @@ export const searchEnemyAction: BrainAction = {
     const arrived = goal && Math.hypot(goal.x - context.self.x, goal.y - context.self.y) < 120;
 
     if (!goal || arrived) {
-      const destination = agent.movement.wanderTarget(agent.random, context.self.x, context.self.y);
+      const destination = agent.movement.wanderTarget(
+        agent.random,
+        context.self.x,
+        context.self.y,
+        context.now,
+      );
       if (destination) agent.moveTo(destination.x, destination.y);
     }
   },

@@ -30,6 +30,16 @@ export interface PerceivedEnemy {
   angle: number;
   /** False when this is a memory rather than a sighting. */
   visible: boolean;
+  /**
+   * Whether a shot fired now would actually reach them.
+   *
+   * Not the same as being visible, and the difference is the whole point: a
+   * head showing over a low wall is plainly *seen*, and a bullet leaving the
+   * chest still hits the wall. Bots that could not tell the two apart stood
+   * either side of an obstacle firing into it, and the ones holding an
+   * explosive killed themselves doing it.
+   */
+  shootable: boolean;
   /** How long ago they were last seen, in ms. 0 while visible. */
   ageMs: number;
   /** 0..1 — how nearly they are pointing at us. Only meaningful while visible. */
