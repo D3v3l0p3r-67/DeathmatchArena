@@ -6,7 +6,6 @@ import {
   validatePlayerName,
   type MatchResultMessage,
   type MatchStateValue,
-  getGrenadeConfig,
   getNpcConfig,
   type PlayerCareer,
   type PowerUpCollectedPayload,
@@ -569,7 +568,6 @@ export class App {
       totalPlayers: state.startingPlayerCount || state.playerCount,
       shrinkCountdownSeconds: state.shrinkCountdownSeconds,
       shrinking: state.shrinking,
-      grenadeCharge: this.getGameScene()?.getGrenadeChargeProgress(grenadeMaxChargeMs()) ?? 0,
     });
 
     const scene = this.getGameScene();
@@ -682,7 +680,3 @@ export class App {
 
 export { BOOT_SCENE_KEY };
 
-/** The configured wind-up time the local power bar fills against. */
-function grenadeMaxChargeMs(): number {
-  return getGrenadeConfig().maxChargeMs;
-}

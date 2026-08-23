@@ -5,6 +5,7 @@ import {
   MatchState,
   PLAYER,
   getArena,
+  getGrenadeConfig,
   getCollisionWorld,
   getPowerUp,
   getWeapon,
@@ -95,6 +96,8 @@ export class GameScene extends Phaser.Scene {
   private prediction!: PredictionController;
 
   private readonly playerViews = new Map<string, PlayerView>();
+  /** When each remote player was first seen winding up a grenade. */
+  private readonly throwStartedAt = new Map<string, number>();
   private readonly remoteBuffers = new Map<string, SnapshotBuffer>();
   private readonly projectileViews = new Map<string, ProjectileView>();
   private readonly crateViews = new Map<string, CrateView>();
@@ -451,6 +454,7 @@ export class GameScene extends Phaser.Scene {
   private removePlayerView(sessionId: string): void {
     this.playerViews.get(sessionId)?.destroy();
     this.playerViews.delete(sessionId);
+    this.throwStartedAt.delete(sessionId);
     this.remoteBuffers.delete(sessionId);
 
     if (this.spectateTargetId === sessionId) this.cycleSpectateTarget(1);
@@ -918,6 +922,11 @@ export class GameScene extends Phaser.Scene {
       },
       deltaSeconds,
     );
+
+    // Measured from this client's own press, so the arrow grows at frame rate
+    // rather than in 20Hz steps. The server measures the same button over the
+    // same ticks, so a full arrow really is a full-power throw.
+    view.setThrowCharge(this.inputController.chargeProgress(getGrenadeConfig().maxChargeMs));
   }
 
   private renderRemotePlayers(now: number, deltaSeconds: number): void {
@@ -948,7 +957,30 @@ export class GameScene extends Phaser.Scene {
         deltaSeconds,
       );
       view.setSpectated(sessionId === this.spectateTargetId && !this.isLocalAlive());
+      view.setThrowCharge(this.remoteThrowCharge(sessionId, player.chargingGrenade, now));
     }
+  }
+
+  /**
+   * How far along somebody else's wind-up is.
+   *
+   * Only the *fact* of a wind-up is synchronised, not its progress -- so this
+   * times it from when the flag was first seen. It is an approximation by
+   * construction (it starts a fraction of a patch late) and that is fine: this
+   * is a warning to whoever can see them, not a number anybody acts on. What
+   * decides the throw is the button held on the server.
+   */
+  private remoteThrowCharge(sessionId: string, charging: boolean, now: number): number {
+    if (!charging) {
+      this.throwStartedAt.delete(sessionId);
+      return 0;
+    }
+
+    const startedAt = this.throwStartedAt.get(sessionId) ?? now;
+    this.throwStartedAt.set(sessionId, startedAt);
+
+    const maxCharge = Math.max(1, getGrenadeConfig().maxChargeMs);
+    return Math.min(1, (now - startedAt) / maxCharge);
   }
 
   private renderProjectiles(now: number): void {

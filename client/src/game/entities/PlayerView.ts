@@ -3,6 +3,12 @@ import { PLAYER, clamp, getPlayerConfig, getWeapon, lerpAngle } from "@deathmatc
 import { TextureKeys, getPlayerColor, weaponTextureKey } from "../TextureFactory.js";
 import { DEATH_ANIMATION } from "../fx/effects.js";
 
+/** Where the wind-up arrow starts, in front of the hand. */
+const THROW_ARROW_START = 16;
+/** How long it is at no charge, and at full charge. */
+const THROW_ARROW_MIN = 14;
+const THROW_ARROW_MAX = 62;
+
 export interface PlayerViewState {
   x: number;
   y: number;
@@ -35,6 +41,8 @@ export class PlayerView {
   private readonly belt: Phaser.GameObjects.Graphics;
   private readonly label: Phaser.GameObjects.Text;
   private readonly healthBar: Phaser.GameObjects.Graphics;
+  /** The wind-up indicator: an arrow from the hand, growing with the charge. */
+  private readonly throwArrow: Phaser.GameObjects.Graphics;
   private readonly color: number;
 
   /** Smoothed aim so remote weapons swing rather than snap between patches. */
@@ -89,6 +97,7 @@ export class PlayerView {
       .setTint(0x0b1220);
 
     this.healthBar = scene.add.graphics();
+    this.throwArrow = scene.add.graphics();
 
     this.label = scene.add
       .text(0, PLAYER.NAME_LABEL_OFFSET_Y, name, {
@@ -100,15 +109,24 @@ export class PlayerView {
       .setShadow(0, 2, "#000000", 4, false, true);
 
     this.container = scene.add
-      // Order matters: the weapon draws in front of the body so the barrel is
-      // always visible, whichever way the player is aiming.
+      /*
+       * Order matters, and the visor is why.
+       *
+       * The weapon used to draw over everything so the barrel was never hidden,
+       * which also meant a bulky one lay across the face -- and the visor is the
+       * only part of the figure that says which way somebody is looking. Behind
+       * the body, the barrel still sticks out past the shoulder (it is held
+       * forward, see `WEAPON_FORWARD_X`) while the head stays readable no matter
+       * what is being carried.
+       */
       .container(0, 0, [
         this.shadow,
+        this.weapon,
         this.body,
         this.visor,
         this.belt,
-        this.weapon,
         this.healthBar,
+        this.throwArrow,
         this.label,
       ])
       .setDepth(isLocal ? 20 : 10);
@@ -149,6 +167,14 @@ export class PlayerView {
     this.renderedAim = lerpAngle(this.renderedAim, state.aimAngle, clamp(deltaSeconds * 22, 0, 1));
     this.weapon.setRotation(this.renderedAim);
 
+    // Held out in front rather than at the shoulder: with the grip on the body's
+    // centre line, a rifle's stock lay across the face and the visor -- the one
+    // part of the figure that says which way they are looking.
+    this.weapon.setPosition(
+      Math.cos(this.renderedAim) * PLAYER.WEAPON_FORWARD_X,
+      PLAYER.AIM_ORIGIN_Y + Math.sin(this.renderedAim) * PLAYER.WEAPON_FORWARD_X,
+    );
+
     // Flip the body to match the aim rather than the movement direction: in a
     // shooter you look where you shoot.
     const aimingLeft = Math.abs(this.renderedAim) > Math.PI / 2;
@@ -181,6 +207,7 @@ export class PlayerView {
     this.label.setVisible(false);
     this.healthBar.setVisible(false);
     this.weapon.setVisible(false);
+    this.throwArrow.setVisible(false);
     this.belt.setVisible(false);
     this.shadow.setVisible(false);
   }
@@ -195,6 +222,7 @@ export class PlayerView {
     this.label.setVisible(true);
     this.healthBar.setVisible(true);
     this.weapon.setVisible(true);
+    this.throwArrow.setVisible(true);
     this.belt.setVisible(true);
     this.beltCount = -1;
   }
@@ -352,19 +380,72 @@ export class PlayerView {
     const height = 4;
     const ratio = clamp(health / getPlayerConfig().maxHealth, 0, 1);
 
-    this.healthBar.clear();
-    // Hide a full bar to keep the screen calm; damage is what needs attention.
-    if (ratio >= 1) return;
-
     const x = -width / 2;
     const y = PLAYER.NAME_LABEL_OFFSET_Y + 4;
 
-    this.healthBar.fillStyle(0x000000, 0.6);
+    this.healthBar.clear();
+
+    // Always drawn, full or not. Hiding a full bar kept the screen calmer, but
+    // it also meant the one thing you most want to know about somebody across
+    // the arena -- whether they are hurt -- was only legible once they were, and
+    // an empty space reads as "no information" rather than as "unhurt".
+    this.healthBar.fillStyle(0x000000, 0.55);
     this.healthBar.fillRect(x - 1, y - 1, width + 2, height + 2);
+
+    // The empty part stays visible so a short bar reads as a short bar rather
+    // than as a small one.
+    this.healthBar.fillStyle(0xffffff, 0.12);
+    this.healthBar.fillRect(x, y, width, height);
 
     const color = ratio > 0.6 ? 0x52e08a : ratio > 0.3 ? 0xffc857 : 0xff4d5e;
     this.healthBar.fillStyle(color, 1);
     this.healthBar.fillRect(x, y, width * ratio, height);
+  }
+
+  /**
+   * Show how hard a throw is being wound up.
+   *
+   * At the hand rather than at the bottom of the screen: the throw happens here,
+   * the direction is here, and -- because `chargingGrenade` is synchronised --
+   * everybody else can see you winding one up too. A power bar on your own HUD
+   * could only ever tell you something you already knew.
+   *
+   * `progress` is 0..1; anything at or below zero clears it.
+   */
+  setThrowCharge(progress: number): void {
+    this.throwArrow.clear();
+    if (progress <= 0) return;
+
+    const charge = clamp(progress, 0, 1);
+    const originX = Math.cos(this.renderedAim) * THROW_ARROW_START;
+    const originY = PLAYER.AIM_ORIGIN_Y + Math.sin(this.renderedAim) * THROW_ARROW_START;
+    const length = THROW_ARROW_MIN + (THROW_ARROW_MAX - THROW_ARROW_MIN) * charge;
+
+    const tipX = originX + Math.cos(this.renderedAim) * length;
+    const tipY = originY + Math.sin(this.renderedAim) * length;
+
+    // Green through amber to red, the same reading the health bar uses: how full
+    // a thing is, in the colours this game already uses for it.
+    const color = charge > 0.75 ? 0xff4d5e : charge > 0.45 ? 0xffc857 : 0x8fd14f;
+
+    this.throwArrow.lineStyle(3, color, 0.9);
+    this.throwArrow.beginPath();
+    this.throwArrow.moveTo(originX, originY);
+    this.throwArrow.lineTo(tipX, tipY);
+    this.throwArrow.strokePath();
+
+    // A head, so it reads as a direction rather than as a bar lying on its side.
+    const wing = 7;
+    const spread = 0.55;
+    this.throwArrow.fillStyle(color, 0.95);
+    this.throwArrow.fillTriangle(
+      tipX,
+      tipY,
+      tipX - Math.cos(this.renderedAim - spread) * wing,
+      tipY - Math.sin(this.renderedAim - spread) * wing,
+      tipX - Math.cos(this.renderedAim + spread) * wing,
+      tipY - Math.sin(this.renderedAim + spread) * wing,
+    );
   }
 
   /** World position of the muzzle, used for local muzzle-flash placement. */
