@@ -732,6 +732,19 @@ level 5              217ms                     122
 
 ---
 
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every push and pull request: typecheck, the
+whole suite, then both bundles. One machine, one install, one red or green — the
+suite is deterministic and finishes in well under a minute, so splitting it
+across jobs would buy nothing but complexity.
+
+It typechecks the *tests* as well as the source, which `npm test` does not: `tsx`
+strips types rather than checking them, so a test can pass while carrying a type
+error. That is not hypothetical — adding this caught one on its first run.
+
+---
+
 ## Deploying to Colyseus Cloud
 
 `server/` is already shaped the way Colyseus Cloud expects:
