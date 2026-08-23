@@ -682,6 +682,38 @@ from, so difficulty owns them outright:
 - **decision interval** — how often it reconsiders at all, so a fight turning
   against a poor bot takes longer to register.
 
+### Hazards, and when a grenade is the right answer
+
+**A bot routes around the spikes.** The navigation graph prices every trap the
+arena defines: standing where one can reach costs 1400px of detour, walking
+through one on the way costs 1100. It is a cost and not a wall on purpose — an
+arena is allowed to put the only route through a fire vent, and a bot that
+refused to move would be worse than one that takes the risk. What it prices is
+where the traps *are*, never what phase they are in: spikes that are down now
+come back up, and routing around the schedule would be routing around information
+a bot has no business having. Reacting to one going off is perception's job,
+separately and later.
+
+Perception was the other half of the problem. A trap was noticed only within
+220px, which at running speed is about two thirds of a second to see it, decide
+and stop — which is how bots walked into spikes they had every right to have seen
+coming. Awareness now reaches 460px while *fear* still starts at 220, because
+seeing further should not turn scenery into panic.
+
+**A grenade is for the shot a rifle does not have.** The old scoring could never
+beat plain shooting, so bots finished matches with three grenades in their
+pockets. It now recognises the three situations that are actually worth one:
+
+- the target has just gone behind cover — an arc reaches where a bullet does not,
+  and this is the case attack scores zero for;
+- they are on another level, where a flat shot never lands;
+- two or three of them are standing inside one blast radius.
+
+A sighting older than 1.8s is not worth a grenade at all, the last one is held a
+little harder than the first, and a bot with a good angle and a good weapon still
+just shoots. Measured over a minute of bots left to fight each other: none thrown
+before, two at difficulty 2 and five in the first ten seconds at difficulty 5.
+
 The ladder is data like everything else (`npc.difficulties`), generated into the
 admin interface and the debug console from the levels themselves, so a sixth rung
 is a configuration change rather than a code change. Every bot's card in the
@@ -931,6 +963,39 @@ client prediction and server simulation must agree on them *exactly*. They are n
 configurable, and the agreement is explicit instead of implicit — the server sends
 the room's values with the welcome message and the client predicts with those, so
 both sides still step the same integrator with the same numbers.
+
+---
+
+## Movement that does not snag
+
+Two things stand between a fixed-timestep simulation and a jump that feels right,
+and neither of them is the physics.
+
+**A ledge corner must not eat a jump.** Clipping the edge of a platform with the
+side of your head used to stop the whole ascent dead, which is the single most
+common way a platformer feels like it caught on something. An upward move that
+overlaps a solid by less than `CORNER_CORRECTION` (9px, well under half the
+player's width) is nudged past the corner instead of stopped. It forgives a
+clipped corner; it never lets anybody through a wall they were squarely under.
+It lives in the shared step, so the server, the client's prediction and the bots
+all agree about it.
+
+**A frame is not a step.** The simulation advances 60 times a second in whole
+steps; the display draws whenever it likes, and the two are not in phase — on a
+90Hz or 144Hz screen they never are. Drawing the player at the last completed
+step means one frame repeats the previous position and the next jumps two steps'
+worth, which reads as a stutter, most visibly in a jump where the vertical speed
+is large and changing. The renderer now keeps the position each step *started*
+from and interpolates by whatever is left in the accumulator:
+
+```
+render = previous + (current - previous) * (accumulator / stepLength)
+```
+
+A server correction moves both ends by the same amount, so the interpolation
+stays one step long instead of stretching across the correction, and the existing
+error smoothing still hides the difference. Remote players were already
+interpolated from their snapshot buffer; this is the local one catching up.
 
 ---
 

@@ -12,6 +12,22 @@ const State = {
 
 /** Too close and the blast catches the thrower; the bot knows this. */
 const SELF_BLAST_MARGIN = 40;
+/** Beyond this a throw is a wish rather than a plan, in px. */
+const MAX_THROW_DISTANCE = 900;
+/** A sighting older than this is not worth a grenade, in ms. */
+const STALE_MEMORY_MS = 1800;
+/** Vertical separation at which a flat shot starts to be the wrong tool, in px. */
+const LEVEL_SEPARATION = 90;
+
+/** How many other enemies are close enough to the target to share the blast. */
+function clustered(context: BrainContext, target: { sessionId: string; x: number; y: number }): number {
+  let count = 0;
+  for (const enemy of context.visibleEnemies) {
+    if (enemy.sessionId === target.sessionId) continue;
+    if (Math.hypot(enemy.x - target.x, enemy.y - target.y) <= context.explosionRadius) count++;
+  }
+  return count;
+}
 
 /**
  * Lob one.
@@ -35,17 +51,34 @@ export const throwGrenadeAction: BrainAction = {
     // from the configuration, so retuning the blast moves the bots' judgement
     // with it rather than leaving them standing in their own explosions.
     if (target.distance < context.explosionRadius + SELF_BLAST_MARGIN) return 0;
-    if (target.distance > 900) return 0;
+    if (target.distance > MAX_THROW_DISTANCE) return 0;
 
-    let score = profile.grenadeUsage * 45;
+    // A sighting this old is a guess, and a grenade is too expensive to spend on
+    // one. Fresh but out of sight, on the other hand, is the best reason there
+    // is to throw: it is the one shot that goes where a bullet cannot.
+    const freshness = clamp01(1 - target.ageMs / STALE_MEMORY_MS);
+    if (!target.visible && freshness <= 0) return 0;
+
+    let score = profile.grenadeUsage * 55;
+
+    // What a grenade is actually *for*. Three situations, each of them something
+    // the rifle in its hands cannot do:
+    //   - they are behind something,
+    if (!target.visible) score += 34 * freshness;
+    //   - they are on another level, where a flat shot never reaches,
+    const drop = Math.abs(target.y - context.self.y);
+    if (drop > LEVEL_SEPARATION) score += clamp01(drop / 320) * 22;
+    //   - or there are several of them standing together.
+    score += Math.min(clustered(context, target), 3) * 22;
+
     score += clamp01(1 - target.health) * profile.finishWeakEnemies * 15;
 
-    // Grenades are for when shooting is not working: a bot with a good angle and
-    // a good weapon should just shoot.
+    // Grenades are also for when shooting is not working: a bot with a good
+    // angle and a good weapon should just shoot.
     score += (1 - context.weaponEffectiveness) * 25;
 
-    // Throwing at a memory is a waste of a grenade.
-    if (!target.visible) score *= 0.35;
+    // The last one is worth keeping for a moment that deserves it.
+    if (context.self.grenades <= 1) score *= 0.75;
 
     score -= context.danger * profile.survival * 20;
     return score;

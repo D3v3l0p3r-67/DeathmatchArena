@@ -753,6 +753,12 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (ticks === MAX_TICKS_PER_FRAME) this.accumulatorMs = 0;
+
+    // Whatever is left over is how far into the next step this frame sits. The
+    // renderer uses it to place the player between two steps instead of on the
+    // last one, which is the difference between a smooth jump and a stuttering
+    // one on any display that is not exactly in step with the simulation.
+    this.prediction.setStepProgress(this.accumulatorMs / FIXED_DELTA_MS);
     void now;
   }
 

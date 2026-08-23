@@ -152,6 +152,14 @@ function applyGravity(state: MovementState, dt: number, player: PlayerConfig): v
 }
 
 /**
+ * How far past a ledge's corner an upward move may be nudged, in px.
+ *
+ * Deliberately well under half the player's width: it forgives clipping a
+ * corner, never lets somebody through a wall they were squarely under.
+ */
+const CORNER_CORRECTION = 9;
+
+/**
  * Move on one axis at a time and push out of anything we ended up inside.
  * Separating the axes is what makes sliding along walls and floors behave.
  */
@@ -198,6 +206,19 @@ function integrateAndCollide(
       state.velocityY = 0;
       state.onGround = true;
     } else if (state.velocityY < 0) {
+      // Corner correction: clipping a ledge with the edge of your head is
+      // almost always a jump you meant to make, and stopping it dead is the
+      // single most common way a platformer feels like it snagged. If the
+      // overlap is only a sliver, nudge past the corner and keep going.
+      const fromLeft = box.right - solid.left;
+      const fromRight = solid.right - box.left;
+      const nudge = Math.min(fromLeft, fromRight);
+
+      if (nudge <= CORNER_CORRECTION && nudge > 0) {
+        state.x += fromLeft < fromRight ? -(nudge + epsilon) : nudge + epsilon;
+        continue;
+      }
+
       state.y = solid.bottom + PLAYER_HALF_HEIGHT + epsilon;
       state.velocityY = 0;
     }
