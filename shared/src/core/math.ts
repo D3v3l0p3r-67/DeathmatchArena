@@ -82,3 +82,22 @@ export function createRandom(seed: number): () => number {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
+
+/**
+ * Distance from a point to the nearest edge of a box.
+ *
+ * Measured to the box rather than to its centre, so a blast landing against
+ * somebody's feet counts as a direct hit rather than as one player-height away.
+ */
+export function distanceToBox(
+  fromX: number,
+  fromY: number,
+  boxX: number,
+  boxY: number,
+  halfWidth: number,
+  halfHeight: number,
+): number {
+  const dx = Math.max(Math.abs(fromX - boxX) - halfWidth, 0);
+  const dy = Math.max(Math.abs(fromY - boxY) - halfHeight, 0);
+  return Math.hypot(dx, dy);
+}

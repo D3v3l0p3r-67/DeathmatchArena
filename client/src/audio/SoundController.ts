@@ -5,7 +5,7 @@ import {
   getWeapon,
   isMelee,
   type DamagePayload,
-  type GrenadeExplodedPayload,
+  type ExplosionPayload,
   type KillPayload,
   type MatchStateValue,
   type MeleeSwingPayload,
@@ -73,7 +73,7 @@ export class SoundController {
     events.on("grenadeAdded", ({ grenade }) => {
       this.audio.playAt(SoundId.GrenadeThrow, grenade.x, grenade.y);
     });
-    events.on("grenadeExploded", (payload) => this.onExplosion(payload));
+    events.on("explosion", (payload) => this.onExplosion(payload));
     events.on("matchStateChanged", ({ matchState }) => this.onMatchState(matchState));
     events.on("countdownChanged", ({ seconds }) => {
       if (seconds > 0) this.audio.play(SoundId.CountdownTick);
@@ -141,7 +141,7 @@ export class SoundController {
     }
   }
 
-  private onExplosion(payload: GrenadeExplodedPayload): void {
+  private onExplosion(payload: ExplosionPayload): void {
     this.audio.playAt(SoundId.Explosion, payload.x, payload.y);
   }
 

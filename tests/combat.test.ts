@@ -8,6 +8,7 @@ import { beforeEach, describe, it } from "node:test";
 import {
   ASSAULT_RIFLE_ID,
   CHAINSAW_ID,
+  ROCKET_LAUNCHER_ID,
   FIXED_DELTA,
   KNOCKBACK_IMPULSE,
   MatchState,
@@ -709,5 +710,107 @@ describe("knockback and recoil", () => {
     stepPlayerMovement(movement, input, FIXED_DELTA, harness.context.world, undefined, getPlayerConfig());
 
     assert.ok(movement.velocityX > getPlayerConfig().moveSpeed, "the shove was clipped away");
+  });
+});
+
+describe("explosive weapons", () => {
+  let harness: Harness;
+
+  beforeEach(() => {
+    harness = createHarness();
+  });
+
+  /** Put a player where the collision world actually agrees they are. */
+  function place(sessionId: string, x: number, y = 1700) {
+    const player = harness.addPlayer(sessionId, x, y);
+    const movement = harness.runtimes.get(sessionId)!.movement;
+    movement.x = x;
+    movement.y = y;
+    return player;
+  }
+
+  it("hurts through the blast rather than on contact", () => {
+    // A rocket's own damage is zero: everything it does comes from the
+    // explosion, which is what lets a near miss still matter.
+    const launcher = getWeapon(ROCKET_LAUNCHER_ID);
+    assert.equal(launcher.damage, 0, "the round itself should do nothing");
+    assert.ok(launcher.ranged?.explosion, "and the blast should be the weapon");
+
+    const shooter = place("shooter", 200);
+    const victim = place("target", 600);
+    harness.weapons.equip(shooter, harness.runtimes.get("shooter")!, ROCKET_LAUNCHER_ID);
+
+    fireAt(harness, "shooter", 0, 0);
+    harness.step(60);
+
+    assert.ok(victim.health < MAX_HEALTH, "a direct hit should hurt");
+  });
+
+  it("catches somebody standing next to the person it hit", () => {
+    // Splash is the entire point, and the reason a launcher is not simply a
+    // better rifle: it hits what you aimed at and whatever was beside it.
+    const shooter = place("shooter", 200);
+    const target = place("target", 600);
+    const bystander = place("bystander", 660);
+    harness.weapons.equip(shooter, harness.runtimes.get("shooter")!, ROCKET_LAUNCHER_ID);
+
+    fireAt(harness, "shooter", 0, 0);
+    harness.step(60);
+
+    assert.ok(target.health < MAX_HEALTH, "the target should be hit");
+    assert.ok(bystander.health < MAX_HEALTH, "and so should whoever was next to them");
+  });
+
+  it("catches the shooter who fires it at their own feet", () => {
+    // Nobody is immune to their own explosion. It is what makes firing a
+    // launcher at somebody standing next to you a decision.
+    const shooter = place("shooter", 600);
+    harness.weapons.equip(shooter, harness.runtimes.get("shooter")!, ROCKET_LAUNCHER_ID);
+
+    // Straight down into the floor.
+    fireAt(harness, "shooter", Math.PI / 2, 0);
+    harness.step(30);
+
+    assert.ok(shooter.health < MAX_HEALTH, "the shooter should feel their own blast");
+  });
+
+  it("goes off on the wall it hit, not silently", () => {
+    const shooter = place("shooter", 200);
+    harness.weapons.equip(shooter, harness.runtimes.get("shooter")!, ROCKET_LAUNCHER_ID);
+
+    fireAt(harness, "shooter", 0, 0);
+    harness.step(90);
+
+    const blast = harness.broadcasts.find((entry) => entry.type === ServerMessage.EXPLOSION);
+    assert.ok(blast, "a rocket must announce itself wherever it stops");
+  });
+
+  it("throws the shooter hard enough to jump with", () => {
+    // The rocket jump: recoil plus the blast under your feet. Both numbers are
+    // tuned for it, so this is a promise rather than a side effect.
+    const shooter = place("shooter", 600);
+    harness.weapons.equip(shooter, harness.runtimes.get("shooter")!, ROCKET_LAUNCHER_ID);
+    const movement = harness.runtimes.get("shooter")!.movement;
+    movement.onGround = true;
+
+    fireAt(harness, "shooter", Math.PI / 2, 0);
+    harness.step(30);
+
+    assert.ok(movement.velocityY < -200, `expected real lift, got ${movement.velocityY}`);
+  });
+
+  it("leaves ordinary bullets alone", () => {
+    const shooter = place("shooter", 200);
+    place("target", 600);
+    harness.weapons.equip(shooter, harness.runtimes.get("shooter")!, ASSAULT_RIFLE_ID);
+
+    fireAt(harness, "shooter", 0, 0);
+    harness.step(60);
+
+    assert.equal(
+      harness.broadcasts.filter((entry) => entry.type === ServerMessage.EXPLOSION).length,
+      0,
+      "a rifle round is not an explosion",
+    );
   });
 });

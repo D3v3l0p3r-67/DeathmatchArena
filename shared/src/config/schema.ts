@@ -110,7 +110,9 @@ function resolvePath(
   key: string,
 ): { holder: Record<string, unknown>; property: string } | null {
   const segments = key.split(".");
-  if (segments.length < 2) return null;
+  // A top-level scalar is a setting like any other: `defaultWeaponId` lives on
+  // the configuration itself rather than inside a section.
+  if (segments.length === 1) return { holder: config as unknown as Record<string, unknown>, property: segments[0]! };
 
   let node: unknown = config;
   for (let i = 0; i < segments.length - 1; i++) {
@@ -358,6 +360,15 @@ function weaponFields(weapon: WeaponDefinition): FieldDescriptor[] {
       number(`${prefix}.ranged.pellets`, WEAPONS, group, "Pellets per shot", "Projectiles fired per trigger pull. More than one makes it a shotgun.", { min: 1, max: 64, step: 1, integer: true }),
     );
 
+    if (weapon.ranged.explosion) {
+      fields.push(
+        number(`${prefix}.ranged.explosion.radius`, WEAPONS, group, "Blast radius (px)", "How far the explosion reaches. An explosive round never applies its own damage -- the blast is the weapon.", { min: 10, max: 1200, step: 5 }),
+        number(`${prefix}.ranged.explosion.damage`, WEAPONS, group, "Blast damage", "Damage at the very centre of the explosion.", { min: 0, max: 500, step: 1 }),
+        percentage(`${prefix}.ranged.explosion.minDamageMultiplier`, WEAPONS, group, "Blast damage floor", "Fraction of that damage still dealt at the outer edge of the radius."),
+        number(`${prefix}.ranged.explosion.knockbackForce`, WEAPONS, group, "Blast knockback", "How hard the blast throws whoever it catches, at the centre. This is what makes a rocket jump possible.", { min: 0, max: 6, step: 0.05 }),
+      );
+    }
+
     if (weapon.ranged.falloff) {
       fields.push(
         number(`${prefix}.ranged.falloff.startDistance`, WEAPONS, group, "Falloff start (px)", "Damage is full up to this distance.", { min: 0, max: 4000, step: 10, mustNotExceed: `${prefix}.ranged.falloff.endDistance` }),
@@ -470,9 +481,17 @@ function crateFields(): FieldDescriptor[] {
   ];
 }
 
-function matchFields(): FieldDescriptor[] {
+function matchFields(weapons: readonly WeaponDefinition[]): FieldDescriptor[] {
   const { MATCH } = CATEGORY;
   return [
+    select(
+      "defaultWeaponId",
+      MATCH,
+      "Match",
+      "Starting weapon",
+      "What everybody spawns holding. A select rather than free text: an unknown id would leave a match with nothing to shoot with.",
+      weapons.map((weapon) => ({ value: weapon.id, label: weapon.name })),
+    ),
     number("match.minPlayers", MATCH, "Match", "Minimum players", "The fewest participants a match may start with, bots included. The room does not wait to be full -- the host starts it.", { min: 2, max: 32, step: 1, integer: true, mustNotExceed: "match.maxPlayers" }),
     number("match.maxPlayers", MATCH, "Match", "Maximum players", "Hard cap on players in one room, people and bots together. A room that reaches it starts by itself. Rooms created afterwards use the new limit.", { min: 2, max: 32, step: 1, integer: true, mustBeAtLeast: "match.minPlayers" }),
     number("match.countdownMs", MATCH, "Match", "Countdown (ms)", "How long the pre-match countdown runs.", { min: 1000, max: 60000, step: 500 }),
@@ -603,7 +622,7 @@ function brainProfileFields(profile: BrainProfile): FieldDescriptor[] {
 export function buildConfigFields(config: GameConfig, baseline: GameConfig = config): ConfigFieldDefinition[] {
   const descriptors: FieldDescriptor[] = [
     ...playerFields(),
-    ...matchFields(),
+    ...matchFields(config.weapons),
     ...config.weapons.flatMap(weaponFields),
     ...grenadeFields(),
     ...config.powerUps.flatMap((powerUp) => {

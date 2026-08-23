@@ -15,7 +15,7 @@ import {
   type DebugCommandResult,
   type DebugNpcPayload,
   type DebugStatePayload,
-  type GrenadeExplodedPayload,
+  type ExplosionPayload,
   type InputCommand,
   type MeleeSwingPayload,
   type KillPayload,
@@ -68,7 +68,7 @@ export interface NetworkEvents {
   debugNpc: DebugNpcPayload;
   crateDestroyed: CrateDestroyedPayload;
   meleeSwing: MeleeSwingPayload;
-  grenadeExploded: GrenadeExplodedPayload;
+  explosion: ExplosionPayload;
   /** The room retuned its configuration; anything derived from it must refresh. */
   configChanged: ConfigChangedPayload;
   disconnected: { code: number; reason: string };
@@ -406,8 +406,8 @@ export class NetworkManager {
     room.onMessage(ServerMessage.MELEE_SWING, (payload: MeleeSwingPayload) =>
       this.events.emit("meleeSwing", payload),
     );
-    room.onMessage(ServerMessage.GRENADE_EXPLODED, (payload: GrenadeExplodedPayload) =>
-      this.events.emit("grenadeExploded", payload),
+    room.onMessage(ServerMessage.EXPLOSION, (payload: ExplosionPayload) =>
+      this.events.emit("explosion", payload),
     );
     room.onMessage(ServerMessage.DEBUG_STATE, (payload: DebugStatePayload) =>
       this.events.emit("debugState", payload),

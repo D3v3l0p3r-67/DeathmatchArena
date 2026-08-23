@@ -16,7 +16,7 @@ import {
   type PowerUpCollectedPayload,
   type SyncedCrate,
   type SyncedPendingCrate,
-  type GrenadeExplodedPayload,
+  type ExplosionPayload,
   type SyncedGameState,
   type SyncedGrenade,
   type SyncedPlayer,
@@ -189,7 +189,7 @@ export class GameScene extends Phaser.Scene {
     events.on("meleeSwing", (payload) => this.onMeleeSwing(payload));
     events.on("grenadeAdded", ({ grenade }) => this.addGrenadeView(grenade));
     events.on("grenadeRemoved", ({ grenade }) => this.removeGrenadeView(grenade));
-    events.on("grenadeExploded", (payload) => this.onGrenadeExploded(payload));
+    events.on("explosion", (payload) => this.onExplosion(payload));
     events.on("patch", ({ state, receivedAt }) => this.onPatch(state, receivedAt));
     events.on("damage", (payload) => this.onDamage(payload));
     events.on("kill", (payload) => this.onKill(payload));
@@ -308,7 +308,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   /** The blast is already resolved; this only makes it visible. */
-  private onGrenadeExploded(payload: GrenadeExplodedPayload): void {
+  private onExplosion(payload: ExplosionPayload): void {
     this.effects.explosion(payload.x, payload.y, payload.radius);
 
     // Shake harder the closer the blast was to whoever is being watched.

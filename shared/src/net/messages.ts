@@ -78,7 +78,8 @@ export const ServerMessage = {
   /** A melee weapon was swung; purely so clients can animate it. */
   MELEE_SWING: "meleeSwing",
   /** A grenade detonated. Ephemeral, so a message rather than state. */
-  GRENADE_EXPLODED: "grenadeExploded",
+  /** A grenade or a rocket went off; the client draws the blast. */
+  EXPLOSION: "explosion",
   /**
    * Debug authorization result plus, when granted, the command catalogue and the
    * room's tunable values. Unauthorized sessions receive only a refusal.
@@ -187,9 +188,16 @@ export interface MeleeSwingPayload {
   connected: boolean;
 }
 
-export interface GrenadeExplodedPayload {
-  grenadeId: string;
-  /** Session id of the thrower, for the client's own screen shake. */
+/**
+ * Something went off.
+ *
+ * One message for grenades and rockets alike: the client draws a blast, and what
+ * threw it is not information the effect needs.
+ */
+export interface ExplosionPayload {
+  /** Identifies this blast; the id of whatever produced it. */
+  id: string;
+  /** Session id of whoever caused it, for their own screen shake. */
   ownerId: string;
   x: number;
   y: number;

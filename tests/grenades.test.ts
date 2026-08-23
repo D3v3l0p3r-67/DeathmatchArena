@@ -21,13 +21,13 @@ import {
   loadGameConfig,
   resetGameConfig,
   type GameConfig,
-  type GrenadeExplodedPayload,
+  type ExplosionPayload,
   type InputCommand,
 } from "@deathmatch/shared";
 import { clock, createHarness, type Harness } from "./harness.js";
 import { MAX_HEALTH } from "./helpers.js";
 
-const { explosionDamageAt } = await import("../server/src/systems/GrenadeSystem.js");
+const { explosionDamageAt, grenadeBlast } = await import("../server/src/systems/explosion.js");
 
 function cloneConfig(): GameConfig {
   return structuredClone(DEFAULT_GAME_CONFIG);
@@ -247,7 +247,7 @@ describe("grenade flight", () => {
     fly(harness, getGrenadeConfig().fuseMs / 1000 + 0.2);
 
     assert.equal(harness.state.grenades.size, 0, "the grenade is gone once it explodes");
-    const blasts = harness.broadcasts.filter((entry) => entry.type === ServerMessage.GRENADE_EXPLODED);
+    const blasts = harness.broadcasts.filter((entry) => entry.type === ServerMessage.EXPLOSION);
     assert.equal(blasts.length, 1, "exactly one explosion");
   });
 });
@@ -263,9 +263,9 @@ describe("grenade explosion", () => {
   it("deals full damage at the centre and falls off to the configured edge", () => {
     const config = getGrenadeConfig();
 
-    const centre = explosionDamageAt(0, config);
-    const edge = explosionDamageAt(config.explosionRadius, config);
-    const beyond = explosionDamageAt(config.explosionRadius * 1.5, config);
+    const centre = explosionDamageAt(0, grenadeBlast(config));
+    const edge = explosionDamageAt(config.explosionRadius, grenadeBlast(config));
+    const beyond = explosionDamageAt(config.explosionRadius * 1.5, grenadeBlast(config));
 
     assert.equal(centre, config.maxDamage, "a direct hit deals full damage");
     assert.equal(
@@ -279,7 +279,7 @@ describe("grenade explosion", () => {
     // Monotonically decreasing across the radius.
     let previous = centre;
     for (let d = 10; d <= config.explosionRadius; d += 10) {
-      const damage = explosionDamageAt(d, config);
+      const damage = explosionDamageAt(d, grenadeBlast(config));
       assert.ok(damage <= previous, `damage must not rise with distance at ${d}px`);
       previous = damage;
     }
@@ -308,8 +308,8 @@ describe("grenade explosion", () => {
 
   it("hurts less the further away you are", () => {
     const config = getGrenadeConfig();
-    const near = explosionDamageAt(config.explosionRadius * 0.1, config);
-    const far = explosionDamageAt(config.explosionRadius * 0.9, config);
+    const near = explosionDamageAt(config.explosionRadius * 0.1, grenadeBlast(config));
+    const far = explosionDamageAt(config.explosionRadius * 0.9, grenadeBlast(config));
 
     assert.ok(near > far, `${near} at the centre should beat ${far} at the edge`);
   });
@@ -325,9 +325,9 @@ describe("grenade explosion", () => {
       harness.stepGrenades(FIXED_DELTA, clock.now);
     }
 
-    const blast = harness.broadcasts.find((entry) => entry.type === ServerMessage.GRENADE_EXPLODED);
+    const blast = harness.broadcasts.find((entry) => entry.type === ServerMessage.EXPLOSION);
     assert.ok(blast, "the explosion is broadcast");
-    const payload = blast.payload as GrenadeExplodedPayload;
+    const payload = blast.payload as ExplosionPayload;
     assert.equal(payload.ownerId, "p1");
     assert.equal(payload.radius, getGrenadeConfig().explosionRadius);
   });

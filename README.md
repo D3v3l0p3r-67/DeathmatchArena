@@ -1012,6 +1012,44 @@ interpolated from their snapshot buffer; this is the local one catching up.
 
 ---
 
+## The weapon catalogue
+
+Seven weapons, and every one of them is data. A weapon is a row in
+`config.weapons`: numbers, a falloff curve, an optional blast, and a silhouette
+made of rectangles. Nothing about the list below required a line of code that
+knows which weapon it is.
+
+```
+                  damage   range   rpm   mag   what it is for
+Assault Rifle         18    1400   520    30   the baseline, no falloff
+SMG                   11     900   900    40   close work; three times the rifle's cone
+Shotgun            13 x9     620    75     6   contact range, brutal, useless beyond it
+Sniper Rifle          62    2600    40     5   two hits, across the whole arena
+Flamethrower        7 x2     300   720   100   the highest close dps in the game
+Rocket Launcher     0(!)    1800    48     2   the round does nothing; the blast is the weapon
+Chainsaw              34      62     -     -   if you can reach them
+```
+
+**Explosions are one mechanism, not two.** A grenade and a rocket differ in how
+they arrive and in their numbers, never in what happens when they go off — the
+same `detonate` decides who a blast catches, how much it hurts and how hard it
+throws them. Two copies of that would drift, and the day they did a rocket would
+quietly stop opening crates or start sparing the person who fired it.
+
+An explosive round never applies its own damage — hence the launcher's `damage:
+0`, which is not an oversight. It detonates wherever it stops: a player, a crate,
+a wall, or the end of its range, because a rocket that only exploded on people
+would be one nobody could use for anything else. It catches the shooter as
+readily as anyone, which is what makes both firing it in a corridor and firing it
+at your own feet a decision — the recoil and the blast are tuned so the second
+one is a rocket jump.
+
+Bots hold fire with an explosive weapon when the target is inside their own blast
+radius. The same reasoning the grenade action already applied, moved to the
+trigger: a bot with a launcher backs off instead of killing itself.
+
+---
+
 ## Knockback and recoil
 
 Getting shot moves you, and shooting moves you back.

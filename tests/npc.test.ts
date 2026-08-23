@@ -21,6 +21,7 @@ import {
   MAX_BOT_DIFFICULTY,
   MIN_BOT_DIFFICULTY,
   MatchState,
+  ROCKET_LAUNCHER_ID,
   TrapActivation,
   applyBotDifficulty,
   createRandom,
@@ -1578,5 +1579,57 @@ describe("the lobby's headcount", () => {
     harness.npcs.removeBot("human-0", harness.npcs.list()[0]!.sessionId);
     harness.run(0.2);
     assert.equal(harness.state.playerCount, 1);
+  });
+});
+
+describe("a bot holding something explosive", () => {
+  it("will not fire a rocket into a target on top of it", () => {
+    // The blast radius reaches back past the muzzle: firing here is suicide, and
+    // a bot that did it would be a gift rather than an opponent.
+    const launcher = getWeapon(ROCKET_LAUNCHER_ID);
+    const blast = launcher.ranged!.explosion!;
+
+    const pointBlank = enemy({ x: 560, distance: blast.radius * 0.5 });
+    const across = enemy({ x: 1200, distance: blast.radius * 3 });
+
+    /**
+     * Hold the trigger for a second and report whether anything came out.
+     *
+     * A fresh controller each time: reaction time is measured from when a target
+     * was acquired, so a reused one would still be waiting out the first case's
+     * clock.
+     */
+    function firedAt(target: ReturnType<typeof enemy>): boolean {
+      const combat = new CombatController(createRandom(5));
+      const context = emptyContext({
+        self: { ...emptyContext().self, weapon: launcher },
+        enemies: [target],
+        visibleEnemies: [target],
+      });
+
+      let fired = false;
+      for (let elapsed = 0; elapsed < 1500; elapsed += 1000 / 60) {
+        context.now = elapsed;
+        if (combat.engage(target, context, profile(), 1 / 60).fire) fired = true;
+      }
+      return fired;
+    }
+
+    assert.equal(firedAt(pointBlank), false, "it should hold fire at its own feet");
+    assert.equal(firedAt(across), true, "and fire freely at a safe distance");
+  });
+
+  it("fires an ordinary weapon at any range it reaches", () => {
+    const combat = new CombatController(createRandom(5));
+    const target = enemy({ x: 560, distance: 60 });
+    const context = emptyContext({ enemies: [target], visibleEnemies: [target] });
+
+    let fired = false;
+    for (let elapsed = 0; elapsed < 1500; elapsed += 1000 / 60) {
+      context.now = elapsed;
+      if (combat.engage(target, context, profile(), 1 / 60).fire) fired = true;
+    }
+
+    assert.equal(fired, true, "a rifle at point-blank range is simply a rifle");
   });
 });

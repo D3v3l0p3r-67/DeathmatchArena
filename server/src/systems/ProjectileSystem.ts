@@ -1,3 +1,4 @@
+import { detonate } from "./explosion.js";
 import {
   PROJECTILE,
   getDamageAtDistance,
@@ -134,6 +135,14 @@ export class ProjectileSystem {
       );
 
       if (playerHit && playerHit.t === firstT) {
+        // An explosive round never applies its own damage: the blast is the
+        // weapon, and it catches whoever it caught -- including the shooter, if
+        // they fired it at somebody standing next to them.
+        if (runtime.weapon.ranged?.explosion) {
+          this.detonate(runtime, playerHit.x, playerHit.y);
+          return;
+        }
+
         // Damage is evaluated at the distance actually flown, so a falloff weapon
         // is only as strong as the range it hit from.
         const distance = runtime.travelled + stepDistance * playerHit.t;
@@ -158,6 +167,11 @@ export class ProjectileSystem {
       }
 
       if (crateHit && crateHit.t === firstT) {
+        if (runtime.weapon.ranged?.explosion) {
+          this.detonate(runtime, crateHit.x, crateHit.y);
+          return;
+        }
+
         const distance = runtime.travelled + stepDistance * crateHit.t;
         state.x = crateHit.x;
         state.y = crateHit.y;
@@ -174,6 +188,10 @@ export class ProjectileSystem {
       if (worldHit) {
         state.x = worldHit.x;
         state.y = worldHit.y;
+        if (runtime.weapon.ranged?.explosion) {
+          this.detonate(runtime, worldHit.x, worldHit.y);
+          return;
+        }
         this.destroy(state.id);
         return;
       }
@@ -183,10 +201,44 @@ export class ProjectileSystem {
       runtime.travelled += stepDistance;
 
       if (runtime.travelled >= runtime.maxDistance) {
+        // Out of range is an impact too: a rocket that simply vanished at the
+        // limit of its flight would be a weapon players could not read.
+        if (runtime.weapon.ranged?.explosion) {
+          this.detonate(runtime, state.x, state.y);
+          return;
+        }
         this.destroy(state.id);
         return;
       }
     }
+  }
+
+  /**
+   * Set off an explosive round where it stopped.
+   *
+   * Every way a projectile can end -- a player, a crate, a wall, the end of its
+   * range -- goes through here, because a rocket that only exploded on people
+   * would be a rocket nobody could use for anything else.
+   */
+  private detonate(runtime: ProjectileRuntime, x: number, y: number): void {
+    const blast = runtime.weapon.ranged?.explosion;
+    if (!blast) return;
+
+    const { state } = runtime;
+    this.destroy(state.id);
+
+    detonate(
+      this.context,
+      {
+        ...blast,
+        id: state.id,
+        ownerId: state.ownerId,
+        weaponId: state.weaponId,
+        x,
+        y,
+      },
+      this.context.now(),
+    );
   }
 
   destroy(projectileId: string): void {
