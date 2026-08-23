@@ -1,5 +1,7 @@
 import {
+  applyBotDifficulty,
   createInputCommand,
+  type BotDifficultyLevel,
   type BrainProfile,
   type InputCommand,
 } from "@deathmatch/shared";
@@ -79,6 +81,13 @@ export class NpcAgent {
     readonly random: () => number,
     /** Spread the first think across the interval so bots do not pulse together. */
     startOffsetMs: number,
+    /**
+     * Which rung of the difficulty ladder this bot plays at.
+     *
+     * Held as a number and resolved against the configuration on every thought,
+     * so retuning a rung in the admin interface reaches the bots already playing.
+     */
+    private difficultyLevel: number,
   ) {
     this.brain = new Brain(random);
     this.effective = profile;
@@ -99,6 +108,15 @@ export class NpcAgent {
     return this.profile;
   }
 
+  /** The rung this bot plays at. Personality is `brainProfile`; this is skill. */
+  get difficulty(): BotDifficultyLevel {
+    return this.room.config.getBotDifficulty(this.difficultyLevel);
+  }
+
+  setDifficulty(level: number): void {
+    this.difficultyLevel = level;
+  }
+
   get profileId(): string {
     return this.profile.id;
   }
@@ -112,7 +130,12 @@ export class NpcAgent {
    * personality against a live match is bearable.
    */
   private resolveProfile(): BrainProfile {
-    return this.room.config.getBrainProfile(this.profile.id) ?? this.profile;
+    const base = this.room.config.getBrainProfile(this.profile.id) ?? this.profile;
+    // Personality first, then skill. The profile says what this bot wants; the
+    // difficulty says how well it manages any of it, and multiplying the two is
+    // what gives five skill levels for every personality without a second
+    // profile ever being written.
+    return applyBotDifficulty(base, this.difficulty);
   }
 
   /** The profile after the situation has bent it. What actually scores. */
@@ -250,8 +273,10 @@ export class NpcAgent {
     context.now = now;
 
     if (now >= this.nextThinkAt) {
-      const interval = Math.max(20, this.room.config.getNpcConfig().thinkIntervalMs);
-      this.nextThinkAt = now + interval;
+      // A poorer bot reconsiders less often, so a fight that turns against it
+      // takes longer to register. Same brain, running slower.
+      const base = Math.max(20, this.room.config.getNpcConfig().thinkIntervalMs);
+      this.nextThinkAt = now + base * Math.max(0.1, this.difficulty.decisionIntervalMultiplier);
       this.think(context, now);
     }
 
@@ -265,12 +290,20 @@ export class NpcAgent {
   /** Score, choose, and let the winner run. */
   private think(context: BrainContext, now: number): void {
     this.profile = this.resolveProfile();
+    // Re-applied every thought rather than at spawn, so a difficulty retuned in
+    // the admin interface reaches a bot already in a match.
+    this.movement.setNavigationSkill(this.difficulty.navigationSkill);
+    this.combat.setGrenadeAccuracy(this.difficulty.grenadeAccuracy);
     this.effective = deriveEffectiveProfile(this.profile, context);
 
     // Who before what: every action then reasons about the same enemy.
     const sightRange = this.room.config.getNpcConfig().sightRange;
     const previousTarget = this.chosenTarget?.sessionId ?? null;
-    this.chosenTarget = this.targets.pick(context, this.effective, sightRange);
+    this.chosenTarget = this.targets.pick(context, this.effective, sightRange, {
+      skill: this.difficulty.targetSelectionSkill,
+      random: this.random,
+      currentId: previousTarget,
+    });
     // Both sides normalised: `undefined !== null` is true, and comparing the two
     // directly logged "target → none" on every single thought.
     const currentTarget = this.chosenTarget?.sessionId ?? null;

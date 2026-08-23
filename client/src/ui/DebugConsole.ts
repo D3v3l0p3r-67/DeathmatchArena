@@ -271,7 +271,7 @@ export class DebugConsole {
     summary.innerHTML = "";
     summary.append(
       labelled("", `${npc.name}`, "npc-card__name"),
-      labelled("", npc.profileName, "npc-card__profile"),
+      labelled("", `${npc.profileName} · L${npc.difficulty}`, "npc-card__profile"),
       labelled("", `${npc.action} · ${npc.state}`, "npc-card__action"),
     );
     card.append(summary);

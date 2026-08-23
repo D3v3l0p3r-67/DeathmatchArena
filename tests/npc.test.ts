@@ -18,7 +18,12 @@ import { beforeEach, describe, it } from "node:test";
 import {
   CollisionWorld,
   DEFAULT_GAME_CONFIG,
+  MAX_BOT_DIFFICULTY,
+  MIN_BOT_DIFFICULTY,
   MatchState,
+  applyBotDifficulty,
+  createRandom,
+  getBotDifficulty,
   cloneConfig,
   getGameConfig,
   clamp01,
@@ -36,6 +41,7 @@ const { Brain, deriveEffectiveProfile } = await import("../server/src/npc/Brain.
 const { Memory } = await import("../server/src/npc/Memory.js");
 const { Perception } = await import("../server/src/npc/Perception.js");
 const { TargetSelector } = await import("../server/src/npc/TargetSelector.js");
+const { CombatController } = await import("../server/src/npc/CombatController.js");
 const { NavGraph } = await import("../server/src/npc/Navigation.js");
 const actions = await import("../server/src/npc/actions/index.js");
 
@@ -696,7 +702,7 @@ describe("bots in a real match", () => {
     config.npc.enabled = true;
     // A three-player match: one person and two bots. The shipped configuration
     // seats five, which is more bots than these tests need to watch.
-    config.npc.fillToPlayers = 3;
+    config.npc.defaultBotCount = 2;
     config.match.minPlayers = 3;
     // These tests are about bots playing, not about how long a lobby holds its
     // places open for people; that has its own tests below.
@@ -861,10 +867,12 @@ describe("bots in a real match", () => {
 
 describe("holding a lobby open for people", () => {
   /** A waiting lobby with one person in it and bots configured to fill it. */
-  function lobby(overrides: Partial<{ fillAfterMs: number; fillToPlayers: number; enabled: boolean }> = {}) {
+  function lobby(
+    overrides: Partial<{ fillAfterMs: number; bots: number; enabled: boolean }> = {},
+  ) {
     const config = cloneConfig(getGameConfig());
     config.npc.enabled = overrides.enabled ?? true;
-    config.npc.fillToPlayers = overrides.fillToPlayers ?? 5;
+    config.npc.defaultBotCount = overrides.bots ?? 4;
     config.npc.fillAfterMs = overrides.fillAfterMs ?? 60000;
     // Kept out of the way: this is about the lobby, not about matches starting.
     config.match.minPlayers = 4;
@@ -888,7 +896,11 @@ describe("holding a lobby open for people", () => {
 
     assert.equal(match.maxPlayers, 5);
     assert.equal(match.minPlayers, match.maxPlayers, "a match should never start short-handed");
-    assert.equal(npc.fillToPlayers, match.maxPlayers, "bots fill the arena, not part of it");
+    assert.equal(
+      npc.defaultBotCount,
+      match.maxPlayers - 1,
+      "a lobby offers enough bots to fill the arena around one person",
+    );
     assert.equal(npc.maxBots, match.maxPlayers - 1, "one seat is always a person's");
   });
 
@@ -987,7 +999,7 @@ describe("holding a lobby open for people", () => {
   });
 
   it("fills what is left once the hold expires", () => {
-    const harness = lobby({ fillAfterMs: 3000, fillToPlayers: 5 });
+    const harness = lobby({ fillAfterMs: 3000, bots: 4 });
 
     harness.run(6);
 
@@ -997,7 +1009,7 @@ describe("holding a lobby open for people", () => {
   });
 
   it("never fills past the arena's own limit", () => {
-    const harness = lobby({ fillAfterMs: 0, fillToPlayers: 99 });
+    const harness = lobby({ fillAfterMs: 0, bots: 99 });
 
     harness.run(2);
 
@@ -1082,5 +1094,371 @@ describe("holding a lobby open for people", () => {
     assert.equal(harness.npcs.count, 0);
     assert.equal(harness.state.canStartNow, false, "offering a skip that does nothing would be a lie");
     assert.equal(harness.npcs.requestImmediateStart("human"), false);
+  });
+});
+
+describe("choosing the bots before a match", () => {
+  /** A waiting lobby with `people` people in it and the shipped ladder. */
+  function lobbyOf(people: number, overrides: Partial<{ fillAfterMs: number; bots: number }> = {}) {
+    const config = cloneConfig(getGameConfig());
+    config.npc.enabled = true;
+    config.npc.fillAfterMs = overrides.fillAfterMs ?? 0;
+    if (overrides.bots !== undefined) config.npc.defaultBotCount = overrides.bots;
+
+    const harness = createHarness();
+    harness.replaceConfig(config);
+    harness.state.matchState = MatchState.WAITING;
+
+    for (let index = 0; index < people; index++) {
+      const player = harness.addPlayer(`human-${index}`, 400 + index * 40, 1700);
+      player.connected = true;
+      player.alive = false;
+      player.inMatch = false;
+    }
+    return harness;
+  }
+
+  it("publishes what the lobby may be asked for", () => {
+    const harness = lobbyOf(1);
+    harness.run(1);
+
+    assert.equal(harness.state.maxBots, DEFAULT_GAME_CONFIG.match.maxPlayers - 1);
+    assert.equal(harness.state.botCount, DEFAULT_GAME_CONFIG.npc.defaultBotCount);
+    assert.equal(harness.state.botDifficulty, DEFAULT_GAME_CONFIG.npc.defaultDifficulty);
+    assert.equal(harness.state.botDifficultyName, "Normal", "the ladder names its own rungs");
+  });
+
+  it("fills to exactly the number asked for", () => {
+    const harness = lobbyOf(1);
+    assert.equal(harness.npcs.setLobbyBots("human-0", 2, 3), true);
+
+    harness.run(3);
+
+    assert.equal(harness.npcs.count, 2);
+  });
+
+  it("retires bots when the number is lowered, and moves the rest", () => {
+    // Inside the hold, where the lobby still exists: once it has what it asked
+    // for it starts, and a running match is nobody's to reconfigure.
+    const harness = lobbyOf(1, { fillAfterMs: 60000 });
+    harness.run(1);
+
+    harness.npcs.setLobbyBots("human-0", 3, 5);
+    harness.npcs.requestImmediateStart("human-0");
+    assert.equal(harness.npcs.count, 3, "expected the lobby to fill to what was asked for");
+
+    assert.equal(harness.npcs.setLobbyBots("human-0", 1, 2), true);
+
+    assert.equal(harness.npcs.count, 1, "the extra bots should have left");
+    for (const agent of harness.npcs.list()) {
+      assert.equal(agent.difficulty.level, 2, "and the one left should have changed level");
+    }
+  });
+
+  it("adds no bots at all when asked for none", () => {
+    const harness = lobbyOf(2);
+    harness.npcs.setLobbyBots("human-0", 0, 3);
+
+    // Long enough for the countdown to run out, too.
+    harness.run(8);
+
+    assert.equal(harness.npcs.count, 0, "nobody asked for a bot");
+    assert.equal(harness.state.matchState, MatchState.PLAYING, "two people are a match");
+  });
+
+  it("waits for a second person rather than starting a match of one", () => {
+    // A solo match is over on the tick it begins. With no bots asked for, an
+    // opponent has to be somebody.
+    const harness = lobbyOf(1);
+    harness.npcs.setLobbyBots("human-0", 0, 3);
+
+    harness.run(8);
+
+    assert.equal(harness.npcs.count, 0);
+    assert.equal(harness.state.matchState, MatchState.WAITING);
+  });
+
+  it("starts a short match rather than holding out for five", () => {
+    // One person, one bot: fewer than the arena seats, and a match all the same.
+    const harness = lobbyOf(1);
+    harness.npcs.setLobbyBots("human-0", 1, 2);
+
+    harness.run(8);
+
+    assert.equal(harness.state.matchState, MatchState.PLAYING);
+    assert.equal(harness.state.players.size, 2);
+  });
+
+  it("clamps a count the arena cannot seat", () => {
+    const harness = lobbyOf(1);
+    harness.npcs.setLobbyBots("human-0", 99, 3);
+
+    assert.equal(harness.state.botCount, DEFAULT_GAME_CONFIG.match.maxPlayers - 1);
+  });
+
+  it("clamps a difficulty the ladder does not have", () => {
+    const harness = lobbyOf(1);
+
+    harness.npcs.setLobbyBots("human-0", 1, 99);
+    assert.equal(harness.state.botDifficulty, MAX_BOT_DIFFICULTY);
+
+    harness.npcs.setLobbyBots("human-0", 1, -4);
+    assert.equal(harness.state.botDifficulty, MIN_BOT_DIFFICULTY);
+  });
+
+  it("refuses a bot and a stranger asking", () => {
+    const harness = lobbyOf(1, { fillAfterMs: 60000 });
+    harness.run(1);
+    harness.npcs.requestImmediateStart("human-0");
+    const bot = harness.npcs.list()[0]!;
+
+    assert.equal(harness.npcs.setLobbyBots(bot.sessionId, 0, 5), false);
+    assert.equal(harness.npcs.setLobbyBots("nobody-in-particular", 0, 5), false);
+  });
+
+  it("refuses to change the setup once a match is running", () => {
+    const harness = lobbyOf(1);
+    harness.run(6);
+    assert.equal(harness.state.matchState, MatchState.PLAYING);
+
+    const before = harness.state.botCount;
+    assert.equal(harness.npcs.setLobbyBots("human-0", 0, 5), false);
+    assert.equal(harness.state.botCount, before);
+  });
+
+  it("spawns bots at the difficulty the lobby chose", () => {
+    const harness = lobbyOf(1);
+    harness.npcs.setLobbyBots("human-0", 2, 1);
+    harness.run(1);
+
+    for (const agent of harness.npcs.list()) {
+      assert.equal(agent.difficulty.level, 1);
+      assert.equal(agent.difficulty.name, "Very Easy");
+    }
+  });
+
+  it("keeps a running match's difficulty out of the lobby's hands", () => {
+    const harness = lobbyOf(1);
+    harness.npcs.setLobbyBots("human-0", 2, 1);
+    harness.run(8);
+    assert.equal(harness.state.matchState, MatchState.PLAYING);
+
+    assert.equal(harness.npcs.setLobbyBots("human-0", 2, 5), false);
+    for (const agent of harness.npcs.list()) {
+      assert.equal(agent.difficulty.level, 1, "the match is being played at the level it started at");
+    }
+  });
+});
+
+describe("the difficulty ladder", () => {
+  const { npc } = DEFAULT_GAME_CONFIG;
+
+  it("ships five rungs, named", () => {
+    assert.deepEqual(
+      npc.difficulties.map((level) => `${level.level} ${level.name}`),
+      ["1 Very Easy", "2 Easy", "3 Normal", "4 Hard", "5 Very Hard"],
+    );
+  });
+
+  it("starts on Normal", () => {
+    assert.equal(npc.defaultDifficulty, 3);
+  });
+
+  it("gets better at every rung, and never in a straight line down", () => {
+    // The property that matters: each rung is a *better player* than the one
+    // below it on every axis. A ladder that improved aim while getting slower
+    // would not be a ladder.
+    for (let level = 2; level <= MAX_BOT_DIFFICULTY; level++) {
+      const worse = getBotDifficulty(npc, level - 1);
+      const better = getBotDifficulty(npc, level);
+
+      assert.ok(better.aimSkillMultiplier > worse.aimSkillMultiplier, `aim at ${level}`);
+      assert.ok(better.predictionSkillMultiplier > worse.predictionSkillMultiplier, `prediction at ${level}`);
+      assert.ok(better.dodgeSkillMultiplier > worse.dodgeSkillMultiplier, `dodge at ${level}`);
+      assert.ok(better.grenadeAccuracy > worse.grenadeAccuracy, `grenades at ${level}`);
+      assert.ok(better.navigationSkill > worse.navigationSkill, `navigation at ${level}`);
+      assert.ok(better.targetSelectionSkill > worse.targetSelectionSkill, `targeting at ${level}`);
+      assert.ok(better.reactionTimeMultiplier < worse.reactionTimeMultiplier, `reaction at ${level}`);
+      assert.ok(better.decisionIntervalMultiplier < worse.decisionIntervalMultiplier, `thinking at ${level}`);
+      assert.ok(better.decisionNoiseMultiplier < worse.decisionNoiseMultiplier, `noise at ${level}`);
+    }
+  });
+
+  it("leaves the profiles exactly as written at the top rung", () => {
+    // Level 5 is the reference point: it plays the personalities as tuned, which
+    // is where the bots were before difficulty existed.
+    const top = getBotDifficulty(npc, MAX_BOT_DIFFICULTY);
+    for (const profile of npc.profiles) {
+      assert.deepEqual(applyBotDifficulty(profile, top), profile);
+    }
+  });
+
+  it("changes skill and nothing else", () => {
+    // The rule the whole feature rests on: difficulty is not a personality, and
+    // it is emphatically not less health or less damage. Only the five values a
+    // *player* varies in may differ.
+    const profile = DEFAULT_GAME_CONFIG.npc.profiles[0]!;
+    const weak = applyBotDifficulty(profile, getBotDifficulty(npc, 1));
+
+    const skill = new Set([
+      "aimSkill",
+      "predictionSkill",
+      "dodgeSkill",
+      "reactionTimeMs",
+      "decisionNoise",
+    ]);
+
+    for (const key of Object.keys(profile) as (keyof typeof profile)[]) {
+      if (skill.has(key)) continue;
+      assert.deepEqual(weak[key], profile[key], `difficulty must not touch ${key}`);
+    }
+
+    assert.ok(weak.aimSkill < profile.aimSkill);
+    assert.ok(weak.reactionTimeMs > profile.reactionTimeMs);
+  });
+
+  it("never produces a perfect bot, at any rung", () => {
+    // Even the hardest rung aims through the same imperfect-aim machinery.
+    for (const level of npc.difficulties) {
+      for (const profile of npc.profiles) {
+        const tuned = applyBotDifficulty(profile, level);
+        assert.ok(tuned.aimSkill < 1, `${profile.id} at ${level.level} aims perfectly`);
+        assert.ok(tuned.reactionTimeMs > 0, `${profile.id} at ${level.level} reacts instantly`);
+      }
+    }
+  });
+});
+
+describe("a lobby that asked for no bots", () => {
+  function soloLobby(people: number) {
+    const config = cloneConfig(getGameConfig());
+    config.npc.enabled = true;
+    config.npc.fillAfterMs = 60000;
+    config.npc.defaultBotCount = 0;
+
+    const harness = createHarness();
+    harness.replaceConfig(config);
+    harness.state.matchState = MatchState.WAITING;
+    for (let index = 0; index < people; index++) {
+      const player = harness.addPlayer(`human-${index}`, 400 + index * 40, 1700);
+      player.connected = true;
+      player.alive = false;
+      player.inMatch = false;
+    }
+    return harness;
+  }
+
+  it("offers no skip that would do nothing", () => {
+    // One person, no bots: skipping the wait cannot conjure an opponent, and a
+    // button that quietly achieves nothing is worse than no button.
+    const harness = soloLobby(1);
+    harness.run(2);
+
+    assert.equal(harness.state.canStartNow, false);
+    assert.equal(harness.npcs.requestImmediateStart("human-0"), false);
+    assert.equal(harness.state.matchState, MatchState.WAITING);
+  });
+
+  it("still says what it is waiting for", () => {
+    const harness = soloLobby(1);
+    harness.run(2);
+
+    assert.ok(harness.state.botFillSeconds > 0, "the wait is real even with no bots in it");
+  });
+
+  it("offers the skip again as soon as there is somebody to fight", () => {
+    const harness = soloLobby(2);
+    harness.run(2);
+
+    assert.equal(harness.state.canStartNow, true);
+    assert.equal(harness.npcs.requestImmediateStart("human-0"), true);
+
+    harness.run(8);
+    assert.equal(harness.state.matchState, MatchState.PLAYING);
+    assert.equal(harness.npcs.count, 0, "nobody asked for a bot");
+  });
+});
+
+describe("difficulty in the fight", () => {
+  /**
+   * Aim at a target that is running, and report how far off the shot is.
+   *
+   * Straight through the combat controller with a hand-built context, so this
+   * measures the mechanism rather than the outcome of a match: a poor bot should
+   * be slower to fire and worse at leading a moving target, at the same
+   * personality and with the same weapon.
+   */
+  function engageForMs(level: number, ms: number, seed = 3) {
+    const npc = DEFAULT_GAME_CONFIG.npc;
+    const base = DEFAULT_GAME_CONFIG.npc.profiles.find((entry) => entry.id === "balanced")!;
+    const tuned = applyBotDifficulty(base, getBotDifficulty(npc, level));
+
+    const combat = new CombatController(createRandom(seed));
+    const target = enemy({ x: 900, y: 500, velocityX: 260, distance: 400 });
+    const context = emptyContext({ enemies: [target], visibleEnemies: [target], nearestEnemy: target });
+
+    let fired = 0;
+    let firstShotAt = -1;
+    const step = 1000 / 60;
+
+    for (let elapsed = 0; elapsed < ms; elapsed += step) {
+      context.now = elapsed;
+      const output = combat.engage(target, context, tuned, step / 1000);
+      if (output.fire) {
+        fired++;
+        if (firstShotAt < 0) firstShotAt = elapsed;
+      }
+    }
+
+    return { fired, firstShotAt };
+  }
+
+  it("waits longer before shooting at a lower difficulty", () => {
+    const weak = engageForMs(1, 3000);
+    const strong = engageForMs(5, 3000);
+
+    assert.ok(strong.firstShotAt >= 0, "the hardest rung should get a shot away");
+    assert.ok(
+      weak.firstShotAt > strong.firstShotAt,
+      `expected the weaker bot to hesitate: ${weak.firstShotAt} vs ${strong.firstShotAt}`,
+    );
+  });
+
+  it("holds fire more often at a lower difficulty", () => {
+    // Not because it is forbidden to shoot, but because its aim spends more of
+    // the time off target -- the controller only fires when the shot could land.
+    const weak = engageForMs(1, 3000);
+    const strong = engageForMs(5, 3000);
+
+    assert.ok(
+      strong.fired > weak.fired,
+      `expected the better bot to take more shots: ${strong.fired} vs ${weak.fired}`,
+    );
+  });
+
+  it("misjudges a grenade throw at a lower difficulty", () => {
+    const base = DEFAULT_GAME_CONFIG.npc.profiles.find((entry) => entry.id === "balanced")!;
+    const grenades = DEFAULT_GAME_CONFIG.grenades;
+
+    /** How long the wind-up is held before it lets go. */
+    function chargeFor(accuracy: number): number {
+      const combat = new CombatController(createRandom(11));
+      combat.setGrenadeAccuracy(accuracy);
+      const context = emptyContext();
+
+      let held = 0;
+      const step = 1000 / 60;
+      for (let elapsed = 0; elapsed < 4000; elapsed += step) {
+        context.now = elapsed;
+        const output = combat.throwGrenade({ x: 1100, y: 500 }, context, base, grenades, step / 1000);
+        if (!output.chargeGrenade) break;
+        held = elapsed;
+      }
+      return held;
+    }
+
+    // A misjudged throw is one held for the wrong length of time. Same target,
+    // same distance, same personality: only the judgement differs.
+    assert.notEqual(chargeFor(0.2), chargeFor(1), "accuracy should change the throw");
   });
 });

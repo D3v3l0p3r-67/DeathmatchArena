@@ -266,6 +266,105 @@ kbd {
   color: var(--accent);
 }
 
+/* The lobby's bot settings. */
+.botsetup {
+  display: grid;
+  gap: 10px;
+  margin: 18px 0 4px;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.botsetup__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.botsetup.is-hidden {
+  display: none;
+}
+
+/* Nothing to be difficult about with no bots in the lobby. */
+.botsetup__row--difficulty {
+  display: none;
+}
+
+.botsetup__row--difficulty.is-active {
+  display: flex;
+}
+
+.botsetup__label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.botsetup__label small {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  color: var(--accent);
+}
+
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.stepper__button,
+.difficulty__button {
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.stepper__button:hover:not(:disabled),
+.difficulty__button:hover:not(.is-selected) {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
+.stepper__button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.stepper__value {
+  min-width: 34px;
+  font-family: var(--mono);
+  font-size: 18px;
+  text-align: center;
+}
+
+.difficulty {
+  display: flex;
+  gap: 4px;
+}
+
+.difficulty__button.is-selected {
+  border-color: var(--accent);
+  background: rgba(56, 189, 248, 0.18);
+  color: var(--accent);
+}
+
 /* Shown only while the server says the lobby is holding places open. */
 .lobby__hold {
   display: none;

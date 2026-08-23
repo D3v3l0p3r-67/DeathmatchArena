@@ -28,6 +28,7 @@ import {
   type NoticePayload,
   type PingPayload,
   type PongPayload,
+  type SetBotsRequest,
   type WelcomePayload,
 } from "@deathmatch/shared";
 import { serverConfig } from "../config.js";
@@ -394,6 +395,27 @@ export class BattleRoom extends Room<{ state: GameState }> {
       const now = Date.now();
       if (runtime && !runtime.rateLimiters.allow("chatOrMisc", now)) return;
       this.npcSystem.requestImmediateStart(client.sessionId);
+    });
+
+    /**
+     * "This many bots, this good."
+     *
+     * The lobby's settings belong to the room, not to the client that sent
+     * them: the count is clamped to what the arena can seat, the difficulty to a
+     * rung the ladder actually has, and the whole message is ignored outside a
+     * waiting lobby or from a session that is not a person in it.
+     */
+    this.onMessage(ClientMessage.SET_BOTS, (client, payload: Partial<SetBotsRequest>) => {
+      const runtime = this.runtimes.get(client.sessionId);
+      const now = Date.now();
+      if (runtime && !runtime.rateLimiters.allow("chatOrMisc", now)) return;
+      if (!payload || typeof payload !== "object") return;
+
+      this.npcSystem.setLobbyBots(
+        client.sessionId,
+        Number(payload.count),
+        Number(payload.difficulty),
+      );
     });
 
     /**

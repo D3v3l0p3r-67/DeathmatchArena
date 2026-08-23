@@ -3,6 +3,7 @@ import {
   DEFAULT_ARENA_ID,
   MatchState,
   getMatchConfig,
+  getNpcConfig,
   type MatchStateValue,
   type SyncedGameState,
 } from "@deathmatch/shared";
@@ -82,6 +83,21 @@ export class GameState extends Schema implements SyncedGameState {
   @type("uint16") botFillSeconds = 0;
   /** True while the wait could be skipped. Purely so the client knows to offer. */
   @type("boolean") canStartNow = false;
+
+  /**
+   * The lobby's bot settings.
+   *
+   * Synchronised rather than kept per-client because they belong to the *lobby*:
+   * everybody waiting is going to play the same match, so everybody has to see
+   * the same answer to "how many bots, and how good". A client may ask to change
+   * them; only these values decide anything.
+   */
+  @type("uint8") botCount: number = getNpcConfig().defaultBotCount;
+  @type("uint8") botDifficulty: number = getNpcConfig().defaultDifficulty;
+  /** Name of that rung, so the lobby need not carry a copy of the ladder. */
+  @type("string") botDifficultyName = "";
+  /** The most bots this lobby may currently be asked for. */
+  @type("uint8") maxBots: number = getNpcConfig().maxBots;
 
   /**
    * The playable width, narrowed by the closing walls.

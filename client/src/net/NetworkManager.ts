@@ -25,6 +25,7 @@ import {
   type PingPayload,
   type PongPayload,
   type PowerUpCollectedPayload,
+  type SetBotsRequest,
   type SyncedCrate,
   type SyncedGameState,
   type SyncedGrenade,
@@ -164,6 +165,18 @@ export class NetworkManager {
    */
   requestImmediateStart(): void {
     this.room?.send(ClientMessage.START_NOW, {});
+  }
+
+  /**
+   * Ask the lobby for this many bots, this good.
+   *
+   * A request like every other: the server clamps both numbers to what the room
+   * can actually field and publishes the result, which is what the controls then
+   * display.
+   */
+  setBots(count: number, difficulty: number): void {
+    const payload: SetBotsRequest = { count, difficulty };
+    this.room?.send(ClientMessage.SET_BOTS, payload);
   }
 
   /** Approximate server clock, used only for debug output and trail fading. */

@@ -561,24 +561,43 @@ dozen of them logging at eight hertz is noise nobody can read.
 
 ### Filling a lobby
 
-**A match is always five, at least one of them a person, and bots take whatever
-people do not.**
+**The lobby decides how many bots it wants; the free places are held open for
+people first; and there is always at least one person.**
 
-Nothing starts short-handed: the minimum and the maximum are the same number, so
-the lobby fills before the countdown rather than beginning with whoever happens
-to be standing there. The free places are held open for **people** first — a bot
-is a consolation prize, and given the choice a match should fill with players —
-and only once the hold expires do bots take what is left.
+Every lobby carries two settings, and they belong to the *room* rather than to
+whoever set them — everybody waiting is going to play the same match, so
+everybody sees the same answer:
 
 ```
-1 player joins   ->  "Holding places for other players · 58s"  +  Start now with bots
-   ...nobody else arrives...
-hold expires     ->  four bots join, the match starts        (1 person + 4 bots)
+Bots            [ - ]  4  [ + ]        0 .. maxPlayers - 1
+Bot difficulty  [1] [2] [3] [4] [5]    hidden while Bots is 0
+```
 
-2 players join   ->  still waiting: three seats are still somebody's
-either presses   ->  three bots join, the match starts       (2 people + 3 bots)
+A client only *asks*. The server clamps the count to what the arena can seat and
+the cap allows, refuses a difficulty its ladder does not have, ignores the
+message outside a waiting lobby and from anybody who is not a person in it, and
+publishes the result — which is what every client's controls then display. The
+choice is remembered in `localStorage` and carried into the next lobby, but only
+when nobody else is there to disagree with it.
 
-5 players join   ->  the match starts, no bots               (5 people)
+The places are held open for **people** first — a bot is a consolation prize, and
+given the choice a match should fill with players — and only once the hold
+expires, or somebody skips it, do the requested bots arrive. A match starts when
+the lobby is everybody it is going to be:
+
+```
+1 player, 4 bots  ->  "Holding places for other players · 58s"  +  Start now
+    ...nobody else arrives...
+hold expires      ->  four bots join, the match starts        (1 person + 4 bots)
+
+2 players, 3 bots ->  either presses Start now                (2 people + 3 bots)
+
+2 players, 0 bots ->  hold expires or Start now               (2 people, no bots)
+
+1 player,  0 bots ->  waits. A match of one is over on the tick it begins, so
+                      with no bots asked for, an opponent has to be somebody.
+
+5 players         ->  the match starts, no bots               (5 people)
 ```
 
 The hold starts when the first person arrives and deliberately does **not** reset
@@ -594,18 +613,83 @@ watching. A dropped connection is not the same as leaving — that seat is held 
 the reconnection window.
 
 ```
-match.minPlayers     equal to the maximum, which is what makes "always five" true
-match.maxPlayers     the arena seats this many (5)
-npc.enabled          on by default
-npc.fillToPlayers    top a waiting lobby up to this many participants (5)
-npc.fillAfterMs      how long the places stay open for people (60s)
-npc.maxBots          hard cap (4, so one seat is always a person's)
-npc.sightRange       raise it and bots start feeling omniscient
-npc.thinkIntervalMs  8Hz by default
+match.maxPlayers      the arena seats this many (5)
+match.minPlayers      a full arena starts without waiting out the hold (5)
+npc.enabled           on by default
+npc.defaultBotCount   where the lobby's dial starts (4: one person plus four bots)
+npc.defaultDifficulty which rung it starts on (3, Normal)
+npc.fillAfterMs       how long the places stay open for people (60s)
+npc.maxBots           hard cap (4, so one seat is always a person's)
+npc.sightRange        raise it and bots start feeling omniscient
+npc.thinkIntervalMs   8Hz by default
 ```
 
 Bots are only added and removed between matches: dropping one into a running
-match would give it a free spawn among people who have been fighting.
+match would give it a free spawn among people who have been fighting, and the
+same goes for difficulty — a match is played at the level it started at.
+
+### Difficulty is skill, not a second personality
+
+**A brain profile says what a bot wants. A difficulty level says how well it
+manages any of it.** Multiplying one by the other is what gives twelve
+personalities × five levels — sixty kinds of opponent — without a single extra
+profile being written. An Aggressive bot at level 2 is the same Aggressive bot:
+it still walks at you, it is simply worse at it.
+
+Difficulty is emphatically **not** less health or less damage. Every level plays
+the same game with the same weapons and the same rules; what changes is the
+quality of the decisions and the execution:
+
+```
+                         L1 Very Easy   L3 Normal   L5 Very Hard
+reaction time x                  2.40        1.25           1.00
+aim skill x                      0.40        0.75           1.00
+prediction skill x               0.15        0.60           1.00
+dodge skill x                    0.30        0.70           1.00
+decision noise x                 2.50        1.35           1.00
+decision interval x              2.40        1.30           1.00
+grenade accuracy                 0.25        0.65           1.00
+navigation skill                 0.30        0.70           1.00
+target selection                 0.25        0.70           1.00
+```
+
+Level 5 is the reference point: every multiplier is 1, so it plays the profiles
+exactly as written — which is where the bots were before difficulty existed, and
+why the shipped default is 3. And even level 5 aims through the same
+imperfect-aim machinery as every other rung: there is no perfect aim at any
+difficulty, and no level is given information a bot could not sense.
+
+The four values that are not multipliers have nowhere in a personality to come
+from, so difficulty owns them outright:
+
+- **grenade accuracy** — a misjudged throw angle and a misjudged charge, drawn
+  once when the wind-up starts rather than re-rolled every tick;
+- **navigation skill** — how far ahead it looks for hazards, and how quickly it
+  notices that what it is doing is not working. It buys no extra information: the
+  hazards are the ones it can already perceive;
+- **target selection** — how reliably it acts on its own ranking. Below 1 it
+  often stays on whoever it was already shooting at rather than switching to the
+  better target. Modelled as reluctance to switch rather than as a random pick,
+  because re-rolling a target eight times a second reads as a *broken* bot rather
+  than a bad one;
+- **decision interval** — how often it reconsiders at all, so a fight turning
+  against a poor bot takes longer to register.
+
+The ladder is data like everything else (`npc.difficulties`), generated into the
+admin interface and the debug console from the levels themselves, so a sixth rung
+is a configuration change rather than a code change. Every bot's card in the
+**NPC AI** debug section is labelled with the rung it is playing at, and retuning
+a rung reaches the bots already in a match on their very next thought.
+
+Measured through the combat controller — same personality, same weapon, a target
+running across at 260px/s:
+
+```
+                first shot    shots on target (3s)
+level 1              767ms                      67
+level 3              267ms                      97
+level 5              217ms                     122
+```
 
 ---
 

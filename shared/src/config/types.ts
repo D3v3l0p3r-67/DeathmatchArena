@@ -520,6 +520,54 @@ export interface BrainProfile {
 }
 
 /**
+ * One rung of the bot difficulty ladder.
+ *
+ * Difficulty is deliberately *not* a set of alternative personalities: a
+ * Berserker is a Berserker at every level, and what changes is how well it plays.
+ * That split is why these are mostly multipliers -- they scale whatever the
+ * profile asked for rather than replacing it, so tuning a personality still means
+ * tuning one place.
+ *
+ * It is also deliberately not "less health, less damage". A weaker bot reacts
+ * later, aims worse, reads movement worse, dodges worse, thinks less often and
+ * picks its fights worse. It is still playing the same game with the same
+ * weapons -- it is simply not as good at it.
+ */
+export interface BotDifficultyLevel {
+  /** 1..5. The number a player picks. */
+  level: number;
+  /** "Very Easy" ... "Very Hard". */
+  name: string;
+
+  /** Scales the profile's reaction time. Above 1 is slower, i.e. worse. */
+  reactionTimeMultiplier: number;
+  /** Scales the profile's aim skill. Below 1 is worse. */
+  aimSkillMultiplier: number;
+  /** Scales how well it leads a moving target. */
+  predictionSkillMultiplier: number;
+  /** Scales how well it gets out of the way. */
+  dodgeSkillMultiplier: number;
+
+  /**
+   * Scales the profile's decision noise. Above 1 is more erratic, i.e. worse.
+   *
+   * A multiplier rather than an absolute: a Trickster's jitter is part of who it
+   * is, and a difficulty that overwrote it would quietly flatten the personality
+   * it is supposed to leave alone.
+   */
+  decisionNoiseMultiplier: number;
+  /** Scales how often it re-decides. Above 1 thinks less often, i.e. worse. */
+  decisionIntervalMultiplier: number;
+
+  /** How well it judges a grenade throw, 0..1. */
+  grenadeAccuracy: number;
+  /** How well it reads the arena: looking ahead, noticing it is stuck. 0..1. */
+  navigationSkill: number;
+  /** How reliably it fights the enemy actually worth fighting, 0..1. */
+  targetSelectionSkill: number;
+}
+
+/**
  * NPCs: whether they play, how many, and how often they think.
  *
  * The thinking rates are here rather than hard-coded because they are the main
@@ -528,12 +576,6 @@ export interface BrainProfile {
  */
 export interface NpcConfig {
   enabled: boolean;
-  /**
-   * Top the lobby up to this many participants with bots. 0 leaves matches
-   * human-only; anything above the match minimum means a match can start with
-   * one human.
-   */
-  fillToPlayers: number;
   /**
    * How long a lobby holds its free places open for people before bots take
    * them, in ms.
@@ -555,6 +597,18 @@ export interface NpcConfig {
   /** Names given to bots, cycled through. */
   names: string[];
   profiles: BrainProfile[];
+
+  /**
+   * How many bots a lobby offers before anybody touches the control.
+   *
+   * A player may pick anything from 0 up, and their choice is remembered; this
+   * is only the starting position of the dial.
+   */
+  defaultBotCount: number;
+  /** Difficulty a lobby offers before anybody touches the control, 1..5. */
+  defaultDifficulty: number;
+  /** The difficulty ladder itself. Levels are matched by `level`. */
+  difficulties: BotDifficultyLevel[];
 }
 
 /**

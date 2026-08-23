@@ -50,6 +50,7 @@ export class NpcSystem {
   /** Set when somebody asked not to wait. Cleared with the lobby. */
   private skipRequested = false;
 
+
   constructor(
     private readonly context: RoomContext,
     private readonly movement: MovementSystem,
@@ -104,6 +105,10 @@ export class NpcSystem {
       this.skipRequested = false;
     }
 
+    // Bounds first, and whether or not bots are enabled: the numbers a lobby
+    // displays should be this room's, even when nothing is going to fill it.
+    this.publishLimits(config);
+
     if (config.enabled && waiting && now >= this.nextFillAt) {
       this.nextFillAt = now + FILL_INTERVAL_MS;
       this.updateLobby(config, now);
@@ -147,11 +152,11 @@ export class NpcSystem {
 
     if (this.holdingSince === 0) this.holdingSince = now;
 
-    const target = Math.min(config.fillToPlayers, this.context.config.getMatchConfig().maxPlayers);
-    const wanted = Math.min(config.maxBots, Math.max(0, target - humans));
+    const wanted = this.botsWanted(config);
+    const maxPlayers = this.context.config.getMatchConfig().maxPlayers;
 
-    // Already full of people, or bots are not wanted here.
-    if (wanted === 0) {
+    // The roster is complete: everybody who is going to play is here.
+    if (humans >= maxPlayers) {
       this.publishHold(0, false);
       if (this.agents.size > 0) this.removeAll();
       return;
@@ -160,8 +165,18 @@ export class NpcSystem {
     const elapsed = now - this.holdingSince;
     const remaining = Math.max(0, config.fillAfterMs - elapsed);
 
+    // Nothing a skip could achieve. With no bots asked for and nobody else
+    // here, the only thing that starts this match is another person arriving --
+    // so do not offer a button that would quietly do nothing.
+    if (humans + wanted < 2) {
+      this.publishHold(Math.ceil(remaining / 1000), false);
+      if (this.agents.size > 0) this.removeAll();
+      return;
+    }
+
     if (!this.skipRequested && remaining > 0) {
-      // Still someone else's seat. Offer the skip and wait.
+      // Still someone else's seat -- whether a bot or a person would take it.
+      // Offer the skip and wait.
       this.publishHold(Math.ceil(remaining / 1000), true);
       if (this.agents.size > 0) this.removeAll();
       return;
@@ -169,6 +184,117 @@ export class NpcSystem {
 
     this.publishHold(0, false);
     this.fill(wanted);
+  }
+
+  /**
+   * How many bots this lobby should have.
+   *
+   * The lobby's own choice, clamped to what the arena can seat and to the
+   * configured cap. Zero is an ordinary answer, not a special case: it means the
+   * people here would rather play among themselves.
+   */
+  private botsWanted(config: NpcConfig): number {
+    const maxPlayers = this.context.config.getMatchConfig().maxPlayers;
+    const free = Math.max(0, maxPlayers - this.countHumans());
+    return Math.min(this.context.state.botCount, config.maxBots, free);
+  }
+
+  /**
+   * Is this lobby everybody it is going to be?
+   *
+   * The match manager asks before it starts a countdown. A lobby is ready when
+   * nobody else is expected: the places have stopped being held open, the bots
+   * that were asked for have arrived, and there is somebody to fight -- a match
+   * of one is over the moment it begins.
+   */
+  lobbyReady(): boolean {
+    const config = this.context.config.getNpcConfig();
+    if (!config.enabled) return false;
+
+    // Countdown counts as ready too: the match manager re-checks this every tick
+    // while it counts down, and a lobby that legitimately started with three
+    // would otherwise abort itself on the very next tick.
+    const state = this.context.state.matchState;
+    if (state !== MatchState.WAITING && state !== MatchState.COUNTDOWN) return false;
+
+    const humans = this.countHumans();
+    if (humans === 0) return false;
+
+    const maxPlayers = this.context.config.getMatchConfig().maxPlayers;
+    if (humans >= maxPlayers) return true;
+
+    const wanted = this.botsWanted(config);
+    // An opponent is the one thing a match cannot do without. With no bots
+    // asked for, that means waiting for a second person.
+    if (humans + wanted < 2) return false;
+
+    // Places still open for people, and nobody has said not to wait.
+    if (this.context.state.canStartNow) return false;
+
+    return this.agents.size >= wanted;
+  }
+
+  /**
+   * Seed and bound the lobby's bot settings.
+   *
+   * Run every tick rather than at construction because the schema's own
+   * initialisers ran against the *process* defaults, and a room may since have
+   * been given its own configuration -- an admin change, a debug override -- in
+   * which case the numbers a lobby is showing were never this room's to begin
+   * with. The empty difficulty name is what marks a lobby that has not yet been
+   * seeded from the configuration it is actually playing under.
+   */
+  private publishLimits(config: NpcConfig): void {
+    const state = this.context.state;
+    if (state.botDifficultyName === "") {
+      state.botCount = this.context.config.clampBotCount(config.defaultBotCount);
+      state.botDifficulty = this.context.config.getBotDifficulty(config.defaultDifficulty).level;
+    }
+
+    const maxPlayers = this.context.config.getMatchConfig().maxPlayers;
+    // One place always belongs to a person: bots never play among themselves.
+    const ceiling = Math.max(0, Math.min(config.maxBots, maxPlayers - 1));
+    if (this.context.state.maxBots !== ceiling) this.context.state.maxBots = ceiling;
+    if (this.context.state.botCount > ceiling) this.context.state.botCount = ceiling;
+
+    const level = this.context.config.getBotDifficulty(this.context.state.botDifficulty);
+    if (this.context.state.botDifficulty !== level.level) {
+      this.context.state.botDifficulty = level.level;
+    }
+    if (this.context.state.botDifficultyName !== level.name) {
+      this.context.state.botDifficultyName = level.name;
+    }
+  }
+
+  /**
+   * Change what the lobby asked for.
+   *
+   * Only a person in a waiting lobby, and only within what the arena can seat --
+   * a client asking for forty bots at difficulty 99 gets whatever the room can
+   * actually give it. Bots already standing around are added or retired
+   * immediately, so the roster in front of everybody matches the number they
+   * just picked.
+   */
+  setLobbyBots(sessionId: string, count: number, difficulty: number): boolean {
+    if (this.context.state.matchState !== MatchState.WAITING) return false;
+    if (this.agents.has(sessionId)) return false;
+
+    const player = this.context.state.players.get(sessionId);
+    if (!player || !player.connected) return false;
+
+    const config = this.context.config.getNpcConfig();
+    const state = this.context.state;
+
+    state.botCount = this.context.config.clampBotCount(count);
+    const level = this.context.config.getBotDifficulty(difficulty);
+    state.botDifficulty = level.level;
+    state.botDifficultyName = level.name;
+
+    // Everybody already here plays at the new level from their next thought.
+    for (const agent of this.agents.values()) agent.setDifficulty(level.level);
+
+    this.updateLobby(config, this.context.now());
+    return true;
   }
 
   /**
@@ -184,7 +310,12 @@ export class NpcSystem {
 
     const player = this.context.state.players.get(sessionId);
     if (!player || !player.connected) return false;
-    if (!this.context.config.getNpcConfig().enabled) return false;
+
+    const config = this.context.config.getNpcConfig();
+    if (!config.enabled) return false;
+    // Skipping the wait cannot conjure an opponent out of a lobby that asked
+    // for no bots and holds one person.
+    if (this.countHumans() + this.botsWanted(config) < 2) return false;
 
     this.skipRequested = true;
     // Act on it now rather than at the next fill tick, so the button feels
@@ -240,8 +371,13 @@ export class NpcSystem {
     return people;
   }
 
-  /** Add one bot with a randomly chosen personality. */
-  spawn(profileId?: string): NpcAgent | null {
+  /**
+   * Add one bot with a randomly chosen personality.
+   *
+   * Personality and skill arrive separately on purpose: the profile decides how
+   * this bot wants to play, the difficulty decides how well it manages to.
+   */
+  spawn(profileId?: string, difficulty = this.context.state.botDifficulty): NpcAgent | null {
     const config = this.context.config.getNpcConfig();
     const profiles = config.profiles;
     if (profiles.length === 0) return null;
@@ -273,6 +409,7 @@ export class NpcSystem {
       this.perception,
       this.random,
       this.random() * Math.max(20, config.thinkIntervalMs),
+      this.context.config.getBotDifficulty(difficulty).level,
     );
     registerDefaultActions(agent.brain);
     this.agents.set(sessionId, agent);
@@ -379,6 +516,8 @@ export class NpcSystem {
         name: player?.name ?? agent.sessionId,
         profileId: agent.brainProfile.id,
         profileName: agent.brainProfile.name,
+        difficulty: agent.difficulty.level,
+        difficultyName: agent.difficulty.name,
         action: agent.brain.currentAction?.id ?? "-",
         state: agent.state || "-",
         targetName: agent.target?.name ?? "-",

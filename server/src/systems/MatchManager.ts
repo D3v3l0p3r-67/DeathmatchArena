@@ -84,8 +84,22 @@ export class MatchManager {
   }
 
   private updateWaiting(now: number): void {
-    if (this.countConnectedPlayers() < this.rules.minPlayers) return;
+    if (!this.readyToStart()) return;
     this.beginCountdown(now);
+  }
+
+  /**
+   * Is there a match to start?
+   *
+   * Two ways to be ready. Either the room has the players it was configured to
+   * want, or the lobby has settled on fewer -- because the people waiting asked
+   * for fewer bots, or none at all, and are not waiting for anybody else. The
+   * lobby is the authority on the second, since it is the thing that knows what
+   * was asked for and whether the places are still being held open.
+   */
+  private readyToStart(): boolean {
+    if (this.countConnectedPlayers() >= this.rules.minPlayers) return true;
+    return this.npcs?.lobbyReady() ?? false;
   }
 
   private beginCountdown(now: number): void {
@@ -96,8 +110,10 @@ export class MatchManager {
   }
 
   private updateCountdown(now: number): void {
-    // Players may leave during the countdown; fall back to WAITING if we drop below the threshold.
-    if (this.countConnectedPlayers() < this.rules.minPlayers) {
+    // Players may leave during the countdown; fall back to WAITING if the roster
+    // no longer holds together. Checked the same way it was decided, or a lobby
+    // that legitimately started with three would abort itself immediately.
+    if (!this.readyToStart()) {
       this.context.state.matchState = MatchState.WAITING;
       this.context.state.countdownSeconds = 0;
       this.context.logger.info("Countdown aborted, not enough players");

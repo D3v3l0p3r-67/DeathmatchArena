@@ -168,6 +168,14 @@ export interface SyncedGameState {
   readonly botFillSeconds: number;
   /** True while somebody could skip that wait and start now. */
   readonly canStartNow: boolean;
+  /** How many bots this lobby is set to fill with. 0 means a human-only match. */
+  readonly botCount: number;
+  /** Which rung of the difficulty ladder those bots play at, 1..5. */
+  readonly botDifficulty: number;
+  /** Name of that rung, e.g. "Normal". Sent so the client need not own the ladder. */
+  readonly botDifficultyName: string;
+  /** The most bots this lobby may be asked for, given the arena and the roster. */
+  readonly maxBots: number;
 
   /**
    * Current playable width, as the closing walls define it.

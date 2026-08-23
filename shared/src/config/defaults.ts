@@ -303,8 +303,6 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   // person: bots never play among themselves.
   npc: {
     enabled: true,
-    // Fill the arena, so a lobby that nobody else joins still becomes a match.
-    fillToPlayers: 5,
     fillAfterMs: 60000,
     // One place is always kept for a person: bots never play among themselves.
     maxBots: 4,
@@ -316,6 +314,90 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
     names: [
       "Vex", "Rook", "Nyx", "Kane", "Juno", "Onyx",
       "Pike", "Wren", "Cyrus", "Mara", "Drift", "Halo",
+    ],
+
+    // Fill the arena by default -- a lobby nobody else joins still becomes a
+    // match -- while leaving a human-only game one step away on the dial.
+    defaultBotCount: 4,
+    defaultDifficulty: 3,
+
+    /*
+     * The ladder.
+     *
+     * Level 5 is where the bots were before difficulty existed: every multiplier
+     * is 1, so it plays the profiles exactly as written. Everything below it is
+     * a *worse player*, never a weaker one -- no level touches health, damage or
+     * weapons, and even level 5 aims through the same imperfect-aim machinery as
+     * every other level, so it is a very good opponent rather than an aimbot.
+     */
+    difficulties: [
+      {
+        level: 1,
+        name: "Very Easy",
+        // Nearly a second of hesitation, aim that wanders, no read on movement
+        // at all, and enough noise in the scoring to make its choices erratic.
+        reactionTimeMultiplier: 2.4,
+        aimSkillMultiplier: 0.4,
+        predictionSkillMultiplier: 0.15,
+        dodgeSkillMultiplier: 0.3,
+        decisionNoiseMultiplier: 2.5,
+        decisionIntervalMultiplier: 2.4,
+        grenadeAccuracy: 0.25,
+        navigationSkill: 0.3,
+        targetSelectionSkill: 0.25,
+      },
+      {
+        level: 2,
+        name: "Easy",
+        reactionTimeMultiplier: 1.7,
+        aimSkillMultiplier: 0.58,
+        predictionSkillMultiplier: 0.35,
+        dodgeSkillMultiplier: 0.5,
+        decisionNoiseMultiplier: 1.8,
+        decisionIntervalMultiplier: 1.7,
+        grenadeAccuracy: 0.45,
+        navigationSkill: 0.5,
+        targetSelectionSkill: 0.45,
+      },
+      {
+        level: 3,
+        name: "Normal",
+        reactionTimeMultiplier: 1.25,
+        aimSkillMultiplier: 0.75,
+        predictionSkillMultiplier: 0.6,
+        dodgeSkillMultiplier: 0.7,
+        decisionNoiseMultiplier: 1.35,
+        decisionIntervalMultiplier: 1.3,
+        grenadeAccuracy: 0.65,
+        navigationSkill: 0.7,
+        targetSelectionSkill: 0.7,
+      },
+      {
+        level: 4,
+        name: "Hard",
+        reactionTimeMultiplier: 1.05,
+        aimSkillMultiplier: 0.9,
+        predictionSkillMultiplier: 0.85,
+        dodgeSkillMultiplier: 0.88,
+        decisionNoiseMultiplier: 1.1,
+        decisionIntervalMultiplier: 1.1,
+        grenadeAccuracy: 0.85,
+        navigationSkill: 0.88,
+        targetSelectionSkill: 0.88,
+      },
+      {
+        level: 5,
+        name: "Very Hard",
+        reactionTimeMultiplier: 1,
+        aimSkillMultiplier: 1,
+        predictionSkillMultiplier: 1,
+        dodgeSkillMultiplier: 1,
+        decisionNoiseMultiplier: 1,
+        decisionIntervalMultiplier: 1,
+        grenadeAccuracy: 1,
+        navigationSkill: 1,
+        targetSelectionSkill: 1,
+      },
     ],
     profiles: [
       // Walks at you and keeps walking.

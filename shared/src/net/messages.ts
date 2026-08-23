@@ -30,6 +30,14 @@ export const ClientMessage = {
    */
   START_NOW: "startNow",
   /**
+   * Choose how many bots this lobby fills with, and how good they are.
+   *
+   * A request, like everything else a client sends: the server clamps the count
+   * to what the arena can seat, refuses a difficulty its ladder does not have,
+   * and ignores the message outright outside a waiting lobby.
+   */
+  SET_BOTS: "setBots",
+  /**
    * Request debug access. The server decides; a client saying "I am an admin"
    * proves nothing.
    */
@@ -42,6 +50,14 @@ export const ClientMessage = {
 } as const;
 
 export type ClientMessageType = (typeof ClientMessage)[keyof typeof ClientMessage];
+
+/** Payload of {@link ClientMessage.SET_BOTS}. */
+export interface SetBotsRequest {
+  /** How many bots should take the free places. 0 means a human-only match. */
+  count: number;
+  /** Which rung of the difficulty ladder those bots play at, 1..5. */
+  difficulty: number;
+}
 
 /** Messages the server broadcasts. State itself travels via Colyseus schema sync. */
 export const ServerMessage = {
