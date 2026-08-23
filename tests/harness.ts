@@ -15,6 +15,7 @@ process.env.VERBOSE_LOGGING = "false";
 import {
   CollisionWorld,
   FIXED_DELTA,
+  applyKnockback,
   MatchState,
   createGameConfigView,
   createInputCommand,
@@ -140,6 +141,18 @@ export function createHarness(): Harness {
     applyDamage(victimId: string, attackerId: string, amount: number, x: number, y: number, weaponId: string) {
       damage.push({ victimId, attackerId, amount, x, y });
       matchManager.applyDamage(victimId, attackerId, amount, x, y, weaponId);
+    },
+    // The real impulse, on the real movement state, so a test can assert that a
+    // hit actually moved somebody rather than that a stub was called.
+    applyKnockback(sessionId: string, directionX: number, directionY: number, force: number) {
+      const runtime = runtimes.get(sessionId);
+      const player = state.players.get(sessionId);
+      if (!runtime || !player?.alive || !player.inMatch) return;
+
+      applyKnockback(runtime.movement, directionX, directionY, force, configView.getPlayerConfig());
+      player.velocityX = runtime.movement.velocityX;
+      player.velocityY = runtime.movement.velocityY;
+      player.onGround = runtime.movement.onGround;
     },
     damageCrate(crateId: string, amount: number, attackerId: string, now: number) {
       powerUps.damageCrate(crateId, amount, attackerId, now);

@@ -221,6 +221,7 @@ export class App {
       onLocalRespawn: () => this.ui.setSpectating(false, "", 0),
       onSpectateTargetChanged: (name) => this.updateSpectatorBanner(name),
       onPowerUpCollected: (payload) => this.handlePowerUpCollected(payload),
+      onCrateIncoming: (warning) => this.audio.playAt(SoundId.CrateIncoming, warning.x, warning.y, 0.8),
     });
   }
 

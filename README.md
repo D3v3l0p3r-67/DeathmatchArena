@@ -45,7 +45,7 @@ Useful server endpoints in development:
 ### Other commands
 
 ```bash
-npm test           # 258 tests: physics, combat, grenades, power-ups, traps, arenas, configuration,
+npm test           # 290 tests: physics, combat, grenades, power-ups, traps, arenas, configuration,
                    #            administration, NPC brains, presentation, debug access, protocol,
                    #            and real networked matches
 npm run typecheck  # tsc --noEmit across all three packages
@@ -755,6 +755,30 @@ tunable: starting and maximum count, minimum and maximum throw speed, maximum
 charge time, gravity, bounciness, friction, fuse, blast radius, maximum damage,
 damage at the edge, and how many a pickup grants.
 
+### Crates announce themselves
+
+A crate never simply appears. The spot it is about to land on is marked, the
+marking builds towards the moment, and only then does the crate arrive — so
+contesting one is a decision somebody had time to make rather than a race
+against a surprise.
+
+```
+spot chosen  ->  warning  ->  configurable delay (5s)  ->  crate lands  ->  warning gone
+```
+
+The marker is three things at once, because one alone is missable in a firefight:
+a ring that tightens onto the spot, a shadow growing underneath, and a flashing
+chevron above it — with the pulse quickening from a slow beat to an urgent one as
+the moment approaches.
+
+It is purely visual. A warning has no collision, holds nothing, and gives away
+only the *place*: the contents stay secret exactly as they do for a sealed crate.
+The spawn point is reserved for the whole wait, so the crate really does arrive
+where it was promised, and announced crates count against the crate limit —
+three warnings and no crates is still three crates on the way.
+
+`powerUpSpawning.warningMs` sets the wait; 0 drops crates with no warning at all.
+
 ### Spawn points
 
 Power-up spawn points live on the **arena**, not in the game config, because a
@@ -782,15 +806,15 @@ Configurable without touching TypeScript:
 
 | Area | Values |
 | --- | --- |
-| Player | max health, move speed, accelerations, frictions |
+| Player | max health, move speed, accelerations, frictions, knockback limit |
 | Jumping | gravity, jump strength, max jumps, mid-air jump strength, early-release cut, coyote time, jump buffer, fall speed |
 | Match | min/max players, countdown, result screen, maximum match length |
-| Weapons | enabled, damage, range, fire rate, magazine size, reload time, automatic |
+| Weapons | enabled, damage, range, fire rate, magazine size, reload time, automatic, knockback, recoil |
 | Shotgun | pellet count, spread, falloff curve, bullet speed |
 | Chainsaw | damage, contact range, attack interval, arc |
-| Grenades | starting and maximum count, min/max throw power, charge time, gravity, bounce, friction, fuse, blast radius, damage and falloff |
+| Grenades | starting and maximum count, min/max throw power, charge time, gravity, bounce, friction, fuse, blast radius, damage, falloff and knockback |
 | Power-ups | enabled, spawn weight, display name, and the effect each type carries |
-| Crates | health, size, lifetime |
+| Crates | health, size, lifetime, landing warning |
 | Spawning | interval, first-spawn delay, max active crates, pickup radius, revealed lifetime |
 | Closing walls | enabled, start time, wall speed, minimum width, crush damage |
 | Traps | global defaults for damage, delay, duration, cooldown, speed and trigger radius |
@@ -804,6 +828,45 @@ client prediction and server simulation must agree on them *exactly*. They are n
 configurable, and the agreement is explicit instead of implicit — the server sends
 the room's values with the welcome message and the client predicts with those, so
 both sides still step the same integrator with the same numbers.
+
+---
+
+## Knockback and recoil
+
+Getting shot moves you, and shooting moves you back.
+
+Both are **impulses**, never position changes: a teleport out of a hit would put
+somebody through geometry and would arrive on every other client as a jump rather
+than as a shove. The impulse is added to whatever the player was already doing,
+so a knockback compounds with a jump the way it should.
+
+Each weapon carries two separate numbers, because a weapon that throws people
+across the room need not also throw its owner:
+
+| | Knockback | Recoil |
+| --- | --- | --- |
+| Assault Rifle | 0.25 | 0.04 |
+| Shotgun | 0.3 *per pellet* | 0.4 |
+| Chainsaw | 0.9 | 0 |
+| Grenade blast | 1.4 at the centre | — |
+
+One unit is 260 px/s along the direction of travel, so the numbers read as
+multiples of each other rather than as raw speeds. Knockback is applied **per
+hit** — nine shotgun pellets landing at contact range deliver nine of them —
+while recoil is applied **per shot**, so a shotgun kicks once however many pellets
+leave the barrel. A grenade throws outwards from the blast and falls off with it,
+so a near miss shoves and a direct hit launches.
+
+`player.maxKnockbackSpeed` caps what any single hit may add. Physics that a
+configuration value can break is not really configurable, and it is the only
+thing standing between a mistyped weapon and somebody crossing the arena.
+
+One interaction is worth knowing about, because it silently cancels the whole
+feature if you get it wrong: the run-speed cap must not clip a velocity that is
+already above it. Clamping outright means a knocked-back player erases the shove
+by holding a movement key. The limit now never clips below the speed already
+carried — holding a key still cannot push you *past* the cap, and friction is what
+bleeds the excess.
 
 ---
 
@@ -960,6 +1023,11 @@ npm test
 - **`tests/combat.test.ts`** — projectile collision, tunnelling at high bullet speeds,
   friendly-fire-with-self, weapon validation, the elimination path, shotgun pellets
   and falloff, and chainsaw contact rules (range, arc, walls, attack interval).
+  Also knockback and recoil: the direction of the shove, that it scales with the
+  weapon, that it is capped however absurd the configuration, that it adds to the
+  speed already carried, that it never moves a position directly, that recoil is
+  per shot rather than per pellet — and that holding a movement key no longer
+  cancels a knockback.
 - **`tests/debug.test.ts`** — debug authorization over a real socket: a refusal leaks
   no catalogue, a hand-crafted command from an unauthorized session changes nothing,
   arguments are clamped, unknown config paths are refused, and a room override never
@@ -967,7 +1035,9 @@ npm test
 - **`tests/powerups.test.ts`** — the closing arena (timing, symmetry, minimum width,
   crush damage, disabling it) and the crate pipeline end to end: spawn points, weighted
   contents, crate damage and destruction, revealed pickups, collection, and every
-  power-up effect including expiry. Also asserts a crate never exposes its contents.
+  power-up effect including expiry. Also asserts a crate never exposes its contents —
+  including while it is only a warning, which lands exactly where it was promised,
+  holds its spot for the whole wait, and counts against the crate limit.
 - **`tests/grenades.test.ts`** — the loadout, charge-to-speed curve (including an
   absurd hold being clamped), flight under gravity, bouncing off geometry, the fuse,
   and a blast that falls off with distance and catches the thrower too.

@@ -9,6 +9,7 @@ import {
 import { CrateState } from "./CrateState.js";
 import { GrenadeState } from "./GrenadeState.js";
 import { PlayerState } from "./PlayerState.js";
+import { PendingCrateState } from "./PendingCrateState.js";
 import { PowerUpState } from "./PowerUpState.js";
 import { ProjectileState } from "./ProjectileState.js";
 import { TrapState } from "./TrapState.js";
@@ -31,6 +32,14 @@ export class GameState extends Schema implements SyncedGameState {
 
   /** Unopened power-up crates. What is inside each one stays server-side. */
   @type({ map: CrateState }) crates = new MapSchema<CrateState>();
+
+  /**
+   * Crates that have been announced but have not landed yet.
+   *
+   * A warning, nothing more: no collision, no contents, and the client draws a
+   * marker that builds towards the arrival.
+   */
+  @type({ map: PendingCrateState }) pendingCrates = new MapSchema<PendingCrateState>();
 
   /** Power-ups revealed by broken crates, waiting to be collected. */
   @type({ map: PowerUpState }) powerUps = new MapSchema<PowerUpState>();

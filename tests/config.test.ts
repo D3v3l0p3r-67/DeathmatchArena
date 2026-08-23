@@ -39,6 +39,8 @@ const RAILGUN: WeaponDefinition = {
   magazineSize: 4,
   reloadTime: 3000,
   automatic: false,
+  knockbackForce: 2,
+  recoilForce: 0.7,
   ranged: {
     bulletSpeed: 4000,
     spread: 0,

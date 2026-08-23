@@ -62,7 +62,13 @@ function applyHorizontalIntent(
     // A speed power-up raises the cap, not the acceleration, so a boosted player
     // still feels the same to steer -- they just keep gaining until a higher top speed.
     const maxSpeed = player.moveSpeed * (state.speedMultiplier || 1);
-    state.velocityX = clamp(state.velocityX + direction * acceleration * dt, -maxSpeed, maxSpeed);
+
+    // The limit never clips below the speed already carried. Clamping to the run
+    // cap outright would mean a knocked-back player cancels the knockback simply
+    // by holding a movement key -- the shove would land and then vanish. Holding
+    // a key still cannot push *past* the cap; friction is what bleeds the excess.
+    const limit = Math.max(maxSpeed, Math.abs(state.velocityX));
+    state.velocityX = clamp(state.velocityX + direction * acceleration * dt, -limit, limit);
     state.facing = direction;
     return;
   }
@@ -195,6 +201,48 @@ function integrateAndCollide(
   // sane answer, and the crush damage resolves it from there.
   state.x = minX <= maxX ? clamp(state.x, minX, maxX) : (left + right) / 2;
   state.y = clamp(state.y, PLAYER_HALF_HEIGHT, world.arena.height - PLAYER_HALF_HEIGHT);
+}
+
+/**
+ * One unit of knockback, in px/s.
+ *
+ * The scale that turns a weapon's `knockbackForce` into a velocity, so the
+ * per-weapon numbers read as multiples of each other (0.3 shoves, 2.0 launches)
+ * rather than as raw speeds nobody can compare.
+ */
+export const KNOCKBACK_IMPULSE = 260;
+
+/**
+ * Shove a player.
+ *
+ * Added to whatever they were already doing rather than replacing it, so a
+ * knockback compounds with a jump the way it should, and clamped so no single
+ * hit -- however a weapon is configured -- can exceed what the player
+ * configuration says is survivable for the simulation.
+ *
+ * Deliberately a velocity change and never a position change: teleporting
+ * somebody out of a hit would put them through geometry, and would arrive on
+ * every other client as a jump rather than as a shove.
+ */
+export function applyKnockback(
+  state: MovementState,
+  directionX: number,
+  directionY: number,
+  force: number,
+  player: PlayerConfig,
+): void {
+  if (force <= 0) return;
+
+  const length = Math.hypot(directionX, directionY);
+  if (length <= 0) return;
+
+  const speed = Math.min(force * KNOCKBACK_IMPULSE, Math.max(0, player.maxKnockbackSpeed));
+  state.velocityX += (directionX / length) * speed;
+  state.velocityY += (directionY / length) * speed;
+
+  // A hit can lift somebody off the ground; leaving `onGround` set would let them
+  // jump again in mid-air off the back of being shot.
+  if (state.velocityY < -1) state.onGround = false;
 }
 
 /**

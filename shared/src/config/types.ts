@@ -139,6 +139,23 @@ export interface WeaponDefinition {
   reloadTime: number;
   /** Holding the trigger keeps firing. */
   automatic: boolean;
+  /**
+   * How hard a hit shoves the person it lands on.
+   *
+   * Measured in "impulses" -- one unit is `KNOCKBACK_IMPULSE` px/s added along
+   * the projectile's direction of travel. Applied per *hit*, so a nine-pellet
+   * shotgun blast at contact range delivers nine of them; set the per-pellet
+   * figure accordingly rather than the figure you want for a full hit.
+   */
+  knockbackForce: number;
+  /**
+   * How hard firing shoves the person who pulled the trigger, backwards.
+   *
+   * Deliberately a separate number from `knockbackForce`: a weapon that throws
+   * people across the room need not also throw its owner, and an automatic
+   * applies its recoil several times a second.
+   */
+  recoilForce: number;
   ranged: RangedWeaponConfig | null;
   melee: MeleeWeaponConfig | null;
   /**
@@ -240,6 +257,15 @@ export interface PowerUpSpawnConfig {
   pickupRadius: number;
   /** Delay after the match starts before the first spawn attempt. */
   firstSpawnDelayMs: number;
+  /**
+   * How long the arena is warned before a crate lands, in ms.
+   *
+   * The point is that a crate should never simply appear: the place it is about
+   * to land is marked, the marking builds, and only then does it arrive -- so
+   * contesting one is a decision somebody had time to make. 0 spawns crates with
+   * no warning at all.
+   */
+  warningMs: number;
 }
 
 /**
@@ -283,6 +309,13 @@ export interface GrenadeConfig {
    * Damage falls linearly from the centre outwards to this floor.
    */
   minDamageMultiplier: number;
+  /**
+   * How hard the blast throws whoever it catches, radiating from the centre.
+   *
+   * Falls off with distance like the damage does, so a near miss shoves you and
+   * a direct hit launches you.
+   */
+  knockbackForce: number;
 }
 
 /**
@@ -353,6 +386,15 @@ export interface PlayerConfig {
   coyoteTimeMs: number;
   /** A jump pressed this long before landing is remembered and fires on touchdown, ms. */
   jumpBufferMs: number;
+  /**
+   * The most any single impulse may add to a player's speed, px/s.
+   *
+   * The safety valve on knockback. Without it a weapon tuned to an absurd figure
+   * -- or a shotgun landing every pellet at point-blank range -- launches
+   * somebody clean across the arena, and physics that can be broken by a
+   * configuration value is not really configurable.
+   */
+  maxKnockbackSpeed: number;
 }
 
 /** Match pacing and size. */

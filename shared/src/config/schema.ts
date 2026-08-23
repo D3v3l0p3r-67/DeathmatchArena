@@ -304,6 +304,8 @@ function playerFields(): FieldDescriptor[] {
     percentage("player.jumpCutMultiplier", PLAYER, "Jumping", "Early-release cut", "Releasing jump early keeps this fraction of the remaining ascent."),
     number("player.coyoteTimeMs", PLAYER, "Jumping", "Coyote time (ms)", "Grace period after walking off a ledge during which a jump still counts.", { min: 0, max: 500, step: 5 }),
     number("player.jumpBufferMs", PLAYER, "Jumping", "Jump buffer (ms)", "A jump pressed this long before landing is remembered and fires on touchdown.", { min: 0, max: 500, step: 5 }),
+
+    number("player.maxKnockbackSpeed", PLAYER, "Vitality", "Knockback limit (px/s)", "The most any single hit may add to a player's speed. The safety valve: without it a weapon tuned too high launches people across the arena.", { min: 0, max: 4000, step: 25 }),
   ];
 }
 
@@ -326,6 +328,9 @@ function weaponFields(weapon: WeaponDefinition): FieldDescriptor[] {
     boolean(`${prefix}.enabled`, WEAPONS, group, "Enabled", "A disabled weapon can neither be equipped nor spawned, but stays in the catalogue."),
     number(`${prefix}.damage`, WEAPONS, group, "Damage", weapon.type === WeaponType.RANGED ? "Damage per projectile that hits, before distance falloff." : "Damage per contact.", { min: 0, max: 500, step: 1 }),
     number(`${prefix}.range`, WEAPONS, group, weapon.type === WeaponType.RANGED ? "Range (px)" : "Contact range (px)", weapon.type === WeaponType.RANGED ? "How far a projectile travels before expiring." : "How close a target must be to be hit.", { min: 1, max: 4000, step: 1 }),
+
+    number(`${prefix}.knockbackForce`, WEAPONS, group, "Knockback", weapon.ranged && weapon.ranged.pellets > 1 ? "How hard each *pellet* shoves whoever it hits. Nine of them land at contact range." : "How hard a hit shoves whoever it lands on. 1 is a firm push, 2 launches.", { min: 0, max: 5, step: 0.05 }),
+    number(`${prefix}.recoilForce`, WEAPONS, group, "Recoil", "How hard firing shoves the shooter backwards. Separate from knockback: a weapon that throws people need not throw its owner. Applied once per shot, so an automatic applies it several times a second.", { min: 0, max: 5, step: 0.05 }),
   ];
 
   if (weapon.type === WeaponType.RANGED) {
@@ -383,6 +388,7 @@ function grenadeFields(): FieldDescriptor[] {
     number("grenades.fuseMs", GRENADES, "Flight", "Fuse duration (ms)", "Time from leaving the hand to detonation.", { min: 100, max: 20000, step: 100 }),
 
     number("grenades.explosionRadius", GRENADES, "Explosion", "Explosion radius (px)", "Everything within this distance of the blast takes damage.", { min: 10, max: 1500, step: 10 }),
+    number("grenades.knockbackForce", GRENADES, "Explosion", "Knockback", "How hard the blast throws whoever it catches, radiating from the centre and falling off like the damage does.", { min: 0, max: 5, step: 0.05 }),
     number("grenades.maxDamage", GRENADES, "Explosion", "Maximum damage", "Damage at the very centre of the blast. The thrower is not exempt.", { min: 0, max: 1000, step: 1 }),
     percentage("grenades.minDamageMultiplier", GRENADES, "Explosion", "Damage falloff floor", "Fraction of the maximum damage still dealt at the edge of the radius."),
   ];
@@ -448,6 +454,7 @@ function crateFields(): FieldDescriptor[] {
 
     number("powerUpSpawning.intervalMs", CRATES, "Spawning", "Spawn interval (ms)", "Time between crate spawn attempts.", { min: 500, max: 600000, step: 500 }),
     number("powerUpSpawning.firstSpawnDelayMs", CRATES, "Spawning", "First spawn delay (ms)", "Quiet period after the match starts before the first crate appears.", { min: 0, max: 600000, step: 500 }),
+    number("powerUpSpawning.warningMs", CRATES, "Spawning", "Landing warning (ms)", "How long the spot is marked before a crate lands there. 0 drops crates with no warning at all.", { min: 0, max: 60000, step: 250 }),
     number("powerUpSpawning.maxActiveCrates", CRATES, "Spawning", "Maximum active crates", "Upper bound on crates present at once, regardless of how many spawn points are free.", { min: 0, max: 64, step: 1, integer: true }),
     number("powerUpSpawning.revealedLifetimeMs", CRATES, "Spawning", "Revealed power-up lifetime (ms)", "How long a revealed power-up waits to be collected before vanishing.", { min: 0, max: 600000, step: 1000 }),
     number("powerUpSpawning.pickupRadius", CRATES, "Spawning", "Pickup radius (px)", "How close a player must come to collect a revealed power-up.", { min: 4, max: 400, step: 1 }),

@@ -291,6 +291,21 @@ export class GrenadeSystem {
       if (damage <= 0) continue;
 
       this.context.applyDamage(player.sessionId, state.ownerId, damage, player.x, player.y, "grenade");
+
+      // Thrown outwards from the blast, falling off with it -- so a near miss
+      // shoves and a direct hit launches. A grenade landing exactly underfoot
+      // has no direction to push in, so it pushes straight up.
+      const awayX = player.x - x;
+      const awayY = player.y - y;
+      const spread = Math.hypot(awayX, awayY);
+      const falloff = 1 - clamp(distance / Math.max(1, config.explosionRadius), 0, 1);
+
+      this.context.applyKnockback(
+        player.sessionId,
+        spread > 1 ? awayX : 0,
+        spread > 1 ? awayY : -1,
+        config.knockbackForce * falloff,
+      );
     }
 
     // Blasts open crates as readily as bullets do.

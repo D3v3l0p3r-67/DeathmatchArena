@@ -83,6 +83,23 @@ export interface SyncedCrate {
   readonly maxHealth: number;
 }
 
+/**
+ * A crate that is about to land.
+ *
+ * Purely a warning: it has no collision, holds nothing, and -- like a sealed
+ * crate -- never says what is inside. `progress` runs 0 to 1 as the moment
+ * approaches, so the client can build an effect towards it without needing a
+ * synchronised clock.
+ */
+export interface SyncedPendingCrate {
+  readonly id: string;
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+  readonly progress: number;
+}
+
 /** A power-up revealed by a broken crate, waiting to be collected. */
 export interface SyncedPowerUp {
   /** Entity id, unique per spawned pickup. */
@@ -128,6 +145,8 @@ export interface SyncedGameState {
   readonly players: ReadonlyMap<string, SyncedPlayer>;
   readonly projectiles: ReadonlyMap<string, SyncedProjectile>;
   readonly crates: ReadonlyMap<string, SyncedCrate>;
+  /** Crates that have been announced but have not landed yet. */
+  readonly pendingCrates: ReadonlyMap<string, SyncedPendingCrate>;
   readonly powerUps: ReadonlyMap<string, SyncedPowerUp>;
   readonly grenades: ReadonlyMap<string, SyncedGrenade>;
   readonly traps: ReadonlyMap<string, SyncedTrap>;

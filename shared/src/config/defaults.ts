@@ -34,6 +34,9 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
     jumpCutMultiplier: 0.45,
     coyoteTimeMs: 90,
     jumpBufferMs: 120,
+    // Roughly two and a half times running speed: enough for a shotgun blast to
+    // feel like one, not enough to send anybody through the arena.
+    maxKnockbackSpeed: 850,
   },
 
   match: {
@@ -57,6 +60,10 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
       magazineSize: 30,
       reloadTime: 1800,
       automatic: true,
+      knockbackForce: 0.25,
+      // Small on purpose: at 520 rounds a minute this lands nearly nine times a
+      // second, and anything larger walks the shooter backwards out of the fight.
+      recoilForce: 0.04,
       ranged: {
         bulletSpeed: 1500,
         spread: 0.035,
@@ -97,6 +104,10 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
       magazineSize: 6,
       reloadTime: 2600,
       automatic: false,
+      // Per pellet. Nine landing at contact range is a shove of about 700px/s,
+      // which the knockback cap then holds at 850.
+      knockbackForce: 0.3,
+      recoilForce: 0.4,
       ranged: {
         bulletSpeed: 1150,
         spread: 0.17,
@@ -141,6 +152,9 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
       magazineSize: 0,
       reloadTime: 0,
       automatic: true,
+      // Throws whoever it catches; a chainsaw has nothing to recoil against.
+      knockbackForce: 0.9,
+      recoilForce: 0,
       ranged: null,
       melee: {
         arcDegrees: 70,
@@ -247,6 +261,9 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
     // fight, a near miss should only start one.
     maxDamage: 95,
     minDamageMultiplier: 0.18,
+    // Radiates from the blast and falls off with it: a near miss shoves you, a
+    // direct hit launches you.
+    knockbackForce: 1.4,
   },
 
   arenaShrink: {
@@ -267,6 +284,9 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
     revealedLifetimeMs: 20000,
     pickupRadius: 34,
     firstSpawnDelayMs: 6000,
+    // Five seconds of warning before a crate lands, so contesting one is a
+    // decision somebody had time to make rather than a surprise.
+    warningMs: 5000,
   },
 
 
