@@ -175,10 +175,9 @@ describe("weapon silhouettes", () => {
 });
 
 describe("reading a player at a glance", () => {
-  it("keeps the barrel clear of the body it is held against", () => {
-    // The weapon draws *behind* the body so it can never cover the visor, which
-    // means the barrel has to reach past the shoulder or a player would appear
-    // to be carrying nothing at all.
+  it("reaches past the body it is held against", () => {
+    // A weapon drawn entirely inside the figure is a weapon nobody can identify,
+    // which defeats the whole point of giving each one a shape.
     for (const weapon of listWeapons()) {
       const shape = weapon.silhouette;
       const reach = PLAYER.WEAPON_FORWARD_X + (shape.length - shape.gripX);
@@ -190,13 +189,36 @@ describe("reading a player at a glance", () => {
     }
   });
 
-  it("holds every weapon forward of the shoulder", () => {
-    // Zero would put the grip on the body's centre line, which is where the
-    // weapon used to sit -- across the face.
-    assert.ok(PLAYER.WEAPON_FORWARD_X > 0);
-    assert.ok(
-      PLAYER.WEAPON_FORWARD_X < PLAYER_HALF_WIDTH,
-      "held further out than the body is wide would look like it is floating",
-    );
+  it("never covers the visor, whatever is being carried", () => {
+    /*
+     * The weapon draws in front of the body, so nothing but geometry keeps it
+     * off the face -- and pushing it forward is not enough on its own, because a
+     * bulky weapon's stock reaches back past the grip. What does the work is the
+     * hold *height*: at the shoulder the rocket launcher covered 56px² of a
+     * 84px² visor; at chest height every weapon clears it.
+     *
+     * Measured with the aim horizontal, which is where a weapon sits highest
+     * against the head.
+     */
+    const visor = { left: -3, right: 11, top: -15, bottom: -9 };
+
+    for (const weapon of listWeapons()) {
+      const shape = weapon.silhouette;
+
+      for (const part of shape.parts) {
+        const left = PLAYER.WEAPON_FORWARD_X + (part.x - shape.gripX);
+        const right = left + part.width;
+        const top = PLAYER.AIM_ORIGIN_Y + (part.y - shape.gripY);
+        const bottom = top + part.height;
+
+        const overlapX = Math.min(right, visor.right) - Math.max(left, visor.left);
+        const overlapY = Math.min(bottom, visor.bottom) - Math.max(top, visor.top);
+
+        assert.ok(
+          overlapX <= 0 || overlapY <= 0,
+          `${weapon.id} covers ${Math.max(0, overlapX) * Math.max(0, overlapY)}px² of the visor`,
+        );
+      }
+    }
   });
 });

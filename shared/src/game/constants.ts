@@ -73,20 +73,32 @@ export const PLAYER = {
   /**
    * How far in front of the aim pivot the weapon is held, along the aim.
    *
-   * Enough to keep a rifle's stock off the face: with the grip on the body's
-   * centre line the weapon covered the visor, which is the only part of the
-   * figure that says which way somebody is looking.
+   * Held out at arm's length rather than tucked against the chest, so the whole
+   * weapon reads at a glance -- which is the point of giving each one a
+   * silhouette in the first place.
    */
-  WEAPON_FORWARD_X: 12,
+  WEAPON_FORWARD_X: 16,
   /**
    * Distance from the aim pivot to the muzzle, along the aim direction.
    *
    * `WEAPON_FORWARD_X` plus the weapon's own reach from grip to muzzle, so the
    * muzzle flash, the projectile origin and the drawn barrel all agree.
    */
-  MUZZLE_OFFSET_X: 34,
-  /** Vertical offset of the aim pivot from the body centre (roughly shoulder height). */
-  AIM_ORIGIN_Y: -6,
+  MUZZLE_OFFSET_X: 38,
+  /**
+   * Vertical offset of the aim pivot from the body centre: chest height.
+   *
+   * Not the shoulder, and that is the whole trick. Held at the shoulder, a
+   * weapon is drawn across the visor -- the one part of the figure that says
+   * which way somebody is looking -- and no amount of pushing it forward fixes
+   * a bulky one, because the stock reaches back past the grip. Seven pixels
+   * lower and every weapon in the catalogue clears the head by geometry, at any
+   * aim, while still being drawn in front of the body where it belongs.
+   *
+   * The pivot is also where projectiles come from, so the drawn barrel, the
+   * muzzle flash and the shot itself move together.
+   */
+  AIM_ORIGIN_Y: 1,
   NAME_LABEL_OFFSET_Y: -44,
 } as const;
 

@@ -110,21 +110,20 @@ export class PlayerView {
 
     this.container = scene.add
       /*
-       * Order matters, and the visor is why.
+       * Order matters: the weapon draws in front of the body, so the whole of it
+       * is visible whichever way the player is aiming -- which is the point of
+       * giving each weapon a silhouette at all.
        *
-       * The weapon used to draw over everything so the barrel was never hidden,
-       * which also meant a bulky one lay across the face -- and the visor is the
-       * only part of the figure that says which way somebody is looking. Behind
-       * the body, the barrel still sticks out past the shoulder (it is held
-       * forward, see `WEAPON_FORWARD_X`) while the head stays readable no matter
-       * what is being carried.
+       * That it does not cover the face is geometry rather than layering: it is
+       * held forward, at chest height rather than at the shoulder, which clears
+       * the visor for every weapon in the catalogue. See `PLAYER.AIM_ORIGIN_Y`.
        */
       .container(0, 0, [
         this.shadow,
-        this.weapon,
         this.body,
         this.visor,
         this.belt,
+        this.weapon,
         this.healthBar,
         this.throwArrow,
         this.label,
@@ -167,9 +166,9 @@ export class PlayerView {
     this.renderedAim = lerpAngle(this.renderedAim, state.aimAngle, clamp(deltaSeconds * 22, 0, 1));
     this.weapon.setRotation(this.renderedAim);
 
-    // Held out in front rather than at the shoulder: with the grip on the body's
-    // centre line, a rifle's stock lay across the face and the visor -- the one
-    // part of the figure that says which way they are looking.
+    // Held out in front, at chest height. Both matter: forward so the weapon is
+    // read as a shape rather than a stub, and low enough that the stock clears
+    // the visor -- the one part of the figure that says where they are looking.
     this.weapon.setPosition(
       Math.cos(this.renderedAim) * PLAYER.WEAPON_FORWARD_X,
       PLAYER.AIM_ORIGIN_Y + Math.sin(this.renderedAim) * PLAYER.WEAPON_FORWARD_X,
