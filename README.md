@@ -1172,14 +1172,18 @@ across the arena — whether they are hurt — was only legible once they were. 
 empty space above a head reads as "no information", not as "unhurt". The empty
 part of the bar is drawn too, so a short bar reads as short rather than as small.
 
-**The weapon is held forward, and drawn behind the body.** With the grip on the
-body's centre line a rifle's stock lay across the face, and the visor is the only
-part of the figure that says which way somebody is looking. It is now held
-`WEAPON_FORWARD_X` in front of the shoulder *and* drawn beneath the body, so no
-weapon can cover the head whatever its shape — the barrel still reaches past the
-shoulder, which a test checks for every weapon in the catalogue. `MUZZLE_OFFSET_X`
-moved with it, so the drawn barrel, the muzzle flash and the point the server
-spawns projectiles from still agree.
+**The weapon is held out in front, at chest height.** With the grip on the body's
+centre line a rifle's stock lay across the face, and the visor is the only part of
+the figure that says which way somebody is looking. Moving the grip forward alone
+was not enough: a long weapon aimed steeply up or down still swung its barrel back
+across the head. The fix is the hold, not the draw order — the grip sits
+`WEAPON_FORWARD_X` along the aim from a pivot at `AIM_ORIGIN_Y`, the chest rather
+than the shoulder, and from there no weapon in the catalogue overlaps the visor at
+any angle. That leaves the weapon free to be drawn *in front of* the figure, where
+a held object belongs, instead of hidden beneath it. Two tests hold the line: the
+barrel must reach past the body, and no weapon may touch the visor rectangle.
+`MUZZLE_OFFSET_X` moved with the grip, so the drawn barrel, the muzzle flash and
+the point the server spawns projectiles from still agree.
 
 **A throw is drawn at the hand, not on the HUD.** A wind-up used to be a power bar
 at the bottom of your own screen — which could only tell you something you already
