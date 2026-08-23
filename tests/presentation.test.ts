@@ -9,7 +9,7 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { PLAYER, listWeapons } from "@deathmatch/shared";
+import { PLAYER, PLAYER_HALF_WIDTH, listWeapons } from "@deathmatch/shared";
 
 const { SOUNDS, SoundChannel, SoundId, getSound } = await import("../client/src/audio/sounds.js");
 const { BURSTS, SHAKES, DEFAULT_EFFECTS_SETTINGS } = await import("../client/src/game/fx/effects.js");
@@ -144,14 +144,19 @@ describe("weapon silhouettes", () => {
   });
 
   it("puts a ranged weapon's muzzle where the flash is drawn", () => {
-    // The flash is placed at a fixed offset from the shoulder, so a barrel that
-    // ends anywhere else leaves the flash floating off the end of the gun.
+    // Three things have to agree about where the barrel ends: the drawn weapon,
+    // the muzzle flash, and the point the server spawns projectiles from. The
+    // weapon is held `WEAPON_FORWARD_X` in front of the shoulder, so its own
+    // reach from grip to muzzle covers the rest of the distance.
     for (const weapon of listWeapons()) {
       if (!weapon.ranged) continue;
+
       const reach = weapon.silhouette.length - weapon.silhouette.gripX;
+      const muzzle = PLAYER.WEAPON_FORWARD_X + reach;
+
       assert.ok(
-        Math.abs(reach - PLAYER.MUZZLE_OFFSET_X) <= 4,
-        `${weapon.id} reaches ${reach}px, but the flash is drawn at ${PLAYER.MUZZLE_OFFSET_X}px`,
+        Math.abs(muzzle - PLAYER.MUZZLE_OFFSET_X) <= 4,
+        `${weapon.id} reaches ${muzzle}px from the shoulder, but the flash is drawn at ${PLAYER.MUZZLE_OFFSET_X}px`,
       );
     }
   });
@@ -166,5 +171,32 @@ describe("weapon silhouettes", () => {
       assert.equal(twin, undefined, `${weapon.id} is drawn identically to ${twin}`);
       seen.set(signature, weapon.id);
     }
+  });
+});
+
+describe("reading a player at a glance", () => {
+  it("keeps the barrel clear of the body it is held against", () => {
+    // The weapon draws *behind* the body so it can never cover the visor, which
+    // means the barrel has to reach past the shoulder or a player would appear
+    // to be carrying nothing at all.
+    for (const weapon of listWeapons()) {
+      const shape = weapon.silhouette;
+      const reach = PLAYER.WEAPON_FORWARD_X + (shape.length - shape.gripX);
+
+      assert.ok(
+        reach > PLAYER_HALF_WIDTH + 6,
+        `${weapon.id} reaches ${reach}px, which is inside the ${PLAYER_HALF_WIDTH}px-wide body`,
+      );
+    }
+  });
+
+  it("holds every weapon forward of the shoulder", () => {
+    // Zero would put the grip on the body's centre line, which is where the
+    // weapon used to sit -- across the face.
+    assert.ok(PLAYER.WEAPON_FORWARD_X > 0);
+    assert.ok(
+      PLAYER.WEAPON_FORWARD_X < PLAYER_HALF_WIDTH,
+      "held further out than the body is wide would look like it is floating",
+    );
   });
 });

@@ -1161,6 +1161,38 @@ interpolated from their snapshot buffer; this is the local one catching up.
 
 ---
 
+## What a player looks like
+
+The figure carries three pieces of information for anybody who can see it, and
+each of them was worth a fix.
+
+**The health bar is always there.** It used to hide itself at full health to keep
+the screen calm, which meant the one thing you most want to know about somebody
+across the arena — whether they are hurt — was only legible once they were. An
+empty space above a head reads as "no information", not as "unhurt". The empty
+part of the bar is drawn too, so a short bar reads as short rather than as small.
+
+**The weapon is held forward, and drawn behind the body.** With the grip on the
+body's centre line a rifle's stock lay across the face, and the visor is the only
+part of the figure that says which way somebody is looking. It is now held
+`WEAPON_FORWARD_X` in front of the shoulder *and* drawn beneath the body, so no
+weapon can cover the head whatever its shape — the barrel still reaches past the
+shoulder, which a test checks for every weapon in the catalogue. `MUZZLE_OFFSET_X`
+moved with it, so the drawn barrel, the muzzle flash and the point the server
+spawns projectiles from still agree.
+
+**A throw is drawn at the hand, not on the HUD.** A wind-up used to be a power bar
+at the bottom of your own screen — which could only tell you something you already
+knew. It is now an arrow from the hand along the aim, growing with the charge and
+turning from green through amber to red. Because `chargingGrenade` is
+synchronised, *everybody* can see somebody winding one up: the arrow is a warning
+as much as a gauge. Only the fact of a wind-up is synchronised, not its progress,
+so for other players the client times it from when it first saw the flag — an
+approximation on purpose, because what decides the throw is the button held on
+the server.
+
+---
+
 ## The weapon catalogue
 
 Seven weapons, and every one of them is data. A weapon is a row in

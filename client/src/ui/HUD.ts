@@ -18,8 +18,6 @@ export interface HudSnapshot {
   /** Whole seconds until the arena starts closing; 0 once it has. */
   shrinkCountdownSeconds: number;
   shrinking: boolean;
-  /** Local wind-up progress, 0..1. Drawn from the client's own press time. */
-  grenadeCharge: number;
 }
 
 /**
@@ -29,8 +27,9 @@ export interface HudSnapshot {
  * weapon and the match state. Every value comes from server-synchronised state --
  * the HUD never computes anything authoritative, it only presents it.
  *
- * Grenades are deliberately absent: they are worn on the player's belt, where
- * they are visible on every player rather than only on your own screen.
+ * Grenades are deliberately absent, and so is the throw's power: they are worn
+ * on the player's belt and drawn as an arrow at the hand, where they are visible
+ * on every player rather than only on your own screen.
  */
 export class HUD {
   private readonly root = query('[data-layer="hud"]');
@@ -47,8 +46,6 @@ export class HUD {
   private readonly shrinkEffect = requireElement("hud-shrink");
   private readonly shrinkLabel = requireElement("hud-shrink-label");
   private readonly shrinkTimer = requireElement("hud-shrink-timer");
-  private readonly throwPower = requireElement("hud-throw-power");
-  private readonly throwFill = requireElement("hud-throw-fill");
   private readonly reload = requireElement("hud-reload");
   private readonly alive = requireElement("hud-alive");
   private readonly kills = requireElement("hud-kills");
@@ -94,7 +91,6 @@ export class HUD {
     toggleClass(this.meleeBadge, "is-active", isMelee(weapon));
 
     this.updateReload(player.reloading, weapon.reloadTime);
-    this.updateThrowPower(player, snapshot);
     this.updateEffects(player, snapshot);
 
     const inFight = snapshot.matchState === MatchState.PLAYING && player.alive;
@@ -127,18 +123,6 @@ export class HUD {
     this.ammoFill.style.width = `${ratio * 100}%`;
     toggleClass(this.ammoGauge, "is-empty", player.ammo === 0 && !player.reloading);
     toggleClass(this.ammoFill, "is-low", ratio > 0 && ratio <= 0.25);
-  }
-
-  /**
-   * The power bar while a throw is winding up.
-   *
-   * Local, so it moves at frame rate, but it charges against the same configured
-   * maximum the server measures with -- a full bar really is a full-power throw.
-   */
-  private updateThrowPower(player: SyncedPlayer, snapshot: HudSnapshot): void {
-    const charging = snapshot.grenadeCharge > 0 && player.alive;
-    toggleClass(this.throwPower, "is-active", charging);
-    if (charging) this.throwFill.style.width = `${Math.min(1, snapshot.grenadeCharge) * 100}%`;
   }
 
   /**
