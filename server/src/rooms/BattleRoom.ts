@@ -382,6 +382,20 @@ export class BattleRoom extends Room<{ state: GameState }> {
     });
 
     /**
+     * "Do not wait for anyone else."
+     *
+     * The client only asks; the NPC system decides whether the lobby is in a
+     * state where that means anything, so a fabricated message achieves nothing
+     * beyond spending this connection's rate budget.
+     */
+    this.onMessage(ClientMessage.START_NOW, (client) => {
+      const runtime = this.runtimes.get(client.sessionId);
+      const now = Date.now();
+      if (runtime && !runtime.rateLimiters.allow("chatOrMisc", now)) return;
+      this.npcSystem.requestImmediateStart(client.sessionId);
+    });
+
+    /**
      * Debug access request. Authorization is decided entirely server-side --
      * this handler only forwards the attempt.
      */

@@ -695,6 +695,9 @@ describe("bots in a real match", () => {
     const config = cloneConfig(getGameConfig());
     config.npc.enabled = true;
     config.npc.fillToPlayers = 3;
+    // These tests are about bots playing, not about how long a lobby holds its
+    // places open for people; that has its own tests below.
+    config.npc.fillAfterMs = 0;
 
     const harness = createHarness();
     harness.replaceConfig(config);
@@ -838,5 +841,154 @@ describe("bots in a real match", () => {
       assert.equal(harness.state.players.get(id), undefined, "state entry left behind");
       assert.equal(harness.runtimes.get(id), undefined, "runtime left behind");
     }
+  });
+});
+
+describe("holding a lobby open for people", () => {
+  /** A waiting lobby with one person in it and bots configured to fill it. */
+  function lobby(overrides: Partial<{ fillAfterMs: number; fillToPlayers: number; enabled: boolean }> = {}) {
+    const config = cloneConfig(getGameConfig());
+    config.npc.enabled = overrides.enabled ?? true;
+    config.npc.fillToPlayers = overrides.fillToPlayers ?? 5;
+    config.npc.fillAfterMs = overrides.fillAfterMs ?? 60000;
+    // Kept out of the way: this is about the lobby, not about matches starting.
+    config.match.minPlayers = 4;
+
+    const harness = createHarness();
+    harness.replaceConfig(config);
+    harness.state.matchState = MatchState.WAITING;
+
+    const human = harness.addPlayer("human", 400, 1700);
+    human.connected = true;
+    human.alive = false;
+    human.inMatch = false;
+
+    return harness;
+  }
+
+  it("ships an arena for five", () => {
+    // Four bots and at least one person: bots never play among themselves.
+    assert.equal(DEFAULT_GAME_CONFIG.match.maxPlayers, 5);
+    assert.equal(DEFAULT_GAME_CONFIG.npc.fillToPlayers, 5);
+    assert.equal(DEFAULT_GAME_CONFIG.npc.maxBots, DEFAULT_GAME_CONFIG.match.maxPlayers - 1);
+  });
+
+  it("keeps the free places open while the hold runs", () => {
+    const harness = lobby({ fillAfterMs: 10000 });
+
+    harness.run(4);
+    assert.equal(harness.npcs.count, 0, "a bot took somebody's place too early");
+    assert.ok(harness.state.botFillSeconds > 0, "the lobby should say what it is waiting for");
+    assert.equal(harness.state.canStartNow, true, "and offer to skip it");
+  });
+
+  it("counts the wait down in whole seconds", () => {
+    const harness = lobby({ fillAfterMs: 10000 });
+
+    harness.run(1);
+    const first = harness.state.botFillSeconds;
+    harness.run(4);
+    const later = harness.state.botFillSeconds;
+
+    assert.ok(first > later, `expected the wait to shrink, ${first} -> ${later}`);
+    assert.ok(later > 0);
+  });
+
+  it("fills what is left once the hold expires", () => {
+    const harness = lobby({ fillAfterMs: 3000, fillToPlayers: 5 });
+
+    harness.run(6);
+
+    assert.equal(harness.npcs.count, 4, "one person and four bots is a full arena");
+    assert.equal(harness.state.botFillSeconds, 0);
+    assert.equal(harness.state.canStartNow, false, "nothing left to skip");
+  });
+
+  it("never fills past the arena's own limit", () => {
+    const harness = lobby({ fillAfterMs: 0, fillToPlayers: 99 });
+
+    harness.run(2);
+
+    assert.ok(harness.state.players.size <= DEFAULT_GAME_CONFIG.match.maxPlayers);
+  });
+
+  it("lets whoever is waiting skip the hold", () => {
+    const harness = lobby({ fillAfterMs: 60000 });
+    harness.run(2);
+    assert.equal(harness.npcs.count, 0, "still holding");
+
+    assert.equal(harness.npcs.requestImmediateStart("human"), true);
+    assert.ok(harness.npcs.count > 0, "asking should fill the lobby immediately");
+    assert.equal(harness.state.canStartNow, false);
+  });
+
+  it("ignores a bot asking to skip its own hold", () => {
+    const harness = lobby({ fillAfterMs: 0 });
+    harness.run(2);
+
+    const bot = harness.npcs.list()[0]!;
+    assert.equal(harness.npcs.requestImmediateStart(bot.sessionId), false);
+  });
+
+  it("ignores somebody who is not in this lobby", () => {
+    const harness = lobby({ fillAfterMs: 60000 });
+    harness.run(1);
+
+    assert.equal(harness.npcs.requestImmediateStart("nobody-in-particular"), false);
+    assert.equal(harness.npcs.count, 0);
+  });
+
+  it("waits for nobody when there is nobody", () => {
+    // Bots never play among themselves, so an empty lobby stays empty.
+    const config = cloneConfig(getGameConfig());
+    config.npc.enabled = true;
+    config.npc.fillAfterMs = 0;
+
+    const harness = createHarness();
+    harness.replaceConfig(config);
+    harness.state.matchState = MatchState.WAITING;
+
+    harness.run(3);
+
+    assert.equal(harness.npcs.count, 0);
+    assert.equal(harness.state.canStartNow, false);
+  });
+
+  it("clears the bots when the last person leaves, even mid-match", () => {
+    // The lobby fills, the match starts, and then everybody quits. A server
+    // quietly simulating a fight nobody is watching is a bug, not a feature.
+    const harness = lobby({ fillAfterMs: 0 });
+    harness.run(4);
+    assert.ok(harness.npcs.count > 0, "expected the lobby to fill");
+
+    harness.state.players.delete("human");
+    harness.runtimes.delete("human");
+    harness.run(2);
+
+    assert.equal(harness.npcs.count, 0, "bots should not be left playing alone");
+  });
+
+  it("keeps playing while a dropped player might still come back", () => {
+    // A connection blip is not the same as leaving, and ending somebody's match
+    // over one would be worse than letting the bots carry on for a few seconds.
+    const harness = lobby({ fillAfterMs: 0 });
+    harness.run(4);
+    const filled = harness.npcs.count;
+    assert.ok(filled > 0);
+
+    harness.state.players.get("human")!.connected = false;
+    harness.run(2);
+
+    assert.equal(harness.npcs.count, filled, "their seat is still theirs");
+  });
+
+  it("does not hold anything open when bots are switched off", () => {
+    const harness = lobby({ enabled: false, fillAfterMs: 60000 });
+
+    harness.run(3);
+
+    assert.equal(harness.npcs.count, 0);
+    assert.equal(harness.state.canStartNow, false, "offering a skip that does nothing would be a lie");
+    assert.equal(harness.npcs.requestImmediateStart("human"), false);
   });
 });

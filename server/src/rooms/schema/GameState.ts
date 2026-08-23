@@ -66,6 +66,15 @@ export class GameState extends Schema implements SyncedGameState {
   @type("uint8") maxPlayers: number = getMatchConfig().maxPlayers;
 
   /**
+   * Whole seconds until bots take the lobby's free places; 0 when nothing is
+   * waiting. The client shows it and offers to skip it -- but only the server
+   * decides when bots actually arrive.
+   */
+  @type("uint16") botFillSeconds = 0;
+  /** True while the wait could be skipped. Purely so the client knows to offer. */
+  @type("boolean") canStartNow = false;
+
+  /**
    * The playable width, narrowed by the closing walls.
    *
    * Starts at the arena's own edges. Clients draw the walls from these and

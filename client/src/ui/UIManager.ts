@@ -10,6 +10,8 @@ import { query, requireElement, setText, toggleClass } from "./dom.js";
 export type ScreenName = "menu" | "matchmaking" | "lobby" | "countdown" | "results" | "none";
 
 export interface UICallbacks {
+  /** The player would rather not wait for anyone else. */
+  onStartNow(): void;
   onPlay(name: string): void;
   onCancelMatchmaking(): void;
   onLeaveLobby(): void;
@@ -37,6 +39,8 @@ export class UIManager {
   private readonly lobbyCount = requireElement("lobby-count");
   private readonly lobbyHint = requireElement("lobby-hint");
   private readonly lobbyPlayers = requireElement<HTMLUListElement>("lobby-players");
+  private readonly lobbyHold = requireElement("lobby-hold");
+  private readonly lobbyHoldTimer = requireElement("lobby-hold-timer");
 
   private readonly countdownValue = requireElement("countdown-value");
 
@@ -63,6 +67,7 @@ export class UIManager {
 
     requireElement("cancel-matchmaking").addEventListener("click", () => this.callbacks.onCancelMatchmaking());
     requireElement("leave-lobby").addEventListener("click", () => this.callbacks.onLeaveLobby());
+    requireElement("start-now").addEventListener("click", () => this.callbacks.onStartNow());
     requireElement("play-again").addEventListener("click", () => this.callbacks.onPlayAgain());
     requireElement("back-to-menu").addEventListener("click", () => this.callbacks.onBackToMenu());
 
@@ -134,6 +139,11 @@ export class UIManager {
         ? `Waiting for ${missing} more player${missing === 1 ? "" : "s"}...`
         : "Enough players - starting soon",
     );
+
+    // Both come from the server: it decides how long the places stay open and
+    // whether skipping the wait is currently a thing that can happen.
+    toggleClass(this.lobbyHold, "is-active", state.canStartNow);
+    if (state.canStartNow) setText(this.lobbyHoldTimer, formatWait(state.botFillSeconds));
 
     // Rebuild only when the roster actually changed; this runs on every patch.
     const names = Array.from(state.players.values()).map((player) => player.name);
@@ -235,4 +245,11 @@ export class UIManager {
         return "none";
     }
   }
+}
+
+/** `m:ss`, so a minute-long wait reads as a minute rather than as 60. */
+function formatWait(seconds: number): string {
+  const safe = Math.max(0, Math.round(seconds));
+  const minutes = Math.floor(safe / 60);
+  return minutes > 0 ? `${minutes}:${String(safe % 60).padStart(2, "0")}` : `${safe}s`;
 }

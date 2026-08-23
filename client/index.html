@@ -60,9 +60,22 @@
       <section class="screen screen--lobby" data-screen="lobby">
         <div class="panel">
           <h2 class="panel__title">Waiting for players</h2>
-          <p class="counter" id="lobby-count">Players: 0 / 10</p>
+          <p class="counter" id="lobby-count">Players: 0 / 5</p>
           <p class="panel__subtitle" id="lobby-hint">Need 2 players to start</p>
           <ul class="player-list" id="lobby-players"></ul>
+
+          <!-- Shown only while the lobby is holding places open for people. The
+               server decides whether the offer means anything; this only asks. -->
+          <div class="lobby__hold" id="lobby-hold">
+            <p class="lobby__hold-text">
+              Holding places for other players &middot;
+              <b id="lobby-hold-timer">1:00</b>
+            </p>
+            <button class="button button--primary" id="start-now" type="button">
+              Start now with bots
+            </button>
+          </div>
+
           <button class="button button--ghost" id="leave-lobby" type="button">Leave</button>
         </div>
       </section>

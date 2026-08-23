@@ -140,6 +140,13 @@ export interface SyncedGameState {
   readonly matchStartedAt: number;
   readonly minPlayersToStart: number;
   readonly maxPlayers: number;
+  /**
+   * Whole seconds until bots take the lobby's free places; 0 when nothing is
+   * waiting. Whole seconds so it changes once a second rather than every patch.
+   */
+  readonly botFillSeconds: number;
+  /** True while somebody could skip that wait and start now. */
+  readonly canStartNow: boolean;
 
   /**
    * Current playable width, as the closing walls define it.

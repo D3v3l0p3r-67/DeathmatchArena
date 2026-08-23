@@ -91,6 +91,9 @@ export class App {
       onPlay: (name) => void this.handlePlay(name),
       onCancelMatchmaking: () => void this.returnToMenu(),
       onLeaveLobby: () => void this.returnToMenu(),
+      // Asking only. The server decides whether the lobby is in a state where
+      // this means anything.
+      onStartNow: () => this.network.requestImmediateStart(),
       onPlayAgain: () => this.handlePlayAgain(),
       onBackToMenu: () => void this.returnToMenu(),
     });

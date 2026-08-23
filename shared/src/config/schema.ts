@@ -497,6 +497,7 @@ function npcFields(): FieldDescriptor[] {
     boolean("npc.enabled", NPC, "Bots", "Bots enabled", "Off means no NPC ever joins a match, whatever the fill target says."),
     number("npc.fillToPlayers", NPC, "Bots", "Fill lobbies to", "Top a waiting lobby up to this many participants with bots. 0 leaves matches human-only.", { min: 0, max: 32, step: 1, integer: true }),
     number("npc.maxBots", NPC, "Bots", "Maximum bots", "Hard cap on bots in one match.", { min: 0, max: 32, step: 1, integer: true }),
+    number("npc.fillAfterMs", NPC, "Bots", "Hold places open for (ms)", "How long a lobby waits for people before bots take the free places. Whoever is waiting can always start sooner.", { min: 0, max: 600000, step: 1000 }),
     number("npc.sightRange", NPC, "Bots", "Sight range (px)", "Beyond this a bot simply cannot see an enemy. Raising it makes bots feel omniscient.", { min: 100, max: 4000, step: 50 }),
     number("npc.thinkIntervalMs", NPC, "Thinking", "Decision interval (ms)", "How often a brain re-decides what it wants. Lower is sharper and more expensive.", { min: 30, max: 2000, step: 5 }),
     number("npc.perceptionIntervalMs", NPC, "Thinking", "Perception interval (ms)", "How often a bot refreshes what it can sense.", { min: 30, max: 2000, step: 5 }),

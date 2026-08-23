@@ -39,7 +39,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   match: {
     // Two so the game is playable in two browser windows.
     minPlayers: 2,
-    maxPlayers: 10,
+    maxPlayers: 5,
     countdownMs: 5000,
     resultsMs: 12000,
     maxDurationMs: 10 * 60 * 1000,
@@ -270,12 +270,16 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   },
 
 
-  // Bots. Off by default: a server that fills its lobbies without being asked
-  // is a surprise, and the first thing an operator wants is to decide that.
+  // Bots. A lobby holds its places open for a minute, then fills what is left --
+  // and whoever is waiting can skip the wait. There is always at least one
+  // person: bots never play among themselves.
   npc: {
-    enabled: false,
-    fillToPlayers: 0,
-    maxBots: 8,
+    enabled: true,
+    // Fill the arena, so a lobby that nobody else joins still becomes a match.
+    fillToPlayers: 5,
+    fillAfterMs: 60000,
+    // One place is always kept for a person: bots never play among themselves.
+    maxBots: 4,
     // 8Hz. Fast enough to react inside a firefight, slow enough that a dozen
     // bots cost a fraction of a tick.
     thinkIntervalMs: 125,

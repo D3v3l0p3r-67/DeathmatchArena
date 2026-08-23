@@ -24,6 +24,12 @@ export const ClientMessage = {
   /** Player pressed "play again" from the results screen. */
   REQUEUE: "requeue",
   /**
+   * "Do not wait for anyone else." Asks the server to fill the lobby's free
+   * places now rather than at the end of the hold. The server decides whether
+   * that is allowed; a client asking proves nothing.
+   */
+  START_NOW: "startNow",
+  /**
    * Request debug access. The server decides; a client saying "I am an admin"
    * proves nothing.
    */

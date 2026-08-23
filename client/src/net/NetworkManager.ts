@@ -155,6 +155,17 @@ export class NetworkManager {
     if (arena) registerArena(arena);
   }
 
+  /**
+   * Ask the server not to wait for more players.
+   *
+   * A request, not an instruction: the server checks that this session is a
+   * person in a lobby that is actually holding places open, so sending it at any
+   * other moment achieves nothing.
+   */
+  requestImmediateStart(): void {
+    this.room?.send(ClientMessage.START_NOW, {});
+  }
+
   /** Approximate server clock, used only for debug output and trail fading. */
   serverNow(): number {
     return Date.now() + this.clockOffsetMs;

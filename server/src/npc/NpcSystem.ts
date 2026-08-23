@@ -4,6 +4,7 @@ import {
   makeNameUnique,
   type BrainProfile,
   type DebugNpcSnapshot,
+  type NpcConfig,
 } from "@deathmatch/shared";
 import { PlayerRuntime } from "../rooms/PlayerRuntime.js";
 import type { RoomContext } from "../rooms/RoomContext.js";
@@ -38,6 +39,16 @@ export class NpcSystem {
   private nextFillAt = 0;
   private nextBotNumber = 1;
   private loggingFor: string | null = null;
+
+  /**
+   * When the current lobby started holding its places open.
+   *
+   * Set when the first person arrives and deliberately not reset when more do:
+   * a wait that keeps restarting is a wait nobody can plan around.
+   */
+  private holdingSince = 0;
+  /** Set when somebody asked not to wait. Cleared with the lobby. */
+  private skipRequested = false;
 
   constructor(
     private readonly context: RoomContext,
@@ -85,36 +96,118 @@ export class NpcSystem {
    */
   update(dt: number, now: number): void {
     const config = this.context.config.getNpcConfig();
+    const waiting = this.context.state.matchState === MatchState.WAITING;
 
-    if (config.enabled && now >= this.nextFillAt) {
+    if (!waiting) {
+      // The hold belongs to a lobby, not to the room.
+      this.holdingSince = 0;
+      this.skipRequested = false;
+    }
+
+    if (config.enabled && waiting && now >= this.nextFillAt) {
       this.nextFillAt = now + FILL_INTERVAL_MS;
-      if (this.context.state.matchState === MatchState.WAITING) this.fill(config.fillToPlayers, config.maxBots);
+      this.updateLobby(config, now);
     }
 
     if (!config.enabled && this.agents.size > 0 && this.context.state.matchState !== MatchState.PLAYING) {
       this.removeAll();
+      this.publishHold(0, false);
+    }
+
+    // Everybody left. Bots never play among themselves, in a lobby or in a
+    // match: clearing them here ends the match on the next tick and recycles
+    // the room, rather than leaving a server quietly simulating a fight nobody
+    // is watching.
+    if (this.agents.size > 0 && this.countPeople() === 0) {
+      this.removeAll();
+      this.publishHold(0, false);
     }
 
     this.think(dt, now);
   }
 
-  /** Add bots until the lobby has enough participants, within the cap. */
-  private fill(target: number, maxBots: number): void {
-    if (target <= 0) return;
-
+  /**
+   * Hold the free places open, then fill them.
+   *
+   * A bot is a consolation prize: given the choice a lobby should fill with
+   * people, so the places stay open for the configured hold before bots take
+   * them -- unless whoever is waiting has said not to bother.
+   */
+  private updateLobby(config: NpcConfig, now: number): void {
     const humans = this.countHumans();
-    // Bots are only worth adding once somebody is there to play against them.
+
+    // Nobody here. Nothing to hold open, and nothing for bots to play against.
     if (humans === 0) {
+      this.holdingSince = 0;
+      this.skipRequested = false;
+      if (this.agents.size > 0) this.removeAll();
+      this.publishHold(0, false);
+      return;
+    }
+
+    if (this.holdingSince === 0) this.holdingSince = now;
+
+    const target = Math.min(config.fillToPlayers, this.context.config.getMatchConfig().maxPlayers);
+    const wanted = Math.min(config.maxBots, Math.max(0, target - humans));
+
+    // Already full of people, or bots are not wanted here.
+    if (wanted === 0) {
+      this.publishHold(0, false);
       if (this.agents.size > 0) this.removeAll();
       return;
     }
 
-    const wanted = Math.min(maxBots, Math.max(0, target - humans));
+    const elapsed = now - this.holdingSince;
+    const remaining = Math.max(0, config.fillAfterMs - elapsed);
+
+    if (!this.skipRequested && remaining > 0) {
+      // Still someone else's seat. Offer the skip and wait.
+      this.publishHold(Math.ceil(remaining / 1000), true);
+      if (this.agents.size > 0) this.removeAll();
+      return;
+    }
+
+    this.publishHold(0, false);
+    this.fill(wanted);
+  }
+
+  /**
+   * Skip the wait.
+   *
+   * Only a person in this lobby may ask, and only while it is actually holding
+   * places open -- a bot or a spectator asking achieves nothing, and neither
+   * does asking twice.
+   */
+  requestImmediateStart(sessionId: string): boolean {
+    if (this.context.state.matchState !== MatchState.WAITING) return false;
+    if (this.agents.has(sessionId)) return false;
+
+    const player = this.context.state.players.get(sessionId);
+    if (!player || !player.connected) return false;
+    if (!this.context.config.getNpcConfig().enabled) return false;
+
+    this.skipRequested = true;
+    // Act on it now rather than at the next fill tick, so the button feels
+    // like it did something.
+    this.updateLobby(this.context.config.getNpcConfig(), this.context.now());
+    return true;
+  }
+
+  /** Tell the lobby what it is waiting for, in whole seconds. */
+  private publishHold(seconds: number, canSkip: boolean): void {
+    const state = this.context.state;
+    if (state.botFillSeconds !== seconds) state.botFillSeconds = seconds;
+    if (state.canStartNow !== canSkip) state.canStartNow = canSkip;
+  }
+
+  /** Bring the bot count to exactly `wanted`. */
+  private fill(wanted: number): void {
     while (this.agents.size < wanted) {
       if (!this.spawn()) break;
     }
 
-    // Too many, because a human joined: retire the newest rather than a random one.
+    // Too many, because somebody joined: retire the newest rather than a
+    // random one, so the bots that have been here longest stay.
     while (this.agents.size > wanted) {
       const last = Array.from(this.agents.keys()).pop();
       if (!last) break;
@@ -122,12 +215,29 @@ export class NpcSystem {
     }
   }
 
+  /** People connected right now. What the lobby fill is measured against. */
   private countHumans(): number {
     let humans = 0;
     for (const player of this.context.state.players.values()) {
       if (!this.agents.has(player.sessionId) && player.connected) humans++;
     }
     return humans;
+  }
+
+  /**
+   * People in the room at all, connected or not.
+   *
+   * Deliberately more forgiving than `countHumans`: somebody whose connection
+   * dropped still holds their seat for the reconnection window, and ending their
+   * match because of a blip would be worse than letting the bots play on for a
+   * few seconds.
+   */
+  private countPeople(): number {
+    let people = 0;
+    for (const player of this.context.state.players.values()) {
+      if (!this.agents.has(player.sessionId)) people++;
+    }
+    return people;
   }
 
   /** Add one bot with a randomly chosen personality. */

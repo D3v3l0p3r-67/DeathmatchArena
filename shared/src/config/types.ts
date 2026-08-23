@@ -468,6 +468,16 @@ export interface NpcConfig {
    * one human.
    */
   fillToPlayers: number;
+  /**
+   * How long a lobby holds its free places open for people before bots take
+   * them, in ms.
+   *
+   * The point of the delay is that a bot is a consolation prize: given the
+   * choice, a lobby should fill with people. It starts when the first person
+   * arrives and does not reset, so the wait is predictable -- and whoever is
+   * waiting can always skip it and start immediately.
+   */
+  fillAfterMs: number;
   /** Hard cap on bots in one match, whatever the fill target says. */
   maxBots: number;
   /** How often a brain re-decides what it wants, in ms. */
