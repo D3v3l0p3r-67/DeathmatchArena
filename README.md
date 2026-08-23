@@ -706,6 +706,49 @@ from, so difficulty owns them outright:
 - **decision interval** — how often it reconsiders at all, so a fight turning
   against a poor bot takes longer to register.
 
+### How a bot flies a jump
+
+A jump is not a button press. Its height comes from *how long the button is
+held*, and the mid-air jump needs a fresh press, which means a release first. The
+movement controller used to script that as a fixed list of ticks —
+`[press, release]` — which is exactly the input the variable-jump-height rule
+cuts short. **Every bot jump was a 35px hop.** Meanwhile the navigation graph was
+linking ledges 138px up, and pairs of jumps reaching 237px, so bots were
+confidently planning routes they physically could not fly. That is where the
+pacing under platforms, the run-ups and the abandoned goals were coming from.
+
+It is now a small state machine over what the body is actually doing, which needs
+no knowledge of gravity or jump strength:
+
+```
+rising      hold while still going up and still below the target
+apex        release -- and if the target is still out of reach, this is the
+            moment the second jump is worth spending
+airRising   hold again, release at the top
+```
+
+Releasing at the apex costs nothing, because there is no ascent left to cut, and
+it is the only moment the mid-air jump is worth its full value: it *replaces* the
+current upward speed rather than adding to it, so pressing it early throws away
+most of what the first jump bought.
+
+Measured by asking a bot to climb a ledge and watching whether it ends up
+standing on it:
+
+```
+              before   after
+ 40px ledge   climbed  climbed
+ 80px ledge      —     climbed
+120px ledge      —     climbed
+170px ledge      —     climbed     (the second jump earns its keep here)
+200px ledge      —     climbed
+260px ledge      —        —        (and it does not pretend otherwise)
+```
+
+The graph's reach was tightened to match — 237px of theory became ~200px of
+practice — because a link a bot cannot fly is how a route turns into a bot
+pressed against the underside of a platform.
+
 ### Hazards, and when a grenade is the right answer
 
 **A bot routes around the spikes.** The navigation graph prices every trap the
@@ -1266,10 +1309,24 @@ survivors, because the client cannot work it out for itself — the kill arrives
 immediately and the finished state only with the next patch, so without the flag
 the last kill of a match looks like any other for a fifth of a second.
 
-On that flag the scene drops into slow motion (`FINALE`), and the shell holds the
-results screen back until it has played out — the moment somebody wins is
-something you watch rather than something a menu covers. Two details keep that
-honest:
+On that flag the whole ending plays out, in two beats, and the shell holds the
+results screen back until it has finished — the moment somebody wins is something
+you watch rather than something a menu covers.
+
+```
+0ms     the kill      slow motion drops in, the camera pushes in on the body
+1150ms  the winner    the camera finds whoever is left, they jump for joy,
+                      four waves of confetti fall across the screen
+3400ms  the menu      the standings, once there is nothing left to watch
+```
+
+The winner's celebration is an *offset* on the position the server sent, not a
+position of its own — they are still standing exactly where the server says, and
+this is only how they are drawn. The confetti is built from the same tweens as
+every other particle, which means it slows down with the finale instead of racing
+it.
+
+Two details keep the whole thing honest:
 
 - **Simulation time and presentation time are separate.** Prediction, input and
   snapshot interpolation keep running on real time; only what is *drawn* slows
@@ -1279,6 +1336,13 @@ honest:
   very effect it is waiting on and the results would arrive late by exactly
   however much time was slowed. The shell also keeps a backstop timer, so a scene
   torn down mid-animation still ends with the standings on screen.
+
+**Play again** ends the results early once everybody has asked for it — everybody
+who *can* ask, that is. Bots are always "connected" and never ask for anything,
+so counting them meant the button could not do its job in any room with one in
+it, which is every room somebody plays alone. The button also says it heard you:
+the countdown line is redrawn every frame, so writing "ready" straight to it was
+overwritten within milliseconds, and a working button looked like a broken one.
 
 Nothing here can change the outcome: the match is decided on the server before any
 of it starts.

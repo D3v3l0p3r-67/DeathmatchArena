@@ -74,6 +74,25 @@ export class CameraController {
     };
   }
 
+  /**
+   * Push in, or back out.
+   *
+   * Eased over `durationMs` rather than set outright: a camera that snapped to a
+   * new zoom would read as a cut. Only the finale uses this, and it always
+   * returns to 1 before the next match.
+   */
+  zoomTo(zoom: number, durationMs: number): void {
+    if (Math.abs(this.camera.zoom - zoom) < 0.001) return;
+
+    this.camera.zoomTo(zoom, durationMs, "Sine.easeInOut", true);
+  }
+
+  /** Whatever zoom is in progress, stop it and go back to normal. */
+  resetZoom(): void {
+    this.camera.zoomEffect.reset();
+    this.camera.setZoom(1);
+  }
+
   shake(durationMs: number, intensity: number): void {
     this.camera.shake(durationMs, intensity, true);
   }

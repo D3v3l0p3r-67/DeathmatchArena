@@ -447,10 +447,14 @@ export class MatchManager {
     if (this.context.state.matchState !== MatchState.FINISHED) return;
     this.requeueRequests.add(sessionId);
 
-    const connected = this.countConnectedPlayers();
-    if (connected > 0 && this.requeueRequests.size >= connected) {
-      this.phaseEndsAt = now;
-    }
+    // People only. Bots are always "connected" and will never ask for anything,
+    // so counting them meant a room with a single bot in it could never cut the
+    // wait short -- which looked exactly like the button doing nothing.
+    const waitingOn = this.getConnectedPlayers().filter((player) => !player.bot);
+    if (waitingOn.length === 0) return;
+
+    const ready = waitingOn.every((player) => this.requeueRequests.has(player.sessionId));
+    if (ready) this.phaseEndsAt = now;
   }
 
   // -------------------------------------------------------------------------

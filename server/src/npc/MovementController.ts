@@ -29,6 +29,10 @@ const UNDER_LEDGE = 34;
 const RUN_UP_DISTANCE = 120;
 /** Give up on a goal that has made no progress for this long, in ms. */
 const ABANDON_AFTER_MS = 2600;
+/** How far above a ledge to aim, so a landing is a landing and not a scrape. */
+const JUMP_CLEARANCE = 14;
+/** How high to try when nothing is working and a jump is the cheapest guess. */
+const STUCK_HOP = 200;
 /** Beyond this, a goal with no route to it is treated as unreachable. */
 const UNREACHABLE_DISTANCE = 220;
 /** How far ahead to look for something dangerous, in px. */
@@ -56,7 +60,29 @@ export class MovementController {
   private intent: MovementIntent = { direction: 0, jump: false, dropping: false };
 
   /** Queued jump presses; each entry is a tick's worth of button state. */
-  private jumpScript: boolean[] = [];
+  /**
+   * How a jump is being flown, tick by tick.
+   *
+   * A jump is not one button press: the height comes from *how long the button
+   * is held*, and the mid-air jump needs a fresh press, which means a release
+   * first. Scripting that as a fixed list of ticks made every bot jump a 35px
+   * hop -- released on the very next tick, which is exactly the input the
+   * variable-jump-height rule cuts short -- while the navigation graph was
+   * linking ledges 138px up and pairs of jumps reaching 237px. Bots were
+   * planning routes they physically could not fly.
+   *
+   * So it is a small state machine over what the body is actually doing, which
+   * also means it needs no knowledge of gravity or jump strength: it holds while
+   * it is still rising and still below where it is going, and it spends the
+   * second jump at the apex, but only if it is not going to make it otherwise.
+   */
+  private jumpPhase: "idle" | "rising" | "release" | "airRising" = "idle";
+  /** World Y this jump is trying to reach. Lower is higher. */
+  private jumpTargetY = 0;
+  /** Whether the mid-air jump may still be spent on this jump. */
+  private airJumpAvailable = false;
+  /** What the jump button should be doing this tick. */
+  private jumpButton = false;
 
   /** Where we are trying to get to, and how. */
   private path: number[] = [];
@@ -109,14 +135,71 @@ export class MovementController {
     this.intent.direction = 0;
   }
 
-  /** One press, released next tick so the edge is unambiguous. */
-  jump(): void {
-    if (this.jumpScript.length === 0) this.jumpScript = [true, false];
+  /**
+   * Jump, aiming to reach `targetY`.
+   *
+   * The height is flown rather than chosen: the button is held while the bot is
+   * still rising and still below the target, so a low ledge costs a hop and a
+   * high one costs a full jump. Ignored if a jump is already in the air.
+   */
+  jumpTo(targetY: number): void {
+    if (this.jumpPhase !== "idle") return;
+
+    this.jumpPhase = "rising";
+    this.jumpTargetY = targetY;
+    this.airJumpAvailable = true;
+    this.jumpButton = true;
   }
 
-  /** Press, release, press: the second one is the mid-air jump. */
-  doubleJump(): void {
-    if (this.jumpScript.length === 0) this.jumpScript = [true, false, true, false];
+  /** A hop with nothing particular to reach -- clearing a hazard, or unsticking. */
+  jump(): void {
+    this.jumpTo(Number.NEGATIVE_INFINITY);
+  }
+
+  /**
+   * Fly the jump.
+   *
+   * Called every tick while a jump is in the air. The two interesting moments:
+   * the release, which has to happen at the apex rather than earlier or the
+   * ascent is cut short, and the second press, which is only spent when the apex
+   * arrives with the target still out of reach.
+   */
+  private updateJump(self: SelfContext): void {
+    if (this.jumpPhase === "idle") {
+      this.jumpButton = false;
+      return;
+    }
+
+    const rising = self.velocityY < 0;
+    const belowTarget = self.y > this.jumpTargetY;
+
+    switch (this.jumpPhase) {
+      case "rising":
+      case "airRising": {
+        // Hold while it is still buying height. Letting go early is what the
+        // variable-jump-height rule is for, and it costs two thirds of the jump.
+        if (rising && belowTarget) {
+          this.jumpButton = true;
+          return;
+        }
+
+        const canReachHigher =
+          this.jumpPhase === "rising" && this.airJumpAvailable && belowTarget && self.jumpsRemaining > 0;
+
+        this.jumpButton = false;
+        this.jumpPhase = canReachHigher ? "release" : "idle";
+        return;
+      }
+
+      case "release": {
+        // One tick of release, so the next press reads as a press. At the apex
+        // this costs nothing: there is no ascent left to cut.
+        this.airJumpAvailable = false;
+        this.jumpButton = true;
+        this.jumpPhase = "airRising";
+        return;
+      }
+    }
   }
 
   /** Walk off the edge rather than jumping over it. */
@@ -285,6 +368,7 @@ export class MovementController {
 
     this.considerJump(self, waypoint, rise, dx);
     this.avoidHazards(self, hazards);
+    this.updateJump(self);
     this.trackProgress(self, now);
   }
 
@@ -386,9 +470,10 @@ export class MovementController {
     }
 
     if (rise > CLIMB_RISE && Math.abs(dx) < 420) {
-      // High enough to need the second jump, or close enough for one.
-      if (rise > 150 && self.onGround) this.doubleJump();
-      else this.jump();
+      // Aim at the ledge itself, with a little clearance. How high that turns
+      // out to be -- a hop, a full jump, or a jump and the mid-air one -- is
+      // decided while flying it rather than guessed from a threshold here.
+      this.jumpTo(waypoint.y - JUMP_CLEARANCE);
       return;
     }
 
@@ -397,7 +482,7 @@ export class MovementController {
       return;
     }
 
-    if (this.stuck && self.onGround) this.doubleJump();
+    if (this.stuck && self.onGround) this.jumpTo(self.y - STUCK_HOP);
   }
 
   /** Something solid at knee height in the direction of travel. */
@@ -442,12 +527,10 @@ export class MovementController {
 
   /** Consume this tick's intent into the three movement buttons. */
   takeButtons(): { moveLeft: boolean; moveRight: boolean; jump: boolean } {
-    const jump = this.jumpScript.length > 0 ? this.jumpScript.shift()! : false;
-
     const buttons = {
       moveLeft: this.intent.direction < 0,
       moveRight: this.intent.direction > 0,
-      jump,
+      jump: this.jumpButton,
     };
 
     // The direction persists between physics ticks -- it is only re-decided when
@@ -457,7 +540,9 @@ export class MovementController {
 
   reset(): void {
     this.intent = { direction: 0, jump: false, dropping: false };
-    this.jumpScript = [];
+    this.jumpPhase = "idle";
+    this.jumpButton = false;
+    this.airJumpAvailable = false;
     this.clearGoal();
     this.stuck = false;
     this.runningUp = false;

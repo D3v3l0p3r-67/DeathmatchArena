@@ -3,6 +3,7 @@ import { getProjectileStyle, getWeapon } from "@deathmatch/shared";
 import { TextureKeys } from "./TextureFactory.js";
 import {
   BURSTS,
+  CONFETTI_COLORS,
   DEFAULT_EFFECTS_SETTINGS,
   SHAKES,
   type BurstName,
@@ -112,6 +113,49 @@ export class EffectsSystem {
     if (count <= 0) return;
 
     this.spawnParticles(spec, x, y, count, undefined);
+  }
+
+  /**
+   * Confetti, across the top of what the player can currently see.
+   *
+   * Screen-wide rather than centred on anybody: the point is that the *screen*
+   * is celebrating. Spawned in the world above the camera's view so the pieces
+   * fall into it, and built from tweens like every other particle here, which
+   * means they slow down with the finale rather than racing it.
+   */
+  confetti(view: { left: number; right: number; top: number }, count: number): void {
+    const pieces = Math.round(count * this.settings.particleIntensity);
+    if (pieces <= 0) return;
+
+    const width = Math.max(1, view.right - view.left);
+
+    for (let i = 0; i < pieces; i++) {
+      const x = view.left + Math.random() * width;
+      const y = view.top - 40 - Math.random() * 120;
+      const color = CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)]!;
+
+      const piece = this.scene.add
+        .rectangle(x, y, 7 + Math.random() * 5, 11 + Math.random() * 7, color)
+        .setDepth(19)
+        .setAngle(Math.random() * 360);
+
+      const fall = 3.1 + Math.random() * 1.9;
+      const drift = (Math.random() * 2 - 1) * 190;
+
+      this.scene.tweens.add({
+        targets: piece,
+        x: x + drift,
+        y: y + 260 * fall,
+        // Tumbling, at its own rate: uniform confetti reads as a texture rather
+        // than as paper.
+        angle: piece.angle + (Math.random() * 2 - 1) * 900,
+        scaleX: { from: 1, to: 0.2 },
+        alpha: { from: 1, to: 0.75 },
+        duration: fall * 1000,
+        ease: "Sine.easeIn",
+        onComplete: () => piece.destroy(),
+      });
+    }
   }
 
   private spawnParticles(

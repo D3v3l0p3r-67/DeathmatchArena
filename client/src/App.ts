@@ -164,6 +164,8 @@ export class App {
    */
   private pendingResult: MatchResultMessage | null = null;
 
+  /** Whether this player has already asked for the next match. */
+  private requeueRequested = false;
   /** When the server will stop holding our seat; 0 when nothing is being held. */
   private reconnectDeadline = 0;
   private reconnectTimer = 0;
@@ -357,9 +359,13 @@ export class App {
 
   private handlePlayAgain(): void {
     // The room recycles itself after the results delay; asking to requeue simply
-    // tells the server we are ready, which cuts the wait short once everyone has.
+    // tells the server we are ready, which cuts the wait short once everybody
+    // has. Remembered rather than written straight to the screen: the countdown
+    // is redrawn every frame and would have overwritten it immediately, which is
+    // what made a working button look like a broken one.
+    this.requeueRequested = true;
+    this.ui.setPlayAgainReady(true);
     this.network.requestRequeue();
-    this.ui.setResultsCountdown("Ready - waiting for the other players...");
   }
 
   private async returnToMenu(): Promise<void> {
@@ -499,6 +505,8 @@ export class App {
   /** Put the standings up and start their countdown. */
   private showResults(result: MatchResultMessage): void {
     this.pendingResult = null;
+    this.requeueRequested = false;
+    this.ui.setPlayAgainReady(false);
     this.lastResult = result;
     this.resultsEndsAt = performance.now() + getMatchConfig().resultsMs;
     this.hud.setVisible(false);
@@ -655,10 +663,14 @@ export class App {
     if (this.ui.currentScreen !== "results" || !this.lastResult) return;
 
     const remaining = Math.max(0, this.resultsEndsAt - now);
+    const seconds = Math.ceil(remaining / 1000);
+
     this.ui.setResultsCountdown(
-      remaining > 0
-        ? `Next match starting in ${Math.ceil(remaining / 1000)}s...`
-        : "Starting the next match...",
+      remaining <= 0
+        ? "Starting the next match..."
+        : this.requeueRequested
+          ? `Ready - waiting for the others (${seconds}s)`
+          : `Next match starting in ${seconds}s...`,
     );
   }
 
