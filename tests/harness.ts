@@ -214,6 +214,10 @@ export function createHarness(arenaOverride?: ArenaDefinition): Harness {
   npcs = new NpcSystem(context, movement, 12345);
   matchManager.setNpcSystem(npcs);
   arenaShrink.reset();
+  // The arena's own traps, exactly as a room loads them at startup. A harness
+  // that quietly left them out made every measurement of how bots handle
+  // hazards meaningless: there were none to handle.
+  trapSystem.load(arena);
 
   return {
     context,

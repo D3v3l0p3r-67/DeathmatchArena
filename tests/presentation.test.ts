@@ -226,6 +226,55 @@ describe("reading a player at a glance", () => {
     }
   });
 
+  it("puts every part of the figure back after a death", () => {
+    /*
+     * The death animation hides some parts and fades others, and reviving has
+     * to undo all of it. The visor is faded rather than hidden, which made it
+     * the easy one to forget: leave it out and a player who has died once has
+     * no eyes for the rest of the session -- by the second match, nobody in the
+     * arena has any. Read from the source, because this is about one method
+     * agreeing with two others rather than about any single value.
+     */
+    const source = readFileSync(
+      new URL("../client/src/game/entities/PlayerView.ts", import.meta.url),
+      "utf8",
+    );
+
+    const body = (name: string): string => {
+      // The declaration, not a call site or a mention in a comment: a method on
+      // this class starts at two spaces of indentation. `tickDeath` is public
+      // because the scene drives it; the rest are private.
+      const start = source.search(new RegExp(`\\n  (private )?${name}\\(`));
+      assert.ok(start > 0, `PlayerView no longer has ${name}`);
+      const open = source.indexOf("{", start);
+      let depth = 0;
+      for (let i = open; i < source.length; i++) {
+        if (source[i] === "{") depth++;
+        if (source[i] === "}" && --depth === 0) return source.slice(open, i);
+      }
+      throw new Error(`could not read ${name}`);
+    };
+
+    const dimmed = new Set<string>();
+    for (const method of ["beginDying", "tickDeath"]) {
+      for (const match of body(method).matchAll(/this\.(\w+)\.set(?:Visible\(false\)|Alpha\()/g)) {
+        dimmed.add(match[1]!);
+      }
+    }
+    assert.ok(dimmed.size > 0, "the death animation no longer dims anything");
+
+    const revive = body("reviveVisuals");
+    for (const part of dimmed) {
+      // The shadow is the one exception, and only because it is not restored so
+      // much as re-decided: `updateShadow` sets it from `onGround` every frame.
+      if (part === "shadow" || part === "container") continue;
+      assert.ok(
+        revive.includes(`this.${part}.`),
+        `${part} is dimmed when a player dies and never put back when they respawn`,
+      );
+    }
+  });
+
   it("draws the visor in front of the weapon", () => {
     /*
      * The second half of the guarantee, and the half a refactor can silently

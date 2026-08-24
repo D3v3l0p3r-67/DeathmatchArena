@@ -22,6 +22,7 @@ import {
   stepPlayerMovement,
   FIXED_DELTA,
   PLAYER_HALF_HEIGHT,
+  PLAYER_HALF_WIDTH,
   DEFAULT_GAME_CONFIG,
   MAX_BOT_DIFFICULTY,
   MIN_BOT_DIFFICULTY,
@@ -2110,6 +2111,151 @@ describe("throwing a grenade somewhere useful", () => {
       clear > grenadeConfig.explosionRadius,
       `a clear throw should get well away from the thrower, got ${Math.round(clear)}px`,
     );
+  });
+
+  it("walks out of spikes it is standing in, even with nowhere to go", () => {
+    /*
+     * The state bots actually died in. Hazard handling used to sit below two
+     * guards -- "do I have a goal" and "am I already walking somewhere" -- so a
+     * bot that stopped inside a strip of spikes, or whose goal had just been
+     * dropped *because* of the hazard, had its avoidance switched off at the
+     * exact moment it was standing in one.
+     */
+    const arena = createEmptyArena("spiked", "Spiked", 2000, 1000);
+    const floorY = 1000 - 60;
+    const world = new CollisionWorld(arena);
+    const graph = new NavGraph(arena, world, getPlayerConfig());
+    const controller = new MovementController(graph, world);
+
+    const spikes = {
+      id: "spikes",
+      x: 900,
+      y: floorY - 24,
+      width: 300,
+      height: 24,
+      distance: 0,
+      hot: true,
+      harmful: true,
+      threat: 1,
+    };
+
+    const state = createMovementState(1050, floorY - PLAYER_HALF_HEIGHT);
+    state.onGround = true;
+    const input = createInputCommand();
+
+    for (let tick = 0; tick < 60 * 3; tick++) {
+      const self = {
+        x: state.x,
+        y: state.y,
+        velocityX: state.velocityX,
+        velocityY: state.velocityY,
+        onGround: state.onGround,
+        jumpsRemaining: state.jumpsRemaining,
+        health: 1,
+        ammo: 1,
+        reloading: false,
+        grenades: 0,
+        weapon: null,
+      } as never;
+
+      // No goal at all: standing in a fire is not something you need a plan for.
+      controller.steer(self, tick * 16.67, [spikes]);
+      const buttons = controller.takeButtons();
+      input.seq = tick + 1;
+      input.moveLeft = buttons.moveLeft;
+      input.moveRight = buttons.moveRight;
+      input.jump = buttons.jump;
+      stepPlayerMovement(state, input, FIXED_DELTA, world);
+    }
+
+    const inside = state.x > spikes.x - PLAYER_HALF_WIDTH && state.x < spikes.x + spikes.width + PLAYER_HALF_WIDTH;
+    assert.equal(inside, false, `still standing in the spikes at x=${Math.round(state.x)}`);
+  });
+
+  it("does not flee a jump pad", () => {
+    // A pad is placed and simulated as a trap and costs nothing to touch: it is
+    // a route the arena puts there on purpose. Treating it as a hazard had bots
+    // walking around the shortcuts.
+    const arena = createEmptyArena("padded", "Padded", 2000, 1000);
+    const floorY = 1000 - 60;
+    const world = new CollisionWorld(arena);
+    const graph = new NavGraph(arena, world, getPlayerConfig());
+    const controller = new MovementController(graph, world);
+
+    const pad = {
+      id: "pad",
+      x: 900,
+      y: floorY - 20,
+      width: 110,
+      height: 20,
+      distance: 0,
+      hot: true,
+      harmful: false,
+      threat: 0,
+    };
+
+    const self = {
+      x: 950,
+      y: floorY - PLAYER_HALF_HEIGHT,
+      velocityX: 0,
+      velocityY: 0,
+      onGround: true,
+      jumpsRemaining: 2,
+      health: 1,
+      ammo: 1,
+      reloading: false,
+      grenades: 0,
+      weapon: null,
+    } as never;
+
+    controller.setGoal(1600, floorY - PLAYER_HALF_HEIGHT, self, 0);
+    controller.steer(self, 0, [pad]);
+
+    assert.equal(
+      controller.takeButtons().moveRight,
+      true,
+      "standing on a jump pad should not interrupt going where you were going",
+    );
+  });
+
+  it("stops short of a trap rather than walking into it", () => {
+    // Chasing somebody standing in the fire is reasonable. Following them in is
+    // not, so the destination is moved to the near edge rather than refused.
+    const arena = createEmptyArena("fired", "Fired", 2000, 1000);
+    const floorY = 1000 - 60;
+    arena.traps = [
+      {
+        id: "fire",
+        type: "fire",
+        x: 1200,
+        y: floorY - 140,
+        width: 90,
+        height: 140,
+        activation: "always",
+        enabled: true,
+        damage: null,
+        activationDelayMs: null,
+        activeDurationMs: null,
+        cooldownMs: null,
+        moveSpeed: null,
+        triggerRadius: null,
+        params: {},
+      },
+    ];
+
+    const world = new CollisionWorld(arena);
+    const graph = new NavGraph(arena, world, getPlayerConfig());
+
+    const inside = graph.clearOfHazards(1245, floorY - PLAYER_HALF_HEIGHT);
+    assert.notEqual(inside.x, 1245, "a goal inside the fire should be moved out of it");
+    assert.ok(
+      inside.x < 1200 - PLAYER_HALF_WIDTH || inside.x > 1290 + PLAYER_HALF_WIDTH,
+      `moved to ${Math.round(inside.x)}, which is still in the fire`,
+    );
+
+    // And somewhere harmless is left exactly where it was.
+    const clear = graph.clearOfHazards(400, floorY - PLAYER_HALF_HEIGHT);
+    assert.equal(clear.x, 400);
   });
 
   it("never wanders into a trap on purpose", () => {

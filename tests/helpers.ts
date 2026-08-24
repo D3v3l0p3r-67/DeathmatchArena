@@ -16,8 +16,16 @@ interface StartableRoom {
  * match running has to say so too.
  */
 export async function startMatch(...rooms: StartableRoom[]): Promise<void> {
-  const host = rooms.find((room) => room.state?.hostId === room.sessionId);
-  if (!host) throw new Error("none of these rooms belongs to its client");
+  // Who owns the room is state the server publishes, so it arrives on a patch
+  // like everything else -- and on a loaded machine that patch can be a beat
+  // behind the join that caused it. Waiting for it is the difference between a
+  // suite that passes locally and one that passes on a busy CI runner.
+  await waitFor(
+    () => rooms.some((room) => room.state?.hostId === room.sessionId),
+    "one of these rooms to belong to its client",
+  );
+
+  const host = rooms.find((room) => room.state?.hostId === room.sessionId)!;
   host.send(ClientMessage.START_MATCH, {});
 }
 

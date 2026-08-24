@@ -36,7 +36,7 @@ export const dodgeAction: BrainAction = {
     agent.holdFire();
 
     const grenade = context.grenades[0];
-    const trap = context.traps.find((candidate) => candidate.hot);
+    const trap = context.traps.find((candidate) => candidate.hot && candidate.harmful);
 
     // Whichever is worse decides which way to run.
     const fromGrenade = grenade ? grenade.threat : 0;

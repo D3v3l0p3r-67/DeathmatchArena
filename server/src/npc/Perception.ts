@@ -7,6 +7,7 @@ import {
   clamp01,
   distance as distanceBetween,
   isMelee,
+  trapHarms,
   usesAmmo,
   type BrainProfile,
 } from "@deathmatch/shared";
@@ -367,6 +368,7 @@ export class Perception {
       // Arming counts as hot: the warning exists to be reacted to, and a bot
       // that only fled once it was already burning would waste it.
       const hot = trap.phase === TrapPhase.ACTIVE || trap.phase === TrapPhase.ARMING;
+      const harmful = trapHarms(trap.trapType);
       // Seen from far off, felt only from near: the alarm radius decides what a
       // bot is aware of, and this decides how much of it is *fear*. Without the
       // split, widening the first would have bots cowering from scenery.
@@ -381,7 +383,10 @@ export class Perception {
         height: trap.height,
         distance,
         hot,
-        threat: hot ? proximity : proximity * 0.2,
+        harmful,
+        // Nothing to fear from a jump pad: it is a lift, not a trap, whatever
+        // the phase says.
+        threat: harmful ? (hot ? proximity : proximity * 0.2) : 0,
       });
     }
 

@@ -232,6 +232,12 @@ export class PlayerView {
     this.weapon.setVisible(true);
     this.throwArrow.setVisible(true);
     this.belt.setVisible(true);
+    // Every part the death animation touched has to come back, and the visor is
+    // the one it fades rather than hides -- so it is also the one that is easy
+    // to forget. Left out, a player who has died once has no eyes for the rest
+    // of the session, and by the second match nobody in the arena has any.
+    this.visor.setAlpha(1);
+    this.visor.setVisible(true);
     this.beltCount = -1;
   }
 

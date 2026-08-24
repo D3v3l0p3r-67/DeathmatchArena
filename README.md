@@ -915,6 +915,45 @@ blast. Measured across the three arenas at two, four and six bots, self-inflicte
 damage fell from 1963 to 1222 over the same two-minute samples, and improved in
 every one of the nine.
 
+### A jump pad is not a hazard
+
+Traps are one system: placed the same way, simulated the same way, drawn the
+same way. A jump pad is one of them, and it is the odd one out — it throws you
+rather than hurting you, and the arena puts them there as routes. Everything
+that reasoned about danger treated it like spikes, so bots routed *around* the
+shortcuts, flinched away from them, and scored fleeing one as highly as fleeing
+a fire. `trapHarms` says which is which, once, and the navigation costs, the
+steering and the dodge scoring all ask it.
+
+### Standing in it is not the same as walking towards it
+
+Hazard handling used to live inside the part of steering that follows a goal,
+below two guards: *do I have a goal* and *am I already walking somewhere*. Both
+are false in exactly the situation that matters. A bot that stopped inside a
+strip of spikes had `direction === 0`, so nothing looked at the spikes; a bot
+whose goal had just been dropped *because* of a hazard returned at the first
+line of `steer`, so nothing looked at anything. The avoidance switched itself
+off at the moment it was needed.
+
+Getting out of what is burning you now runs before either guard, and three other
+things changed with it:
+
+- **A destination inside a trap is moved to its edge.** Chasing somebody
+  standing in the fire is reasonable; following them in is not. The goal is
+  nudged out rather than refused, so the chase still happens and stops short.
+- **Progress means getting closer, not moving.** The stuck detector asked
+  whether the bot's x had changed by 12px, which a bot bouncing on the spot
+  satisfies forever — so the behaviour most in need of being abandoned was the
+  one thing that never counted as stuck. A bot rebounding off a ledge into the
+  spikes underneath would do it until something killed it.
+- **The test harness loads the arena's traps**, as a room does. It did not, so
+  every previous measurement of how bots handle hazards was measuring an arena
+  that had none.
+
+Measured as the share of bot-time spent inside a trap that actually hurts,
+across three arenas at two, four and six bots: **2.37% → 0.77%**, better or
+unchanged in all nine.
+
 ### Routes a bot cannot fly
 
 Three fixes in the navigation graph, all the same shape: a link that describes a
@@ -1025,6 +1064,16 @@ across jobs would buy nothing but complexity.
 It typechecks the *tests* as well as the source, which `npm test` does not: `tsx`
 strips types rather than checking them, so a test can pass while carrying a type
 error. That is not hypothetical — adding this caught one on its first run.
+
+The test script lists its files as `tests/*.test.ts` rather than
+`tests/**/*.test.ts`, and the difference is the difference between CI running
+and CI only appearing to. `sh` does not expand `**`, so the literal pattern
+reached the test runner — which globs it on Node 22 and treats it as a filename
+on Node 20, the version this workflow pins. Locally it worked; in CI every run
+died with `Could not find .../tests/**/*.test.ts` before a single test executed,
+and the build step after it never ran at all. A single-level glob is expanded by
+the shell on every version of both, so the runner is handed paths and never has
+to glob anything.
 
 ---
 
