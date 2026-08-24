@@ -693,6 +693,23 @@ Bots are only added and removed between matches: dropping one into a running
 match would give it a free spawn among people who have been fighting, and the
 same goes for difficulty — a match is played at the level it started at.
 
+### An installation that had one map
+
+The map picker arrived and, on the machine it was written for, had nothing to
+pick from. The store explains it: arenas are written to `data/arenas.json` on
+first run and treated as ordinary data ever after -- so an installation seeded
+before the Gantry and the Silo existed held exactly one arena, for good. The
+picker had one entry and hid itself, the between-match rotation was a permanent
+no-op, and every match was played on the Foundry. The map had never been "always
+the same" as a matter of taste; there had only ever been one.
+
+Newly shipped arenas are now merged in on load, and the document remembers which
+ids it has been *offered* rather than which it holds. That is what keeps both
+promises: a map you have never seen arrives, a map you deleted stays deleted,
+and a map you edited stays yours. A store written before that flag existed is
+read as having been offered exactly what it holds, which is the migration --
+no version stamp, just an honest reading of an older file.
+
 ### The lobby says what matters, in that order
 
 The lobby's headline is the room's own name -- the one thing that

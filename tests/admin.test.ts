@@ -6,17 +6,23 @@
  * validated, nothing that would leave the server unable to run a match is
  * accepted, and a reset means exactly "stop overriding this".
  *
- * Run against in-memory repositories, because what is being tested is the rules,
- * not the filesystem.
+ * Mostly run against in-memory repositories, because what is being tested is the
+ * rules rather than the filesystem -- with one suite at the end that is about
+ * the file, and what happens to it when the build ships an arena it has never
+ * heard of.
  */
 process.env.VERBOSE_LOGGING = "false";
 
 import assert from "node:assert/strict";
+import os from "node:os";
+import { rm, writeFile } from "node:fs/promises";
 import { beforeEach, describe, it } from "node:test";
-import { DEFAULT_GAME_CONFIG, getArena, listArenas } from "@deathmatch/shared";
+import { BUILT_IN_ARENAS, DEFAULT_GAME_CONFIG, getArena, listArenas } from "@deathmatch/shared";
 
 const { ArenaService } = await import("../server/src/admin/ArenaService.js");
-const { InMemoryArenaRepository } = await import("../server/src/admin/ArenaRepository.js");
+const { InMemoryArenaRepository, FileArenaRepository } = await import(
+  "../server/src/admin/ArenaRepository.js"
+);
 const { GameConfigService } = await import("../server/src/admin/GameConfigService.js");
 const { InMemoryGameConfigRepository } = await import("../server/src/admin/GameConfigRepository.js");
 const { createLogger } = await import("../server/src/utils/logger.js");
@@ -283,5 +289,67 @@ describe("game configuration management", () => {
     await reloaded.initialise();
 
     assert.equal(reloaded.getConfig().player.gravity, 2400);
+  });
+});
+
+describe("an installation that predates a shipped arena", () => {
+  /** A store directory of our own, thrown away with the test. */
+  function directory(): string {
+    return `${os.tmpdir()}/deathmatch-arenas-${process.pid}-${Math.random().toString(36).slice(2)}`;
+  }
+
+  it("gains maps added after it was first seeded", async () => {
+    /*
+     * The bug this pins was invisible and total: the file was seeded once, on
+     * first run, and never again -- so an installation created before the
+     * Gantry and the Silo existed kept exactly one map for good. The picker had
+     * nothing to offer, the between-match rotation was a permanent no-op, and
+     * every match was played on the Foundry.
+     */
+    const where = directory();
+    const older = new FileArenaRepository(where);
+    // Seed it, then throw everything but the first arena away, as an older
+    // build's file would have looked.
+    const seeded = await older.list();
+    for (const arena of seeded.slice(1)) await older.delete(arena.id);
+    await writeFile(`${where}/arenas.json`, JSON.stringify({ arenas: [seeded[0]] }), "utf8");
+
+    const upgraded = new FileArenaRepository(where);
+    const ids = (await upgraded.list()).map((arena) => arena.id).sort();
+
+    assert.deepEqual(
+      ids,
+      BUILT_IN_ARENAS.map((arena) => arena.id).sort(),
+      "every shipped arena should reach an installation that has never seen it",
+    );
+
+    await rm(where, { recursive: true, force: true });
+  });
+
+  it("does not resurrect an arena the operator deleted", async () => {
+    // The other half of the promise: new maps arrive, but a deletion sticks.
+    const where = directory();
+    const repository = new FileArenaRepository(where);
+    const [, second] = await repository.list();
+    await repository.delete(second!.id);
+
+    const reopened = new FileArenaRepository(where);
+    const ids = (await reopened.list()).map((arena) => arena.id);
+
+    assert.ok(!ids.includes(second!.id), `${second!.id} came back from the dead`);
+    await rm(where, { recursive: true, force: true });
+  });
+
+  it("never overwrites an arena the operator has edited", async () => {
+    const where = directory();
+    const repository = new FileArenaRepository(where);
+    const [first] = await repository.list();
+    await repository.save({ ...first!, name: "House Rules" });
+
+    const reopened = new FileArenaRepository(where);
+    const stored = await reopened.get(first!.id);
+
+    assert.equal(stored?.name, "House Rules", "an edit is the operator's, not the build's");
+    await rm(where, { recursive: true, force: true });
   });
 });

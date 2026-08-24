@@ -63,10 +63,20 @@ export class InMemoryArenaRepository implements ArenaRepository {
  * On first run the file does not exist and the built-in arenas are written into
  * it. From that moment they are ordinary rows -- an administrator can rename,
  * edit or delete them, and nothing puts them back.
+ *
+ * The one exception is an arena the operator has never been offered. This file
+ * used to be seeded once and never again, so an installation created before the
+ * Gantry and the Silo existed kept exactly one map for good: the map picker had
+ * nothing to pick, the between-match rotation was a permanent no-op, and every
+ * match was played on the Foundry. Newly shipped arenas are now merged in on
+ * load, and `seeded` remembers which ones have been offered -- so a deletion is
+ * still a deletion, and an edit is still yours.
  */
 export class FileArenaRepository implements ArenaRepository {
-  private readonly store: JsonStore<{ arenas: unknown[] }>;
+  private readonly store: JsonStore<{ arenas: unknown[]; seeded?: string[] }>;
   private cache: Map<string, ArenaDefinition> | null = null;
+  /** Built-in ids this installation has already been given, deleted or not. */
+  private seeded = new Set<string>();
 
   constructor(directory: string) {
     this.store = new JsonStore(directory, "arenas.json");
@@ -108,6 +118,7 @@ export class FileArenaRepository implements ArenaRepository {
     const document = await this.store.read();
     if (!document) {
       // First run: seed from the build, then treat them as data like any other.
+      this.seeded = new Set(BUILT_IN_ARENAS.map((arena) => arena.id));
       this.cache = new Map(BUILT_IN_ARENAS.map((arena) => [arena.id, structuredClone(arena)]));
       await this.flush(this.cache);
       return this.cache;
@@ -117,11 +128,30 @@ export class FileArenaRepository implements ArenaRepository {
     // build, becomes a well-formed arena instead of a crash somewhere later.
     const arenas = (document.arenas ?? []).map((raw) => normaliseArena(raw));
     this.cache = new Map(arenas.map((arena) => [arena.id, arena]));
+
+    /*
+     * A store written before `seeded` existed has been offered exactly what it
+     * holds -- anything else in the build is new to it. That is the migration:
+     * no flag to set, just an honest reading of an older document.
+     */
+    this.seeded = new Set(document.seeded ?? this.cache.keys());
+
+    const arrivals = BUILT_IN_ARENAS.filter((arena) => !this.seeded.has(arena.id));
+    if (arrivals.length === 0) return this.cache;
+
+    for (const arena of arrivals) {
+      this.seeded.add(arena.id);
+      // Never over an operator's own row of the same id: theirs wins.
+      if (!this.cache.has(arena.id)) this.cache.set(arena.id, structuredClone(arena));
+    }
+
+    await this.flush(this.cache);
     return this.cache;
   }
 
   private async flush(arenas: Map<string, ArenaDefinition>): Promise<void> {
     this.cache = arenas;
-    await this.store.write({ arenas: Array.from(arenas.values()) });
+    for (const id of arenas.keys()) this.seeded.add(id);
+    await this.store.write({ arenas: Array.from(arenas.values()), seeded: [...this.seeded] });
   }
 }
