@@ -14,6 +14,7 @@ import { PLAYER, PLAYER_HALF_WIDTH, listWeapons } from "@deathmatch/shared";
 
 const { SOUNDS, SoundChannel, SoundId, getSound } = await import("../client/src/audio/sounds.js");
 const { BURSTS, SHAKES, DEFAULT_EFFECTS_SETTINGS } = await import("../client/src/game/fx/effects.js");
+const { SoundThrottle } = await import("../client/src/audio/SoundThrottle.js");
 
 describe("sound catalogue", () => {
   const channels = new Set<string>(Object.values(SoundChannel));
@@ -77,6 +78,53 @@ describe("sound catalogue", () => {
     for (const id of [SoundId.BulletImpact, SoundId.FleshImpact, SoundId.CrateHit]) {
       const sound = getSound(id)!;
       assert.ok((sound.throttleMs ?? 0) > 0, `${id} should be throttled`);
+    }
+  });
+});
+
+describe("rate-limiting a sound", () => {
+  it("counts your own hits and other people's separately", () => {
+    /*
+     * Every hit in the arena reaches every client now. With one window per
+     * sound, a faint exchange between two bots across the map could land a few
+     * milliseconds before the shot you just fired and silence it -- first come
+     * wins, however little it mattered.
+     */
+    const throttle = new SoundThrottle();
+
+    assert.equal(throttle.allows("flesh-impact", 45, 1.0, "other"), true);
+    assert.equal(
+      throttle.allows("flesh-impact", 45, 1.01),
+      true,
+      "somebody else's hit must not swallow your own",
+    );
+    assert.equal(
+      throttle.allows("flesh-impact", 45, 1.02),
+      false,
+      "your own hits are still rate-limited against each other",
+    );
+    assert.equal(
+      throttle.allows("flesh-impact", 45, 1.02, "other"),
+      false,
+      "and so are theirs",
+    );
+  });
+
+  it("lets a sound through once its window has passed", () => {
+    const throttle = new SoundThrottle();
+
+    assert.equal(throttle.allows("bullet-impact", 45, 5), true);
+    assert.equal(throttle.allows("bullet-impact", 45, 5.04), false);
+    // A blocked play does not restart the window, so this is measured from the
+    // one that was actually heard.
+    assert.equal(throttle.allows("bullet-impact", 45, 5.06), true);
+  });
+
+  it("never limits a sound that asked for no limit", () => {
+    const throttle = new SoundThrottle();
+
+    for (let i = 0; i < 5; i++) {
+      assert.equal(throttle.allows("death", undefined, 2, "other"), true);
     }
   });
 });

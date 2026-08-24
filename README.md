@@ -1732,6 +1732,38 @@ The client draws all three cases in different voices (`DamageVoice` in
 is amber, a hit you took is red, and somebody else's exchange is paler, smaller
 and dimmer -- there to be read if you look, not to compete with your own fight.
 
+### A hit you did not land still makes a noise
+
+The impact sound for somebody else's hit was already written; nobody had ever
+heard it, because until damage was broadcast the event never arrived. Now that
+it does, two things keep the arena readable rather than merely loud: an exchange
+you are not part of plays at a little over half volume on top of the distance
+falloff that already silences anything far enough away, and it is rate-limited
+in its own bucket (`SoundThrottle`).
+
+The bucket matters more than it sounds. Rate limits exist so a shotgun's nine
+pellets land as one impact, and they were keyed by sound alone -- so once every
+hit in the arena reached every client, a faint exchange between two bots across
+the map could arrive a few milliseconds before the shot you just landed and
+silence it. First come wins, however little it mattered. Your hits and theirs
+are counted separately now.
+
+### Nobody is eliminated in the lobby
+
+"You were eliminated -- spectating nobody" kept appearing over the lobby. The
+elimination path was careful about this and checked that a match was actually
+running; the banner's other entry point, the one the scene calls when the
+spectate target changes, checked only that the local player was not alive. In
+the lobby nobody is alive, and removing a player makes the scene pick a new
+target -- so kicking a bot re-announced an elimination that had happened in the
+previous match, or never.
+
+Both entry points ask `isSpectating` now, which lives on its own precisely
+because it is the kind of two-clause rule that gets re-derived slightly
+differently in each place that needs it. With nobody left to watch, the banner
+also drops the "spectating -- placed" line and the key hint rather than
+naming nobody as the person you are following.
+
 ### Health is two bytes on the wire
 
 `player.maxHealth` may be set as high as 1000 in the admin, and `health` on the
@@ -1940,7 +1972,8 @@ npm test
 - **`tests/presentation.test.ts`** — the sound and effect catalogues: every id has a
   definition, every sound routes to a real channel and renders (no sub-audible tones,
   no zero-length layers), burst-prone sounds are throttled, and no camera shake is
-  set hard enough to be unplayable.
+  set hard enough to be unplayable. Also that a rate limit counts your own hits
+  separately from other people's, so a distant exchange cannot silence yours.
 - **`tests/protocol.test.ts`** — input codec round-trips, malformed payload rejection,
   name validation, rate limiting.
 - **`tests/match.test.ts`** — end-to-end against a real Colyseus server over a real

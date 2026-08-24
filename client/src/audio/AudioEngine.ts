@@ -1,4 +1,5 @@
 import { SoundChannel, getSound, type SoundChannelValue, type SoundDefinition } from "./sounds.js";
+import { SoundThrottle } from "./SoundThrottle.js";
 
 /** Volumes and toggles a player controls, persisted between sessions. */
 export interface AudioSettings {
@@ -63,7 +64,7 @@ export class AudioEngine {
   private listenerY = 0;
 
   /** Last time each sound played, for per-sound throttling. */
-  private readonly lastPlayedAt = new Map<string, number>();
+  private readonly throttle = new SoundThrottle();
 
   private unavailable = false;
 
@@ -160,8 +161,8 @@ export class AudioEngine {
   // -------------------------------------------------------------------------
 
   /** Play a sound with no position — menus, countdowns, your own feedback. */
-  play(soundId: string, volumeScale = 1): void {
-    this.emit(soundId, volumeScale, 0);
+  play(soundId: string, volumeScale = 1, bucket?: string): void {
+    this.emit(soundId, volumeScale, 0, bucket);
   }
 
   /**
@@ -171,7 +172,7 @@ export class AudioEngine {
    * it happened on, which is most of what makes a firefight readable when you
    * cannot see the shooter.
    */
-  playAt(soundId: string, x: number, y: number, volumeScale = 1): void {
+  playAt(soundId: string, x: number, y: number, volumeScale = 1, bucket?: string): void {
     const dx = x - this.listenerX;
     const distance = Math.hypot(dx, y - this.listenerY);
 
@@ -182,10 +183,10 @@ export class AudioEngine {
     const attenuation = distance <= fullVolumeDistance ? 1 : 1 - (distance - fullVolumeDistance) / span;
 
     const pan = clamp(dx / silenceDistance, -1, 1) * maxPan;
-    this.emit(soundId, volumeScale * attenuation * attenuation, pan);
+    this.emit(soundId, volumeScale * attenuation * attenuation, pan, bucket);
   }
 
-  private emit(soundId: string, volumeScale: number, pan: number): void {
+  private emit(soundId: string, volumeScale: number, pan: number, bucket?: string): void {
     if (this.unavailable || this.settings.muted) return;
     if (volumeScale <= 0.001) return;
 
@@ -197,24 +198,13 @@ export class AudioEngine {
     if (!context || !channel || context.state !== "running") return;
 
     const now = context.currentTime;
-    if (!this.passesThrottle(definition, now)) return;
+    if (!this.throttle.allows(definition.id, definition.throttleMs, now, bucket)) return;
 
     try {
       this.render(definition, context, channel, now, volumeScale, pan);
     } catch {
       // A sound that fails to build is never worth interrupting the game for.
     }
-  }
-
-  /** Rate-limit a sound, so a shotgun's pellets do not stack into a clack. */
-  private passesThrottle(definition: SoundDefinition, now: number): boolean {
-    if (!definition.throttleMs) return true;
-
-    const last = this.lastPlayedAt.get(definition.id) ?? -Infinity;
-    if ((now - last) * 1000 < definition.throttleMs) return false;
-
-    this.lastPlayedAt.set(definition.id, now);
-    return true;
   }
 
   private render(

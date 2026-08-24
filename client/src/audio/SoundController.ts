@@ -24,6 +24,9 @@ import { SoundId } from "./sounds.js";
 const RANGED_SHOT_BY_PELLETS = (pellets: number): string =>
   pellets > 1 ? SoundId.ShotgunShot : SoundId.RifleShot;
 
+/** How loud a hit between two other players is, against one of your own. */
+const OTHER_HIT_VOLUME = 0.55;
+
 /** Which pickup sound a power-up type gets. */
 const PICKUP_SOUND: Record<string, string> = {
   [PowerUpType.WEAPON]: SoundId.PickupWeapon,
@@ -146,8 +149,27 @@ export class SoundController {
     const local = this.network.sessionId;
 
     // Being hit is about you, so it plays unpositioned and at full volume.
-    if (payload.victimId === local) this.audio.play(SoundId.Hurt);
-    else this.audio.playAt(SoundId.FleshImpact, payload.x, payload.y);
+    if (payload.victimId === local) {
+      this.audio.play(SoundId.Hurt);
+      return;
+    }
+
+    /*
+     * Every hit in the arena is announced now, not only the ones you are part
+     * of. Somebody else's exchange is played quieter -- the same idea as the
+     * paler damage numbers -- on top of the distance falloff that already
+     * silences anything far enough away, and counted in its own throttle
+     * bucket, so a faint hit between two players across the map cannot arrive
+     * a few milliseconds early and swallow the shot you just landed.
+     */
+    const mine = payload.attackerId === local;
+    this.audio.playAt(
+      SoundId.FleshImpact,
+      payload.x,
+      payload.y,
+      mine ? 1 : OTHER_HIT_VOLUME,
+      mine ? undefined : "other",
+    );
   }
 
   private onKill(payload: KillPayload): void {

@@ -68,6 +68,8 @@ export class UIManager {
   private readonly resultsBody = requireElement<HTMLTableSectionElement>("results-body");
   private readonly resultsNext = requireElement("results-next");
 
+  private readonly spectateSubtitle = requireElement("spectate-subtitle");
+  private readonly spectateHint = requireElement("spectate-hint");
   private readonly spectateTarget = requireElement("spectate-target");
   private readonly spectatePlacement = requireElement("spectate-placement");
 
@@ -403,7 +405,15 @@ export class UIManager {
     toggleClass(this.spectatorLayer, "is-active", active);
     if (!active) return;
 
-    setText(this.spectateTarget, targetName || "nobody");
+    // With nobody left to watch there is nothing to say about who, and the
+    // key hint would be offering a choice between no players. The elimination
+    // itself still stands on its own.
+    const watching = targetName !== "";
+    toggleClass(this.spectateSubtitle, "is-hidden", !watching);
+    toggleClass(this.spectateHint, "is-hidden", !watching);
+    if (!watching) return;
+
+    setText(this.spectateTarget, targetName);
     setText(this.spectatePlacement, placement > 0 ? `#${placement}` : "-");
   }
 
