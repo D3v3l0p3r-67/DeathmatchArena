@@ -31,6 +31,7 @@ import {
   type PingPayload,
   type PongPayload,
   type AddBotRequest,
+  type SelectArenaRequest,
   type RemoveBotRequest,
   type WelcomePayload,
 } from "@deathmatch/shared";
@@ -235,6 +236,7 @@ export class BattleRoom extends Room<{ state: GameState }> {
       roomId: this.roomId,
       arenaId: this.arena.id,
       arena: this.arena,
+      arenas: listPlayableArenas().map((arena) => ({ id: arena.id, name: arena.name })),
       config: this.configView.config,
       serverTime: now,
       name,
@@ -524,6 +526,28 @@ export class BattleRoom extends Room<{ state: GameState }> {
      * Host only, between matches only, and only while there is a place free.
      * The difficulty is clamped to a rung the ladder actually has.
      */
+    /**
+     * "Play this map."
+     *
+     * Host only, in the lobby only, and only a map the server itself lists as
+     * playable -- the id in the payload is a claim like any other. Switching
+     * re-uses the same path as the between-match rotation, so the world, the
+     * traps and the bots' navigation all follow.
+     */
+    this.onMessage(ClientMessage.SELECT_ARENA, (client, payload: Partial<SelectArenaRequest>) => {
+      if (!this.allowLobbyAction(client.sessionId)) return;
+      if (!this.isHost(client.sessionId)) return;
+      if (this.state.matchState !== MatchState.WAITING) return;
+
+      const wanted = String(payload?.arenaId ?? "");
+      if (wanted === this.arena.id) return;
+
+      const arena = listPlayableArenas().find((candidate) => candidate.id === wanted);
+      if (!arena) return;
+
+      this.switchArena(arena);
+    });
+
     this.onMessage(ClientMessage.ADD_BOT, (client, payload: Partial<AddBotRequest>) => {
       if (!this.allowLobbyAction(client.sessionId)) return;
       this.npcSystem.addBot(client.sessionId, Number(payload?.difficulty));

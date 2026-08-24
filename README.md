@@ -693,6 +693,23 @@ Bots are only added and removed between matches: dropping one into a running
 match would give it a free spawn among people who have been fighting, and the
 same goes for difficulty — a match is played at the level it started at.
 
+### The lobby says what matters, in that order
+
+The lobby's headline is the room's own name -- the one thing that
+distinguishes this lobby from any other -- with "waiting for players" beneath
+it and the seat count beneath that. The hint line ("start whenever you like")
+is gone: the enabled Start button already says exactly that.
+
+Below the count sits the map row. Everyone sees which arena the coming match
+is on; the host sees a Change button that opens a picker listing what the
+server says is playable -- from the server, not the client's bundle, because
+an administrator can add arenas after the client was built. Choosing one is a
+request like every other lobby action: the server checks that the asker is the
+host, that the room is still waiting, and that the id names a playable arena,
+then switches through the same path the between-match rotation uses, so the
+world, the traps and the bots' navigation all follow. A test drives all four
+refusals and the happy path against a live server.
+
 ### Difficulty is skill, not a second personality
 
 **A brain profile says what a bot wants. A difficulty level says how well it

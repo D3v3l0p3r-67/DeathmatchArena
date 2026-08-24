@@ -200,6 +200,9 @@ export class App {
         this.network.addBot(difficulty);
       },
       onRemoveBot: (sessionId) => this.network.removeBot(sessionId),
+      // Asking only, like every lobby action: the server checks that this
+      // session is the host and that the map is one it lists as playable.
+      onSelectArena: (arenaId) => this.network.selectArena(arenaId),
       onPlayAgain: () => this.handlePlayAgain(),
       onBackToMenu: () => void this.returnToMenu(),
     });
@@ -388,6 +391,7 @@ export class App {
 
     events.on("connected", (welcome) => {
       this.ui.setName(welcome.name);
+      this.ui.setArenaChoices(welcome.arenas ?? []);
     });
 
     events.on("matchStateChanged", ({ matchState }) => this.onMatchStateChanged(matchState));
