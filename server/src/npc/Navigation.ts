@@ -306,8 +306,12 @@ export class NavGraph {
       for (let i = 0; i <= steps; i++) {
         const x = from + ((to - from) * i) / steps;
         // Standing room only: a "surface" with something solid directly above it
-        // is a crawlspace, not a place to be.
-        if (world.isBoxBlocked(x, top, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT)) continue;
+        // is a crawlspace, not a place to be. Probed a couple of pixels short
+        // of a full body, because the node sits one px above the surface and a
+        // full-height box then vetoed gaps a body genuinely fits -- the Silo's
+        // ladder had a rung under a 70px ceiling with no node on it, which cut
+        // the whole top of the tower out of every route.
+        if (world.isBoxBlocked(x, top, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT - 3)) continue;
 
         this.nodes.push({
           index: this.nodes.length,
@@ -394,7 +398,7 @@ export class NavGraph {
            */
           const arc = maxReach * Math.sqrt(Math.max(0, 1 - rise / Math.max(1, maxRise)));
           const flyable = dx <= LONG_JUMP || dx <= arc;
-          if (rise <= maxRise && dx <= maxReach && flyable) {
+          if (rise <= maxRise && dx <= maxReach && flyable && this.canLaunchTowards(a, b)) {
             /*
              * Deliberately not priced by how demanding the jump is. Charging
              * for reach and height was tried, on the theory that a bot should
@@ -464,6 +468,35 @@ export class NavGraph {
       if (this.world.isBoxBlocked(x, y, PLAYER_HALF_WIDTH * 0.8, PLAYER_HALF_HEIGHT * 0.8)) {
         return true;
       }
+    }
+
+    return false;
+  }
+
+  /**
+   * Is there anywhere near this node to jump for that ledge *from*?
+   *
+   * A climb link needs a launch spot with open air above it up to the landing
+   * height. The Foundry has a spot where three platforms stack like shelves:
+   * the middle one was linked straight to the shelf above, but every inch of
+   * it sits under one shelf or the other -- so a bot taking that link jumped
+   * into an underside, spent both presses against it, and repeated that for
+   * the rest of the match. The controller backs along the surface looking for
+   * open sky; this asks, at link-building time, whether there is any to find.
+   */
+  private canLaunchTowards(a: NavNode, b: NavNode): boolean {
+    const top = b.y - 4;
+
+    for (const offset of [0, -60, 60, -110, 110]) {
+      const x = a.x + offset;
+      let clear = true;
+      for (let y = a.y - PLAYER_HALF_HEIGHT - 12; y > top; y -= 24) {
+        if (this.world.isBoxBlocked(x, y, PLAYER_HALF_WIDTH * 0.8, 10)) {
+          clear = false;
+          break;
+        }
+      }
+      if (clear) return true;
     }
 
     return false;

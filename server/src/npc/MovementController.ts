@@ -25,10 +25,12 @@ const STUCK_AFTER_MS = 700;
 const CLIMB_RISE = 24;
 /** Closer than this to a ledge directly overhead and a jump only bumps your head. */
 const UNDER_LEDGE = 34;
-/** How much room to take before charging at it, in px. */
-const RUN_UP_DISTANCE = 120;
 /** How far ahead on the path a coming climb starts the jump, in px. */
 const CLIMB_ANTICIPATION = 300;
+/** How long backing off for a run-up still counts as progress, in ms. */
+const RUN_UP_PATIENCE_MS = 1200;
+/** A waypoint not consumed in this long is not going to be, in ms. */
+const WAYPOINT_DEADLINE_MS = 4000;
 /** Give up on a goal that has made no progress for this long, in ms. */
 const ABANDON_AFTER_MS = 2600;
 /** How far above a ledge to aim, so a landing is a landing and not a scrape. */
@@ -113,8 +115,12 @@ export class MovementController {
   private hasGoal = false;
 
   private lastProgressAt = 0;
-  /** The closest this bot has been to its goal since it took it on. */
+  /** The closest this bot has been to its current waypoint. */
   private bestDistance = Infinity;
+  /** Which waypoint `bestDistance` is about. */
+  private progressIndex = -1;
+  /** When the current waypoint became current. */
+  private waypointSince = 0;
   private stuck = false;
   /**
    * Goals given up on, kept briefly so they are not immediately retried.
@@ -129,6 +135,10 @@ export class MovementController {
   private lastWallRepathAt = 0;
   /** True while backing away from a ledge to get a run-up at it. */
   private runningUp = false;
+  /** True while walking out of a trap, for hysteresis at its edge. */
+  private escaping = false;
+  /** When the current backing-off began; a run-up is quick or it is stuck. */
+  private runningUpSince = 0;
   /** 0..1, from this bot's difficulty. See `setNavigationSkill`. */
   private navigationSkill = 1;
 
@@ -324,6 +334,7 @@ export class MovementController {
     this.path = [];
     this.pathIndex = 0;
     this.bestDistance = Infinity;
+    this.progressIndex = -1;
   }
 
   /**
@@ -399,7 +410,8 @@ export class MovementController {
     // whatever it was stuck on.
     if (moved) {
       this.lastProgressAt = now;
-      this.bestDistance = Math.hypot(x - self.x, y - self.y);
+      this.bestDistance = Infinity;
+      this.progressIndex = -1;
     }
 
     if (moved || this.path.length === 0 || this.stuck) {
@@ -492,7 +504,23 @@ export class MovementController {
      * of it.
      */
     const climbAhead = this.upcomingClimb(self);
-    if (climbAhead && self.y - waypoint.y <= CLIMB_RISE) {
+    // From the ground, or mid-flight only if this flight was launched *for*
+    // that climb. Re-targeting somebody else's flight steered a bot away from
+    // the landing it was one drift short of making.
+    const flyingForIt =
+      climbAhead !== null &&
+      this.jumpPhase !== "idle" &&
+      Math.abs(this.jumpTargetY - (climbAhead.node.y - JUMP_CLEARANCE)) < 1;
+    // And only with open sky here: anticipation is for clean early takeoffs.
+    // With a ceiling overhead the planned approach -- walk to the base node
+    // first -- is the route, and hijacking it turns into a run-up on the wrong
+    // side of whatever is blocking.
+    const grounded =
+      self.onGround &&
+      this.jumpPhase === "idle" &&
+      climbAhead !== null &&
+      !this.ascentBlocked(self, climbAhead.node.y);
+    if (climbAhead && (grounded || flyingForIt) && self.y - waypoint.y <= CLIMB_RISE) {
       waypoint = { x: climbAhead.node.x, y: climbAhead.node.y, kind: "jump" };
       // Standing on it is what consuming it means; the nodes under it on the
       // way stopped mattering the moment we left the ground.
@@ -515,8 +543,26 @@ export class MovementController {
     // the threshold, immediately approaches again, and oscillates on the spot
     // for the rest of the match instead of ever jumping.
     if (rise > CLIMB_RISE && self.onGround) {
-      if (Math.abs(dx) < UNDER_LEDGE) this.runningUp = true;
-      else if (Math.abs(dx) > RUN_UP_DISTANCE) this.runningUp = false;
+      /*
+       * Back off while the ascent is blocked, not just while directly under
+       * the ledge. The old rule measured only horizontal closeness, so a bot
+       * whose destination platform reached out *over* its run-up jumped from
+       * beneath it, hit the underside, spent the mid-air jump against the
+       * ceiling and fell -- forever. The launch column has to be open all the
+       * way to the height being jumped to, and until it is, the only useful
+       * move is further back.
+       */
+      const blockedAbove = this.jumpPhase === "idle" && this.ascentBlocked(self, waypoint.y);
+      if (blockedAbove || Math.abs(dx) < UNDER_LEDGE) {
+        if (!this.runningUp) this.runningUpSince = now;
+        this.runningUp = true;
+      } else if (this.runningUp && Math.abs(dx) > UNDER_LEDGE + 6) {
+        // Far enough. This used to insist on a full RUN_UP_DISTANCE, which a
+        // launch window between a spike strip and the platform's edge cannot
+        // offer -- and a jump is flown by held height, not by speed, so a
+        // near-vertical takeoff from a short window works fine.
+        this.runningUp = false;
+      }
     } else {
       this.runningUp = false;
     }
@@ -524,6 +570,10 @@ export class MovementController {
     if (this.runningUp) {
       if (dx >= 0) this.moveLeft();
       else this.moveRight();
+      // Backing into a wall means this surface has no launch spot in that
+      // direction. Let the stall clock see it, so the route gets rethought
+      // instead of the bot leaning on the wall for the rest of the match.
+      if (this.blockedAhead(self)) this.stuck = true;
       this.trackProgress(self, now);
       return;
     }
@@ -551,7 +601,22 @@ export class MovementController {
    */
   private escapeHazard(self: SelfContext, hazards: readonly PerceivedTrap[]): boolean {
     const standing = this.hazardUnderfoot(self, hazards);
-    if (!standing) return false;
+    if (!standing) {
+      /*
+       * Just finished escaping: do not walk straight back in. The trap re-arms
+       * the moment contact ends, so a bot oscillating across the strip's edge
+       * -- shoved out by this method, marched back by a route that crosses the
+       * strip -- paid the entry damage on every wobble. Once out, the old plan
+       * is presumed wrong about this crossing: replan from this side, and let
+       * the crossing's cost push the route over the top.
+       */
+      if (this.escaping) {
+        this.escaping = false;
+        this.stuck = true;
+      }
+      return false;
+    }
+    this.escaping = true;
 
     const clearance = PLAYER_HALF_WIDTH + 6;
     const left = { direction: -1, distance: self.x - standing.x + clearance };
@@ -607,6 +672,10 @@ export class MovementController {
       if (Math.abs(node.x - self.x) > CLIMB_ANTICIPATION) break;
 
       const rise = self.y - node.y;
+      // A climb no single flight reaches is a chain of them, and flying for
+      // its top from here just parks the bot in an endless run-up. Only take
+      // over for the step a jump can actually make.
+      if (rise > this.graph.maxClimb) break;
       if (rise > CLIMB_RISE) return { node, index: ahead };
       // Anything below us on the way breaks the run-up: that is a drop.
       if (rise < -CLIMB_RISE) break;
@@ -676,7 +745,9 @@ export class MovementController {
     self: SelfContext,
     hazards: readonly PerceivedTrap[],
   ): PerceivedTrap | null {
-    const margin = 6;
+    // Wider while already escaping, so the escape ends a stride clear of the
+    // edge rather than exactly on it.
+    const margin = this.escaping ? 40 : 6;
 
     for (const hazard of hazards) {
       if (!hazard.hot || !hazard.harmful) continue;
@@ -865,9 +936,15 @@ export class MovementController {
     }
 
     if (rise > CLIMB_RISE && Math.abs(dx) < 420) {
-      // Aim at the ledge itself, with a little clearance. How high that turns
-      // out to be -- a hop, a full jump, or a jump and the mid-air one -- is
-      // decided while flying it rather than guessed from a threshold here.
+      // A ledge no jump reaches is a routing problem, not a jumping problem: a
+      // bot that has fallen off its route can find itself aiming two storeys
+      // up, and hopping at that spends the match. Let the stall clock hand it
+      // back to the planner.
+      if (rise > this.graph.maxClimb + 20) return;
+      // And never press with a ceiling in the way: a jump into the underside
+      // of the very platform being climbed spends both presses against it and
+      // lands where it started.
+      if (self.onGround && this.ascentBlocked(self, waypoint.y)) return;
       this.jumpTo(waypoint.y - JUMP_CLEARANCE);
       return;
     }
@@ -884,6 +961,17 @@ export class MovementController {
     }
 
     if (this.stuck && self.onGround) this.jumpTo(self.y - STUCK_HOP);
+  }
+
+  /** Is anything solid hanging over this spot, below the height of the climb? */
+  private ascentBlocked(self: SelfContext, targetY: number): boolean {
+    const top = targetY - JUMP_CLEARANCE;
+
+    for (let y = self.y - PLAYER_HALF_HEIGHT - 12; y > top; y -= 24) {
+      if (this.world.isBoxBlocked(self.x, y, PLAYER_HALF_WIDTH * 0.8, 10)) return true;
+    }
+
+    return false;
   }
 
   /** Something solid at knee height in the direction of travel. */
@@ -939,18 +1027,49 @@ export class MovementController {
 
   private trackProgress(self: SelfContext, now: number): void {
     /*
-     * Progress is getting closer to where you are going, not moving.
+     * Progress is getting closer to the next step of the journey -- not to the
+     * destination, and not merely moving.
      *
-     * This used to ask only whether the bot's x had changed by 12px, which a
-     * bot bouncing on the spot satisfies forever -- so the one behaviour most
-     * in need of being given up on was the one thing that never counted as
-     * stuck. A bot rebounding off a ledge it cannot reach, into the spikes
-     * underneath it, would do that until something killed it.
+     * Both wrong definitions were shipped. "Moving" is satisfied forever by a
+     * bot bouncing on the spot. "Closing on the destination" is worse in the
+     * opposite way: a real route often walks *away* from the goal for seconds
+     * at a time -- around a wall, up the far side of a spiral -- and judging it
+     * by straight-line distance abandoned four out of five journeys halfway.
+     * Bots wandered a small box around wherever they spawned and never met.
+     *
+     * So progress is measured against the current waypoint, and consuming a
+     * waypoint is progress by definition.
      */
-    const distance = Math.hypot(this.goalX - self.x, this.goalY - self.y);
+    let distance: number;
+    const node = this.graph.nodes[this.path[this.pathIndex] ?? -1];
+    if (node) {
+      if (this.pathIndex !== this.progressIndex) {
+        this.progressIndex = this.pathIndex;
+        this.bestDistance = Infinity;
+        this.waypointSince = now;
+      }
+      /*
+       * However the oscillation looks from moment to moment, a waypoint that
+       * has not been consumed in this long is not being reached. Closing on it
+       * and backing off both read as activity, and a bot that fell off its
+       * route could alternate the two under an unreachable waypoint forever.
+       */
+      if (now - this.waypointSince > WAYPOINT_DEADLINE_MS) {
+        this.stuck = true;
+        this.waypointSince = now;
+      }
+      distance = Math.hypot(node.x - self.x, node.y - self.y);
+    } else {
+      // No route: walking straight at the goal, so the goal is the yardstick.
+      distance = Math.hypot(this.goalX - self.x, this.goalY - self.y);
+    }
 
-    // Backing up for a run-up is deliberately moving away, and is quick.
-    if (this.runningUp || distance < this.bestDistance - 12) {
+    // Backing up for a run-up is deliberately moving away, and is quick -- so
+    // it counts as progress only briefly. Counting it forever let a bot whose
+    // climb had failed back away, charge, fail and back away again for the
+    // rest of the match without the stall clock ever seeing it.
+    const patientRunUp = this.runningUp && now - this.runningUpSince < RUN_UP_PATIENCE_MS;
+    if (patientRunUp || distance < this.bestDistance - 12) {
       this.bestDistance = Math.min(this.bestDistance, distance);
       this.lastProgressAt = now;
       this.stuck = false;
@@ -1008,5 +1127,6 @@ export class MovementController {
     this.clearGoal();
     this.stuck = false;
     this.runningUp = false;
+    this.escaping = false;
   }
 }

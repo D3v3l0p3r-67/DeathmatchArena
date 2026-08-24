@@ -68,6 +68,24 @@ describe("the shipped arenas", () => {
         );
       });
 
+      it("puts every prize somewhere somebody can get to", () => {
+        /*
+         * The Silo shipped with a crate spawn on the crown of its tower --
+         * and no way up. The gap in its ladder was 440px, past any jump, so
+         * the crate was scenery for bot and person alike. A prize nobody can
+         * reach is worse than no prize: bots path towards it and give up, and
+         * a person wastes a match trying.
+         */
+        const graph = new NavGraph(arena, new CollisionWorld(arena), getPlayerConfig());
+        const start = arena.playerSpawns.find((spawn) => spawn.enabled)!;
+        const from = graph.nearest(start.x, start.y);
+
+        for (const spot of arena.powerUpSpawns.filter((spawn) => spawn.enabled)) {
+          const path = graph.findPath(from, graph.nearest(spot.x, spot.y));
+          assert.ok(path.length > 0, `crate spawn ${spot.id} on ${arena.id} cannot be reached`);
+        }
+      });
+
       it("connects every spawn to every other", () => {
         // The failure this catches is a map that looks fine and plays as two
         // separate arenas, where half the players never meet anybody.

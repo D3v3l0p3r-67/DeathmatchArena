@@ -1000,6 +1000,48 @@ Bots now spend about a quarter of their time going for things, and what stops
 them getting more is the same weakness as everything else: crates spawn on high
 platforms, and climbing is the thing this movement controller does least well.
 
+### Bots that actually cross the arena
+
+A blunt probe -- put one bot and one idle victim in an arena, start the clock --
+returned the worst number of the project: **the bot never found the victim.
+Not once, in eighteen runs of two minutes each, in any arena.** Tracking its
+position showed why: bots roamed a small box around wherever they spawned. In
+the Silo the box was 200 by 375 pixels of a 2000-by-2400 arena.
+
+Four out of five wander journeys were being abandoned halfway, each for a
+mechanical reason, each found by tracing one journey tick by tick:
+
+- **"Progress" meant closing on the destination.** A real route walks *away*
+  from the goal for seconds at a time -- around a wall, up the far side of a
+  spiral -- and the stall detector read that as being stuck. Progress is now
+  measured against the next waypoint, and consuming one is progress by
+  definition.
+- **Jumps launched into the underside of their own destination.** The climb to
+  a ledge started at the ledge's base, under it. The run-up now continues until
+  the launch column is open all the way up, short launch windows are accepted
+  (a jump is flown by held height, not speed), and a waypoint not consumed in
+  four seconds hands the route back to the planner.
+- **The graph linked climbs with no launch spot.** Where platforms stack like
+  shelves, every inch of a lower shelf can sit under another one; a link is now
+  built only if somewhere near its start has open sky to the landing height.
+- **A trap's edge was a tollbooth.** Escaping a strip of spikes ended exactly
+  on its boundary, the route marched straight back in, and the trap re-arms on
+  exit -- so a bot oscillated across the edge paying 25 health per wobble.
+  Escapes now end a stride clear and force a replan from the safe side.
+
+After the fixes, two bots meet in a median of **3.8 seconds** (previously they
+could wander past each other for whole matches), and they cross arenas
+end-to-end. Two perception changes ride along: the sight range is 1500 (measured
+across sixty matches, the wider view turns a few percent of trap deaths into
+gunfights), and bots *hear* -- an enemy bullet in flight leaves a decaying lead
+at the bullet's position, never overwriting a fresh sighting, so a fight can be
+rejoined without wallhacks.
+
+The same probes found a genuine map defect: the Silo's crown had a crate spawn
+and no way up -- a 440px gap in its ladder, past any jump, for people as much as
+bots. The ladder got its missing rung, and a test now walks every arena's crate
+spawns from a player spawn.
+
 ### A jump pad is not a hazard
 
 Traps are one system: placed the same way, simulated the same way, drawn the
