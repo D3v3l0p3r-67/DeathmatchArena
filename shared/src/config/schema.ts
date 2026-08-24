@@ -562,6 +562,10 @@ function botDifficultyFields(level: BotDifficultyLevel): FieldDescriptor[] {
     number(`${prefix}.decisionNoiseMultiplier`, NPC, group, "Decision noise x", "Scales the profile's own jitter. Above 1 makes its choices less consistent.", { min: 0, max: 6, step: 0.05 }),
     number(`${prefix}.decisionIntervalMultiplier`, NPC, group, "Decision interval x", "Scales how often it re-decides. Above 1 thinks less often, i.e. reacts to a changing fight more slowly.", { min: 0.2, max: 6, step: 0.05 }),
 
+    number(`${prefix}.damageTakenMultiplier`, NPC, group, "Damage taken x", "How much of a weapon's damage a bot at this rung actually takes. Above 1 makes it softer. Chosen by the bot being hit, never by whoever shot it, and the weapon's own damage is untouched.", { min: 0, max: 10, step: 0.05 }),
+    number(`${prefix}.damageDealtMultiplier`, NPC, group, "Damage dealt x", "How much of a weapon's damage a bot at this rung lands on somebody else. Below 1 makes its shots weaker without weakening the weapon.", { min: 0, max: 10, step: 0.05 }),
+    number(`${prefix}.environmentalDamageTakenMultiplier`, NPC, group, "Environmental damage x", "The same, for damage with nobody behind it: traps and the closing walls. 1 by default, because those are the deaths a bot should avoid by playing better rather than by being tougher.", { min: 0, max: 10, step: 0.05 }),
+
     percentage(`${prefix}.grenadeAccuracy`, NPC, group, "Grenade accuracy", "How well it judges a throw. Below 100% it misjudges the angle and the charge."),
     percentage(`${prefix}.navigationSkill`, NPC, group, "Navigation skill", "How well it reads the arena: how far ahead it looks for hazards, how quickly it notices it is stuck."),
     percentage(`${prefix}.targetSelectionSkill`, NPC, group, "Target selection", "How reliably it switches to the enemy actually worth fighting, rather than staying on whoever it was already shooting at."),

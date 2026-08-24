@@ -1,5 +1,5 @@
 import { MatchState, PLAYER_HALF_WIDTH, type WorldBounds } from "@deathmatch/shared";
-import type { RoomContext } from "../rooms/RoomContext.js";
+import { DamageSource, type RoomContext } from "../rooms/RoomContext.js";
 import type { PlayerState } from "../rooms/schema/PlayerState.js";
 
 /**
@@ -136,8 +136,18 @@ export class ArenaShrinkSystem {
     if (whole <= 0) return;
 
     // Environmental damage: no attacker, so an elimination here is self-inflicted
-    // and the kill feed reads accordingly.
-    this.context.applyDamage(player.sessionId, "", whole, player.x, player.y, player.weaponId);
+    // and the kill feed reads accordingly. Said explicitly rather than left to be
+    // inferred, because the weapon id passed here is the victim's own -- there is
+    // nothing in it to tell a crush apart from a gunshot.
+    this.context.applyDamage(
+      player.sessionId,
+      "",
+      whole,
+      player.x,
+      player.y,
+      player.weaponId,
+      DamageSource.ENVIRONMENT,
+    );
   }
 
   /** Drop a player's carried damage when they leave. */

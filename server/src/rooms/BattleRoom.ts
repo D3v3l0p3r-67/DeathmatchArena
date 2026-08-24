@@ -640,8 +640,8 @@ export class BattleRoom extends Room<{ state: GameState }> {
         if (locked) void this.lock();
         else void this.unlock();
       },
-      applyDamage: (victimId, attackerId, amount, x, y, weaponId) =>
-        this.matchManager.applyDamage(victimId, attackerId, amount, x, y, weaponId),
+      applyDamage: (victimId, attackerId, amount, x, y, weaponId, source) =>
+        this.matchManager.applyDamage(victimId, attackerId, amount, x, y, weaponId, source),
       rotateArena: () => this.rotateArena(),
       recordCareers: (updates) => {
         // Bots and anyone who never offered an id are simply absent from this.

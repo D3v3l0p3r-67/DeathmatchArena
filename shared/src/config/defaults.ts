@@ -562,10 +562,14 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
      * The ladder.
      *
      * Level 5 is where the bots were before difficulty existed: every multiplier
-     * is 1, so it plays the profiles exactly as written. Everything below it is
-     * a *worse player*, never a weaker one -- no level touches health, damage or
-     * weapons, and even level 5 aims through the same imperfect-aim machinery as
-     * every other level, so it is a very good opponent rather than an aimbot.
+     * is 1, so it plays the profiles exactly as written, takes a weapon's full
+     * damage and deals it. Everything below it is a worse player *and* a softer
+     * one: it hesitates, its aim wanders, it takes more from every hit and lands
+     * less with its own. The weapon catalogue is untouched either way -- a rifle
+     * does what the rifle says, and the difference is applied to the bot.
+     *
+     * Even level 5 aims through the same imperfect-aim machinery as every other
+     * level, so it is a very good opponent rather than an aimbot.
      */
     difficulties: [
       {
@@ -579,6 +583,9 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
         dodgeSkillMultiplier: 0.3,
         decisionNoiseMultiplier: 2.5,
         decisionIntervalMultiplier: 2.4,
+        damageTakenMultiplier: 1.5,
+        damageDealtMultiplier: 0.6,
+        environmentalDamageTakenMultiplier: 1,
         grenadeAccuracy: 0.25,
         navigationSkill: 0.3,
         targetSelectionSkill: 0.25,
@@ -592,6 +599,9 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
         dodgeSkillMultiplier: 0.5,
         decisionNoiseMultiplier: 1.8,
         decisionIntervalMultiplier: 1.7,
+        damageTakenMultiplier: 1.3,
+        damageDealtMultiplier: 0.75,
+        environmentalDamageTakenMultiplier: 1,
         grenadeAccuracy: 0.45,
         navigationSkill: 0.5,
         targetSelectionSkill: 0.45,
@@ -605,6 +615,9 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
         dodgeSkillMultiplier: 0.7,
         decisionNoiseMultiplier: 1.35,
         decisionIntervalMultiplier: 1.3,
+        damageTakenMultiplier: 1.15,
+        damageDealtMultiplier: 0.9,
+        environmentalDamageTakenMultiplier: 1,
         grenadeAccuracy: 0.65,
         navigationSkill: 0.7,
         targetSelectionSkill: 0.7,
@@ -618,6 +631,9 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
         dodgeSkillMultiplier: 0.88,
         decisionNoiseMultiplier: 1.1,
         decisionIntervalMultiplier: 1.1,
+        damageTakenMultiplier: 1.05,
+        damageDealtMultiplier: 0.95,
+        environmentalDamageTakenMultiplier: 1,
         grenadeAccuracy: 0.85,
         navigationSkill: 0.88,
         targetSelectionSkill: 0.88,
@@ -631,6 +647,9 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
         dodgeSkillMultiplier: 1,
         decisionNoiseMultiplier: 1,
         decisionIntervalMultiplier: 1,
+        damageTakenMultiplier: 1.0,
+        damageDealtMultiplier: 1.0,
+        environmentalDamageTakenMultiplier: 1,
         grenadeAccuracy: 1,
         navigationSkill: 1,
         targetSelectionSkill: 1,

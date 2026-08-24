@@ -15,14 +15,20 @@ import {
   SHOTGUN_ID,
   ServerMessage,
   createInputCommand,
+  cloneConfig,
+  getBotDifficulty,
   getDamageAtDistance,
+  getGameConfig,
+  getDefaultWeaponId,
   getFireIntervalMs,
+  getNpcConfig,
   getPlayerConfig,
   getWeapon,
   stepPlayerMovement,
   type DamagePayload,
   type KillPayload,
 } from "@deathmatch/shared";
+import { DamageSource } from "../server/src/rooms/RoomContext.js";
 import { createHarness, fireAt, type Harness } from "./harness.js";
 import { MAX_HEALTH } from "./helpers.js";
 
@@ -183,6 +189,137 @@ describe("weapon validation", () => {
 
     assert.equal(harness.state.projectiles.size, 0, "the dead must not shoot");
     assert.equal(player.ammo, getWeapon(player.weaponId).magazineSize);
+  });
+});
+
+describe("difficulty and damage", () => {
+  let harness: Harness;
+
+  beforeEach(() => {
+    harness = createHarness();
+  });
+
+  /** A player who is a bot at this rung, standing where they are put. */
+  function bot(sessionId: string, x: number, level: number) {
+    const player = harness.addPlayer(sessionId, x, 1700);
+    player.bot = true;
+    player.botDifficulty = level;
+    return player;
+  }
+
+  const rung = (level: number) => getBotDifficulty(getNpcConfig(), level);
+  const rifle = () => getWeapon(getDefaultWeaponId());
+
+  it("hurts an easy bot more than the weapon says, without touching the weapon", () => {
+    const shooter = harness.addPlayer("human", 200, 1700);
+    const victim = bot("easy", 600, 1);
+
+    fireAt(harness, "human", 0, 0);
+    harness.step(30, 0);
+
+    const expected = Math.round(rifle().damage * rung(1).damageTakenMultiplier);
+    assert.equal(getPlayerConfig().maxHealth - victim.health, expected);
+    assert.ok(expected > rifle().damage, "an easy bot should take more than the weapon's damage");
+    assert.equal(getWeapon(shooter.weaponId).damage, rifle().damage, "the weapon itself is untouched");
+  });
+
+  it("lands less of a hit when the easy bot is the one shooting", () => {
+    const victim = harness.addPlayer("human", 600, 1700);
+    bot("easy", 200, 1);
+
+    fireAt(harness, "easy", 0, 0);
+    harness.step(30, 0);
+
+    const expected = Math.round(rifle().damage * rung(1).damageDealtMultiplier);
+    assert.equal(getPlayerConfig().maxHealth - victim.health, expected);
+    assert.ok(expected < rifle().damage, "an easy bot should land less than the weapon's damage");
+  });
+
+  it("reads each multiplier off the bot it belongs to, not off its target", () => {
+    // The easy bot's shot into a top-rung bot: 60% dealt into somebody who
+    // takes 100%. The same shot the other way is 100% into somebody on 150%.
+    const hard = bot("hard", 600, 5);
+    bot("easy", 200, 1);
+
+    fireAt(harness, "easy", 0, 0);
+    harness.step(30, 0);
+
+    const easyIntoHard = Math.round(
+      rifle().damage * rung(1).damageDealtMultiplier * rung(5).damageTakenMultiplier,
+    );
+    assert.equal(getPlayerConfig().maxHealth - hard.health, easyIntoHard);
+
+    const easy = harness.state.players.get("easy")!;
+    fireAt(harness, "hard", Math.PI, 200);
+    harness.step(30, 200);
+
+    const hardIntoEasy = Math.round(
+      rifle().damage * rung(5).damageDealtMultiplier * rung(1).damageTakenMultiplier,
+    );
+    assert.equal(getPlayerConfig().maxHealth - easy.health, hardIntoEasy);
+    assert.ok(hardIntoEasy > easyIntoHard, "the same rifle should hurt the easy bot more");
+  });
+
+  it("leaves a human alone in both directions", () => {
+    const victim = harness.addPlayer("target", 600, 1700);
+    harness.addPlayer("shooter", 200, 1700);
+
+    fireAt(harness, "shooter", 0, 0);
+    harness.step(30, 0);
+
+    assert.equal(getPlayerConfig().maxHealth - victim.health, rifle().damage);
+  });
+
+  it("leaves the arena's own damage at its own setting", () => {
+    /*
+     * Traps and the closing walls are what a bot is supposed to avoid by
+     * playing better, so softening them for an easy bot would hide the failure
+     * rather than fix it. Their multiplier is separate and 1 by default.
+     */
+    const victim = bot("easy", 600, 1);
+    const before = victim.health;
+
+    harness.matchManager.applyDamage("easy", "", 20, victim.x, victim.y, "trap:spikes", DamageSource.ENVIRONMENT);
+
+    assert.equal(before - victim.health, 20, "environmental damage is not scaled by the combat multiplier");
+  });
+
+  it("takes a change made mid-match on the next hit", () => {
+    /*
+     * The point of these being settings rather than constants: an admin
+     * retunes the ladder while people are playing on it. Read per hit rather
+     * than captured when the bot spawned, or a change would only reach the
+     * match after it.
+     */
+    const victim = bot("easy", 600, 1);
+    harness.addPlayer("human", 200, 1700);
+
+    fireAt(harness, "human", 0, 0);
+    harness.step(30, 0);
+    const before = Math.round(rifle().damage * rung(1).damageTakenMultiplier);
+    assert.equal(getPlayerConfig().maxHealth - victim.health, before);
+
+    const retuned = cloneConfig(getGameConfig());
+    retuned.npc.difficulties.find((entry) => entry.level === 1)!.damageTakenMultiplier = 3;
+    harness.replaceConfig(retuned);
+
+    const health = victim.health;
+    fireAt(harness, "human", 0, 200);
+    harness.step(30, 200);
+
+    assert.equal(health - victim.health, Math.round(rifle().damage * 3), "the new setting is in force");
+  });
+
+  it("counts a bot blowing itself up once", () => {
+    // One bot on both sides of the same hit: it takes what it took. Applying
+    // the dealt multiplier as well would square a mistake for no reason anybody
+    // could read off the settings.
+    const victim = bot("easy", 600, 1);
+    const before = victim.health;
+
+    harness.matchManager.applyDamage("easy", "easy", 20, victim.x, victim.y, "grenade");
+
+    assert.equal(before - victim.health, Math.round(20 * rung(1).damageTakenMultiplier));
   });
 });
 

@@ -590,6 +590,28 @@ export interface BotDifficultyLevel {
   /** Scales how often it re-decides. Above 1 thinks less often, i.e. worse. */
   decisionIntervalMultiplier: number;
 
+  /**
+   * How much of a weapon's damage this bot actually takes, and deals.
+   *
+   * Deliberately separate from the skill multipliers above, and from the weapon
+   * catalogue: an easier bot is a worse player *and* a softer one, but the
+   * weapon's own damage never changes -- a rifle does what the rifle does, and
+   * two systems that both wanted to own "how much does this hurt" would be
+   * impossible to reason about. The multiplier is chosen by the *bot*, never by
+   * whoever it is shooting at, so a bot's difficulty describes that bot alone.
+   */
+  damageTakenMultiplier: number;
+  damageDealtMultiplier: number;
+  /**
+   * The same, for damage the arena does: traps, the closing walls, anything
+   * with no attacker behind it.
+   *
+   * Its own setting, and 1 by default, because those are the deaths a bot is
+   * meant to avoid by playing better rather than by being tougher -- softening
+   * them would hide exactly the failure the AI work has been measuring.
+   */
+  environmentalDamageTakenMultiplier: number;
+
   /** How well it judges a grenade throw, 0..1. */
   grenadeAccuracy: number;
   /** How well it reads the arena: looking ahead, noticing it is stuck. 0..1. */

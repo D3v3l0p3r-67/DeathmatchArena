@@ -8,11 +8,19 @@
  * lets twelve personalities and five skill levels cover sixty kinds of opponent
  * without a single extra profile being written.
  *
- * Nothing here touches health, damage, weapons or what a bot is allowed to know.
- * A level-1 bot is not a weaker fighter, it is a worse player: slower to react,
- * wilder with its aim, poorer at reading movement, less consistent in what it
- * decides to do. And a level-5 bot still aims through the same imperfect-aim
- * machinery as every other level -- it is very good, never perfect.
+ * Skill is one half of it. The other is how hard a bot is to kill and how hard
+ * it hits: an easier bot takes more damage from every hit and lands less with
+ * its own (`scaleBotDamage`). Those two are kept apart from the skill
+ * multipliers on purpose -- one describes how well a bot plays, the other how
+ * much its mistakes cost -- and neither touches the weapon catalogue, because a
+ * rifle has to mean one thing whoever is holding it.
+ *
+ * A level-1 bot, then, is not a different fighter with a different gun: it is a
+ * worse player -- slower to react, wilder with its aim, poorer at reading
+ * movement -- who is also softer and hits lighter. A level-5 bot plays the
+ * profile as written and trades a weapon's full damage in both directions,
+ * while still aiming through the same imperfect-aim machinery as every other
+ * level: very good, never perfect.
  */
 import type { BotDifficultyLevel, BrainProfile, NpcConfig } from "./types.js";
 
@@ -87,6 +95,57 @@ export function applyBotDifficulty(
   };
 }
 
+
+/**
+ * How much damage actually lands, once the difficulty of whoever is involved is
+ * taken into account.
+ *
+ * Both sides can apply at once, and that is deliberate: a level-1 bot shooting a
+ * level-5 bot deals its 60% into a target that takes 100%, while the same shot
+ * the other way is a full-strength hit into somebody who takes 150% of it. Each
+ * multiplier is read from the bot it belongs to, never from its target, so a
+ * difficulty always describes the bot wearing it.
+ *
+ * Two cases are not what they look like:
+ *
+ *   - **The arena hurting somebody** -- a trap, the closing walls -- has no
+ *     attacker, and takes the environmental multiplier, which is 1 by default.
+ *     Those are the deaths a bot is supposed to avoid by playing better.
+ *   - **A bot blowing itself up** is one bot, appearing on both sides of the
+ *     same hit. It takes the damage it took, not the damage it dealt: applying
+ *     both would multiply a mistake by itself for no reason anyone could read
+ *     off the settings.
+ *
+ * A human is never scaled in either direction, whoever they are fighting.
+ */
+export function scaleBotDamage(
+  amount: number,
+  attacker: BotDifficultyLevel | null,
+  victim: BotDifficultyLevel | null,
+  environmental = false,
+): number {
+  if (!Number.isFinite(amount) || amount <= 0) return 0;
+
+  if (environmental) {
+    return victim ? amount * multiplier(victim.environmentalDamageTakenMultiplier) : amount;
+  }
+
+  let scaled = amount;
+  // Self-inflicted: the same bot on both sides, counted once, as taken damage.
+  if (attacker && attacker !== victim) scaled *= multiplier(attacker.damageDealtMultiplier);
+  if (victim) scaled *= multiplier(victim.damageTakenMultiplier);
+  return scaled;
+}
+
+/** A multiplier the configuration cannot make nonsensical. */
+function multiplier(value: number): number {
+  if (!Number.isFinite(value) || value < 0) return 1;
+  return Math.min(value, MAX_DAMAGE_MULTIPLIER);
+}
+
+/** Ten times a weapon's damage is already absurd; beyond it is a typo. */
+export const MAX_DAMAGE_MULTIPLIER = 10;
+
 /** Used when a configuration has no ladder at all: changes nothing. */
 const NEUTRAL_DIFFICULTY: BotDifficultyLevel = {
   level: 3,
@@ -97,6 +156,9 @@ const NEUTRAL_DIFFICULTY: BotDifficultyLevel = {
   dodgeSkillMultiplier: 1,
   decisionNoiseMultiplier: 1,
   decisionIntervalMultiplier: 1,
+  damageTakenMultiplier: 1,
+  damageDealtMultiplier: 1,
+  environmentalDamageTakenMultiplier: 1,
   grenadeAccuracy: 1,
   navigationSkill: 1,
   targetSelectionSkill: 1,

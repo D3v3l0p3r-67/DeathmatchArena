@@ -10,6 +10,25 @@ import type { GameState } from "./schema/GameState.js";
 import type { PlayerRuntime } from "./PlayerRuntime.js";
 
 /**
+ * Where a hit came from.
+ *
+ * Passed explicitly rather than guessed from the weapon id, because the id
+ * cannot be trusted to say: the closing walls report the *victim's* weapon, so
+ * a crushed player holding a rifle is indistinguishable from a player who was
+ * shot. It decides which difficulty multiplier a bot's damage is scaled by --
+ * combat has its own, the arena has another -- so guessing wrong would quietly
+ * mis-scale every crush in the game.
+ */
+export const DamageSource = {
+  /** A weapon, held by somebody: bullets, pellets, blasts, melee. */
+  COMBAT: "combat",
+  /** The arena itself: traps, the closing walls. Nobody behind it. */
+  ENVIRONMENT: "environment",
+} as const;
+
+export type DamageSourceValue = (typeof DamageSource)[keyof typeof DamageSource];
+
+/**
  * The slice of the room that gameplay systems are allowed to touch.
  *
  * Systems depend on this interface rather than on `BattleRoom` itself, which keeps
@@ -54,7 +73,15 @@ export interface RoomContext {
    * Apply damage from `attackerId` (empty string for environmental damage).
    * Routed to the `MatchManager`, because a lethal hit drives the match lifecycle.
    */
-  applyDamage(victimId: string, attackerId: string, amount: number, x: number, y: number, weaponId: string): void;
+  applyDamage(
+    victimId: string,
+    attackerId: string,
+    amount: number,
+    x: number,
+    y: number,
+    weaponId: string,
+    source?: DamageSourceValue,
+  ): void;
 
   /**
    * Shove a player along a direction, scaled by a weapon's knockback force.
