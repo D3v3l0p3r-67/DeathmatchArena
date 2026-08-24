@@ -46,7 +46,14 @@ export class PlayerState extends Schema implements SyncedPlayer {
   /** -1 = facing left, 1 = facing right. */
   @type("int8") facing = 1;
 
-  @type("uint8") health: number = getPlayerConfig().maxHealth;
+  /*
+   * Two bytes, not one. Health is configurable up to 1000 and the wire held
+   * 255: an administrator who raised it got players spawning on 232 health --
+   * 1000 truncated to a byte -- with a red sliver of a health bar and no
+   * indication anything had gone wrong. The extra byte per player per patch is
+   * nothing; a setting the game silently mangles is not.
+   */
+  @type("uint16") health: number = getPlayerConfig().maxHealth;
   @type("boolean") alive = false;
   @type("boolean") onGround = false;
 

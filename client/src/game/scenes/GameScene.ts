@@ -628,14 +628,24 @@ export class GameScene extends Phaser.Scene {
 
   private onDamage(payload: DamagePayload): void {
     const localId = this.network.sessionId;
+    const mine = payload.attackerId === localId && payload.victimId !== localId;
+    const taken = payload.victimId === localId;
 
-    if (payload.victimId === localId) {
+    if (taken) {
       const shake = this.effects.shakeFor("tookDamage");
       this.cameraController.shake(shake.durationMs, shake.intensity);
     }
-    if (payload.attackerId === localId && payload.victimId !== localId) {
-      this.effects.damageNumber(payload.x, payload.y - 20, payload.amount, payload.fatal);
-    }
+
+    // Every hit shows its number, whoever landed it: two players trading fire
+    // across the arena with nothing to show for it reads as nothing happening.
+    // Whose hit it was only decides how loudly it is drawn.
+    this.effects.damageNumber(
+      payload.x,
+      payload.y - 20,
+      payload.amount,
+      payload.fatal,
+      mine ? "mine" : taken ? "taken" : "other",
+    );
     this.effects.burst("fleshImpact", payload.x, payload.y, undefined, payload.fatal ? 1.6 : 1);
   }
 

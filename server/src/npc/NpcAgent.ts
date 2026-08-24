@@ -368,6 +368,8 @@ export class NpcAgent {
     // Re-applied every thought rather than at spawn, so a difficulty retuned in
     // the admin interface reaches a bot already in a match.
     this.movement.setNavigationSkill(this.difficulty.navigationSkill);
+    // What is still playable, which the closing walls narrow as a match runs on.
+    this.movement.setPlayableBounds(this.room.state.shrinkLeft, this.room.state.shrinkRight);
     this.combat.setGrenadeAccuracy(this.difficulty.grenadeAccuracy);
     this.effective = deriveEffectiveProfile(this.profile, context);
 

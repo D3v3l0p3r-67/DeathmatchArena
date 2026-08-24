@@ -23,6 +23,18 @@ import {
  * All of it is cosmetic. The server has already resolved whatever is being
  * illustrated by the time an effect plays.
  */
+/** Whose hit a damage number describes, which decides how loudly it is drawn. */
+export type DamageVoice = "mine" | "taken" | "other";
+
+const DAMAGE_VOICES: Record<DamageVoice, { color: string; scale: number; alpha: number }> = {
+  /** A hit you landed: the one you are waiting for. */
+  mine: { color: "#ffd166", scale: 1, alpha: 1 },
+  /** A hit you took: red, because feeling it matters more than reading it. */
+  taken: { color: "#ff8080", scale: 1, alpha: 1 },
+  /** Somebody else's exchange: present, but not competing for your attention. */
+  other: { color: "#cfd8ec", scale: 0.8, alpha: 0.75 },
+};
+
 export class EffectsSystem {
   private settings: EffectsSettings = { ...DEFAULT_EFFECTS_SETTINGS };
 
@@ -283,24 +295,36 @@ export class EffectsSystem {
     });
   }
 
-  damageNumber(x: number, y: number, amount: number, fatal: boolean): void {
+  /**
+   * A number floating off whoever just took a hit.
+   *
+   * Shown for every hit in the arena, not only your own: watching two other
+   * players trade fire and seeing nothing happen reads as nothing happening.
+   * Whose hit it was decides how loudly it is drawn -- a hit you landed is the
+   * one you are waiting for, a hit you took is the one you need to feel, and
+   * somebody else's exchange across the map is information you want available
+   * without it competing.
+   */
+  damageNumber(x: number, y: number, amount: number, fatal: boolean, whose: DamageVoice = "mine"): void {
     if (!this.settings.damageNumbers) return;
 
+    const voice = DAMAGE_VOICES[whose];
     const label = this.scene.add
       .text(x, y, String(Math.round(amount)), {
         fontFamily: "Inter, system-ui, sans-serif",
-        fontSize: fatal ? "22px" : "16px",
-        color: fatal ? "#ff4d5e" : "#ffd166",
+        fontSize: `${Math.round((fatal ? 22 : 16) * voice.scale)}px`,
+        color: fatal ? "#ff4d5e" : voice.color,
         fontStyle: "700",
       })
       .setOrigin(0.5, 0.5)
+      .setAlpha(voice.alpha)
       .setDepth(20);
     label.setStroke("#05070c", 4);
 
     this.scene.tweens.add({
       targets: label,
-      y: y - 42,
-      alpha: { from: 1, to: 0 },
+      y: y - 42 * voice.scale,
+      alpha: { from: voice.alpha, to: 0 },
       duration: fatal ? 900 : 640,
       ease: "Quad.easeOut",
       onComplete: () => label.destroy(),
