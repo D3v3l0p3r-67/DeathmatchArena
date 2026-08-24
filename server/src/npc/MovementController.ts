@@ -5,7 +5,7 @@ import {
   type CollisionWorld,
 } from "@deathmatch/shared";
 import type { PerceivedTrap, SelfContext } from "./context.js";
-import type { NavGraph } from "./Navigation.js";
+import type { NavGraph, NavNode } from "./Navigation.js";
 
 /** What the movement controller has been asked to do this tick. */
 interface MovementIntent {
@@ -27,6 +27,8 @@ const CLIMB_RISE = 24;
 const UNDER_LEDGE = 34;
 /** How much room to take before charging at it, in px. */
 const RUN_UP_DISTANCE = 120;
+/** How far ahead on the path a coming climb starts the jump, in px. */
+const CLIMB_ANTICIPATION = 300;
 /** Give up on a goal that has made no progress for this long, in ms. */
 const ABANDON_AFTER_MS = 2600;
 /** How far above a ledge to aim, so a landing is a landing and not a scrape. */
@@ -100,6 +102,8 @@ export class MovementController {
   private airJumpAvailable = false;
   /** What the jump button should be doing this tick. */
   private jumpButton = false;
+  /** True on the tick of the press, before the physics has seen it. */
+  private jumpJustPressed = false;
 
   /** Where we are trying to get to, and how. */
   private path: number[] = [];
@@ -181,6 +185,7 @@ export class MovementController {
     this.jumpTargetY = targetY;
     this.airJumpAvailable = true;
     this.jumpButton = true;
+    this.jumpJustPressed = true;
   }
 
   /** A hop with nothing particular to reach -- clearing a hazard, or unsticking. */
@@ -199,6 +204,19 @@ export class MovementController {
   private updateJump(self: SelfContext): void {
     if (this.jumpPhase === "idle") {
       this.jumpButton = false;
+      return;
+    }
+
+    /*
+     * A press made this very tick has not reached the physics yet, so the body
+     * still reads as not rising -- and judging it now burns the whole flight:
+     * the machine concluded the ascent was over before it began, spent its
+     * "rising" phase and the mid-air flag on the spot, and every planned jump
+     * came out a single one. That one-tick blindness is why bots could not fly
+     * the climbs their own navigation graph planned.
+     */
+    if (this.jumpJustPressed) {
+      this.jumpJustPressed = false;
       return;
     }
 
@@ -454,7 +472,7 @@ export class MovementController {
      * was standing in one. Measured in the shipped arenas, that was most of the
      * damage the arena ever did to a bot.
      */
-    if (this.escapeHazard(self, hazards)) {
+    if (this.escapeHazard(self, hazards) || this.steerFallClear(self, hazards)) {
       this.updateJump(self);
       this.trackProgress(self, now);
       return;
@@ -462,7 +480,30 @@ export class MovementController {
 
     if (!this.hasGoal) return;
 
-    const waypoint = this.nextWaypoint(self);
+    let waypoint = this.nextWaypoint(self);
+
+    /*
+     * If a climb is coming up just past the current waypoint, fly for the climb
+     * now. Waiting to consume the floor node at a ledge's base first fails two
+     * ways: the jump starts a body's width from the ledge and rises into its
+     * underside, and during the flight the steering still drives at the floor
+     * node *below*, so the bot ascends beside the ledge face instead of over
+     * the lip. A person runs and jumps at the ledge, not at the spot in front
+     * of it.
+     */
+    const climbAhead = this.upcomingClimb(self);
+    if (climbAhead && self.y - waypoint.y <= CLIMB_RISE) {
+      waypoint = { x: climbAhead.node.x, y: climbAhead.node.y, kind: "jump" };
+      // Standing on it is what consuming it means; the nodes under it on the
+      // way stopped mattering the moment we left the ground.
+      if (
+        Math.abs(climbAhead.node.x - self.x) < WAYPOINT_RADIUS &&
+        Math.abs(climbAhead.node.y - self.y) < 70
+      ) {
+        this.pathIndex = climbAhead.index + 1;
+      }
+    }
+
     const rise = self.y - waypoint.y;
     const dx = waypoint.x - self.x;
 
@@ -550,6 +591,64 @@ export class MovementController {
      * it died. Walking out costs nothing and works.
      */
     return true;
+  }
+
+  /**
+   * The first climb coming up on the path, if it is close enough to fly for.
+   *
+   * Looks past the waypoint currently being walked to, but only while the
+   * intervening nodes are level with us -- a climb on the far side of a drop
+   * is a different journey.
+   */
+  private upcomingClimb(self: SelfContext): { node: NavNode; index: number } | null {
+    for (let ahead = this.pathIndex; ahead < Math.min(this.path.length, this.pathIndex + 3); ahead++) {
+      const node = this.graph.nodes[this.path[ahead]!];
+      if (!node) break;
+      if (Math.abs(node.x - self.x) > CLIMB_ANTICIPATION) break;
+
+      const rise = self.y - node.y;
+      if (rise > CLIMB_RISE) return { node, index: ahead };
+      // Anything below us on the way breaks the run-up: that is a drop.
+      if (rise < -CLIMB_RISE) break;
+    }
+
+    return null;
+  }
+
+  /**
+   * Steer a fall off whatever it is about to land in.
+   *
+   * `escapeHazard` covers the vertical band straight above a trap; this covers
+   * the diagonal fall, which the measurements said was the real killer -- of
+   * the harmful trap hits bots took, five in six landed while falling. The
+   * landing point is flown ballistically from the current velocity, and if it
+   * is inside something that hurts, the tick's movement becomes "towards the
+   * nearer clear side" and nothing else.
+   */
+  private steerFallClear(self: SelfContext, hazards: readonly PerceivedTrap[]): boolean {
+    if (self.onGround || self.velocityY <= 0 || hazards.length === 0) return false;
+
+    const gravity = Math.max(1, this.graph.gravity);
+
+    for (const hazard of hazards) {
+      if (!hazard.hot || !hazard.harmful) continue;
+
+      // Time until the feet reach the hazard's top, falling from here.
+      const drop = hazard.y - (self.y + PLAYER_HALF_HEIGHT);
+      if (drop < -hazard.height) continue;
+
+      const impactSpeed = Math.sqrt(self.velocityY * self.velocityY + 2 * gravity * Math.max(0, drop));
+      const time = (impactSpeed - self.velocityY) / gravity;
+      const landX = self.x + self.velocityX * time;
+
+      if (landX + PLAYER_HALF_WIDTH <= hazard.x) continue;
+      if (landX - PLAYER_HALF_WIDTH >= hazard.x + hazard.width) continue;
+
+      this.intent.direction = landX - hazard.x <= hazard.x + hazard.width - landX ? -1 : 1;
+      return true;
+    }
+
+    return false;
   }
 
   /** Could the body walk this far this way without meeting something solid? */
@@ -904,6 +1003,7 @@ export class MovementController {
     this.lastWallRepathAt = 0;
     this.jumpPhase = "idle";
     this.jumpButton = false;
+    this.jumpJustPressed = false;
     this.airJumpAvailable = false;
     this.clearGoal();
     this.stuck = false;

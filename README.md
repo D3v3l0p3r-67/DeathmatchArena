@@ -929,10 +929,12 @@ that number down turned up a series of faults, each real, each fixed:
 
 | | at the start | now |
 |---|---|---|
-| killed by a trap | 73.8% | 66.3% |
-| killed by another bot | 20.4% | 27.9% |
-| killed by its own grenade | 5.8% | 5.8% |
-| median time of death | 16.3s | 22.8s |
+| killed by a trap | 73.8% | 45.2% |
+| killed by another bot | 20.4% | 47.1% |
+| killed by its own grenade | 5.8% | 7.7% |
+| median time of death | 16.3s | 37.7s |
+
+Being shot is the leading cause of death now, which is the game working.
 
 The largest single fault was not in the hazard code at all. An action that
 scores zero -- attacking with no target -- was being *kept* by the brain's
@@ -943,15 +945,28 @@ end of the world), a bot standing in spikes escaped by the nearest edge even
 when a column stood in the way, and it hopped on the spot to get out of a strip
 that hurts on entry -- landing back in it for another full hit.
 
-**It is not finished.** Two thirds of bot deaths are still spikes, and the
-reason is measured rather than guessed: the navigation graph links a jump if the
-height is in reach and the gap is in reach, checked separately, when they are
-one jump. Enforcing the arc properly takes spike deaths from 69 to 54 per
-hundred matches -- and costs bots the ability to climb in three pinned cases,
-because the alternative to a long running jump is a near-vertical hop at a
-ledge's corner, which is the one shape the movement controller flies badly. The
-generous version is the better trade until that is fixed, and the simulator
-makes the next attempt cheap to judge.
+The largest gain came from a bug that had eaten every planned jump for as long
+as bots have existed. The jump machine's press was judged in the same tick it
+was made, before the physics had seen it: the body read as not rising, so the
+machine concluded the ascent was over, spent its rising phase and the mid-air
+flag on the spot -- and every commanded jump flew as a single one, about 135px
+against the 203 the navigation graph plans with. Bots planned routes they could
+not fly, bounced under ledges, and dropped into whatever was beneath. One tick
+of patience fixed it, a bench test pins it, and with jumps real again two more
+things became safe to do: the graph now refuses jump links whose height and
+length cannot be flown *together* (they were checked separately, which linked
+leaps like "353px across and 180px up"), and a coming climb starts its jump on
+the run-up -- pressed at the ledge's base, a jump rises into the ledge's
+underside.
+
+Falls got their own steering, because the measurements said falls were the
+killer: of the harmful trap hits bots took, five in six landed while falling.
+A fall's landing spot is known the moment it starts -- it is ballistics -- so
+an airborne bot now flies its landing point and steers off anything that hurts.
+
+Verified after the changes: 98% of jumps that need the mid-air press spend it,
+achieved rises run to 248px, and the bench climbs that used to take several
+attempts land on the first one.
 
 ### Bots open crates now
 
