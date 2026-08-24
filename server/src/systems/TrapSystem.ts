@@ -15,7 +15,7 @@ import {
   type ResolvedTrap,
   type TrapPhaseValue,
 } from "@deathmatch/shared";
-import type { RoomContext } from "../rooms/RoomContext.js";
+import { DamageSource, type RoomContext } from "../rooms/RoomContext.js";
 import { TrapState } from "../rooms/schema/TrapState.js";
 import type { PlayerState } from "../rooms/schema/PlayerState.js";
 
@@ -428,7 +428,15 @@ export class TrapSystem {
     runtime: TrapRuntime,
   ): void {
     // No attacker: a trap kill is environmental, and the kill feed says so.
-    this.context.applyDamage(player.sessionId, "", amount, x, y, `trap:${runtime.resolved.type.id}`);
+    this.context.applyDamage(
+      player.sessionId,
+      "",
+      amount,
+      x,
+      y,
+      `trap:${runtime.resolved.type.id}`,
+      DamageSource.ENVIRONMENT,
+    );
   }
 
   // -------------------------------------------------------------------------

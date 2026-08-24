@@ -1162,16 +1162,23 @@ describe("bots in a real match", () => {
   it("finds somebody and shoots them", () => {
     const harness = startMatch(["berserker", "aggressive"]);
 
-    const players = faceOff(harness);
-
-    const before = players.map((player) => player.health);
+    faceOff(harness);
     harness.run(6);
-    const after = players.map((player) => player.health);
 
-    assert.ok(
-      after.some((health, index) => health < before[index]!),
-      `expected somebody to get hurt, ${JSON.stringify({ before, after })}`,
+    /*
+     * A hit a bot landed on somebody, rather than a health bar that went down
+     * between two readings. The old measurement counted any drop at all, so a
+     * bot that stood in the spikes and blew itself up read as a bot that found
+     * an enemy and shot it -- and it read a match already decided inside the
+     * eight seconds `startMatch` runs as a fight that never happened, since
+     * nothing changes once everyone has stopped.
+     */
+    const bots = new Set(harness.npcs.list().map((agent) => agent.sessionId));
+    const landed = harness.damage.filter(
+      (record) => bots.has(record.attackerId) && record.attackerId !== record.victimId,
     );
+
+    assert.ok(landed.length > 0, "expected a bot to find somebody and land a shot on them");
   });
 
   it("keeps its distance according to its personality", () => {

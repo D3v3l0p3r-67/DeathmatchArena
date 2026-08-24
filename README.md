@@ -735,9 +735,11 @@ personalities × five levels — sixty kinds of opponent — without a single ex
 profile being written. An Aggressive bot at level 2 is the same Aggressive bot:
 it still walks at you, it is simply worse at it.
 
-Difficulty is emphatically **not** less health or less damage. Every level plays
-the same game with the same weapons and the same rules; what changes is the
-quality of the decisions and the execution:
+A level scales two separate things, and keeping them separate is the whole
+design: **how well a bot plays**, and **how much its mistakes cost**. Neither
+touches the weapon catalogue — a rifle does what the rifle says whoever is
+holding it — and neither reaches into the other, so the AI work and the balance
+work can be done without one quietly undoing the other.
 
 ```
                          L1 Very Easy   L3 Normal   L5 Very Hard
@@ -750,13 +752,49 @@ decision interval x              2.40        1.30           1.00
 grenade accuracy                 0.25        0.65           1.00
 navigation skill                 0.30        0.70           1.00
 target selection                 0.25        0.70           1.00
+
+damage taken x                   1.50        1.15           1.00
+damage dealt x                   0.60        0.90           1.00
+environmental damage x           1.00        1.00           1.00
 ```
 
 Level 5 is the reference point: every multiplier is 1, so it plays the profiles
-exactly as written — which is where the bots were before difficulty existed, and
-why the shipped default is 3. And even level 5 aims through the same
-imperfect-aim machinery as every other rung: there is no perfect aim at any
-difficulty, and no level is given information a bot could not sense.
+exactly as written, takes a weapon's full damage and deals it — which is where
+the bots were before difficulty existed, and why the shipped default is 3. And
+even level 5 aims through the same imperfect-aim machinery as every other rung:
+there is no perfect aim at any difficulty, and no level is given information a
+bot could not sense.
+
+**The multiplier belongs to the bot, never to its target.** A level-1 bot
+shooting a level-5 bot deals 60% into somebody who takes 100%; the same rifle
+fired back is a full-strength hit into somebody who takes 150% of it. Both sides
+can therefore apply to one hit, which is the honest reading of "each bot's
+difficulty describes that bot". A human is scaled in neither direction.
+
+Three cases are deliberately not what a naive implementation would do:
+
+- **The arena's own damage has its own setting**, defaulting to 1. Traps and the
+  closing walls are exactly what a bot is supposed to avoid by playing better,
+  and softening them for an easy bot would hide the failure the AI measurements
+  exist to find, rather than fix it.
+- **A bot blowing itself up is counted once**, as damage taken. It is one bot on
+  both sides of the same hit, and multiplying dealt by taken would square a
+  mistake for a number nobody could read off the settings.
+- **Where the hit came from is passed explicitly, not sniffed from the weapon
+  id.** The closing walls report the *victim's own* weapon, so a crushed player
+  holding a rifle is indistinguishable from a player who was shot — guessing
+  would mis-scale every crush in the game.
+
+All of it lands in `applyDamage`, the one place health ever drops, so it covers
+bullets, pellets, blasts, melee and every weapon not written yet without each
+system having to remember. And all six numbers per rung are ordinary
+configuration: they appear in the admin interface and the debug console like
+anything else, they are validated and clamped server-side, and a change reaches
+the next hit rather than the next match.
+
+Measured head-to-head over 40 matches per arm, a Very Easy bot against a Very
+Hard one: **skill alone gave level 5 57% of the decided matches; with the damage
+multipliers it takes 68%.**
 
 The four values that are not multipliers have nowhere in a personality to come
 from, so difficulty owns them outright:
@@ -952,7 +990,8 @@ every one of the nine.
 ### How bots die, and what that says
 
 `npm run simulate -- --matches 100 --bots 2` plays a hundred matches with nobody
-watching and reports what killed everybody. It runs the real room -- the same
+watching and reports what killed everybody. `--difficulty 1,5` deals the rungs
+out to the bots in turn, which is how the damage multipliers were measured. It runs the real room -- the same
 systems, the same fixed step, the same input queue -- and it exists because the
 interesting question about bots is not whether they win but whether they die of
 things a person would be embarrassed by.
@@ -1951,7 +1990,11 @@ npm test
   speed already carried, that it never moves a position directly, that recoil is
   per shot rather than per pellet — and that holding a movement key no longer
   cancels a knockback. Also that a hit is announced to the whole room rather than
-  to the two players involved, so a bystander can see a fight they are not in.
+  to the two players involved, so a bystander can see a fight they are not in, and
+  that a bot's difficulty scales what it takes and what it lands — read off the
+  bot rather than its target, applied to a human in neither direction, left at its
+  own setting for traps and the closing walls, counted once when a bot blows
+  itself up, and picked up on the next hit when the ladder is retuned mid-match.
 - **`tests/wire.test.ts`** — every configurable maximum survives the wire. The
   schema's field widths are checked against the admin's own declared maxima by
   encoding real state and decoding it again, so a setting the game would silently

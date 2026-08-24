@@ -4,6 +4,8 @@ import {
   clamp,
   createMovementState,
   findFreeSpawnPosition,
+  scaleBotDamage,
+  type BotDifficultyLevel,
   type DamagePayload,
   type KillPayload,
   type MatchResultMessage,
@@ -11,7 +13,7 @@ import {
   type MatchStanding,
 } from "@deathmatch/shared";
 import type { PlayerRuntime } from "../rooms/PlayerRuntime.js";
-import type { RoomContext } from "../rooms/RoomContext.js";
+import { DamageSource, type DamageSourceValue, type RoomContext } from "../rooms/RoomContext.js";
 import type { PlayerState } from "../rooms/schema/PlayerState.js";
 import type { ArenaShrinkSystem } from "./ArenaShrinkSystem.js";
 import type { GrenadeSystem } from "./GrenadeSystem.js";
@@ -354,13 +356,29 @@ export class MatchManager {
     x: number,
     y: number,
     weaponId: string,
+    source: DamageSourceValue = DamageSource.COMBAT,
   ): void {
     const victim = this.context.state.players.get(victimId);
     if (!victim || !victim.alive || !victim.inMatch) return;
     if (this.context.state.matchState !== MatchState.PLAYING) return;
 
     const attacker = attackerId ? this.context.state.players.get(attackerId) ?? null : null;
-    const damage = clamp(Math.round(amount), 0, this.context.config.getPlayerConfig().maxHealth);
+
+    /*
+     * A bot's difficulty decides how much of a hit it takes and how much of one
+     * it lands. Applied here, in the one place health ever drops, so it covers
+     * every weapon there is and every weapon there will be -- bullets, pellets,
+     * blasts, melee -- without each system having to remember. The weapon
+     * catalogue is untouched: a rifle does what the rifle says, and the
+     * difference belongs to the bot rather than to the gun.
+     */
+    const scaled = scaleBotDamage(
+      amount,
+      this.difficultyOf(attacker),
+      this.difficultyOf(victim),
+      source === DamageSource.ENVIRONMENT,
+    );
+    const damage = clamp(Math.round(scaled), 0, this.context.config.getPlayerConfig().maxHealth);
     victim.health = Math.max(0, victim.health - damage);
 
     const fatal = victim.health === 0;
@@ -390,6 +408,12 @@ export class MatchManager {
     this.context.broadcast(ServerMessage.DAMAGE, payload);
 
     if (fatal) this.eliminate(victim, attacker, weaponId);
+  }
+
+  /** The rung a player plays at, or null for a human -- who is never scaled. */
+  private difficultyOf(player: PlayerState | null): BotDifficultyLevel | null {
+    if (!player?.bot) return null;
+    return this.context.config.getBotDifficulty(player.botDifficulty);
   }
 
   /**

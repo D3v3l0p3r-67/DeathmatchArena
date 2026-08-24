@@ -23,6 +23,8 @@ import { clock, createHarness } from "../tests/harness.js";
 interface Options {
   matches: number;
   bots: number;
+  /** Difficulty for each bot in turn, cycled if there are more bots than rungs. */
+  difficulties: number[];
   arenas: ArenaDefinition[];
   /** Give up on a match that will not end, in seconds. */
   timeoutSec: number;
@@ -43,9 +45,17 @@ function parseOptions(argv: readonly string[]): Options {
       ? listArenas().filter((arena) => arena.enabled !== false)
       : [getArena(arenaName)];
 
+  // "--difficulty 1,5" plays a very easy bot against a very hard one, which is
+  // the only way to see what the damage multipliers are actually worth.
+  const difficulties = flag("difficulty", "")
+    .split(",")
+    .map((entry) => Number(entry.trim()))
+    .filter((entry) => Number.isFinite(entry) && entry > 0);
+
   return {
     matches: Number(flag("matches", "100")),
     bots: Number(flag("bots", "2")),
+    difficulties,
     arenas,
     timeoutSec: Number(flag("timeout", "180")),
     verbose: argv.includes("--verbose"),
@@ -81,6 +91,7 @@ function classify(weaponId: string, attackerId: string, victimId: string): Cause
 function playMatch(
   arena: ArenaDefinition,
   bots: number,
+  difficulties: readonly number[],
   timeoutSec: number,
   seed: number,
   why = false,
@@ -96,7 +107,10 @@ function playMatch(
   watcher.inMatch = false;
   harness.state.hostId = "watcher";
 
-  for (let i = 0; i < bots; i++) harness.npcs.spawn();
+  for (let i = 0; i < bots; i++) {
+    const level = difficulties[i % difficulties.length];
+    harness.npcs.spawn(undefined, level);
+  }
   harness.matchManager.requestStart();
 
   const startedAt = clock.now;
@@ -187,7 +201,14 @@ for (let match = 0; match < options.matches; match++) {
   const arena = options.arenas[match % options.arenas.length]!;
   // A different seed each time, or this is one match played a hundred times.
   if (options.why) console.log(`match ${match + 1} on ${arena.id}:`);
-  const deaths = playMatch(arena, options.bots, options.timeoutSec, 1000 + match * 7919, options.why);
+  const deaths = playMatch(
+    arena,
+    options.bots,
+    options.difficulties,
+    options.timeoutSec,
+    1000 + match * 7919,
+    options.why,
+  );
   all.push(...deaths);
 
   if (options.verbose) {
