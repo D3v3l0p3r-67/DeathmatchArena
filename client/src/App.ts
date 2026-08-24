@@ -25,6 +25,7 @@ import { HUD } from "./ui/HUD.js";
 import { KillFeed } from "./ui/KillFeed.js";
 import { TouchControls } from "./ui/TouchControls.js";
 import { UIManager } from "./ui/UIManager.js";
+import { isSpectating } from "./ui/spectating.js";
 
 /** HUD text does not need to change 60 times a second. */
 const HUD_UPDATE_INTERVAL_MS = 80;
@@ -520,19 +521,16 @@ export class App {
   }
 
   private handleLocalDeath(): void {
-    // A player only ever spectates a match that is actually running. Between
-    // matches the room clears `alive` for everyone, and that must not be
-    // mistaken for an elimination.
-    if (this.network.state?.matchState !== MatchState.PLAYING) return;
+    const local = this.network.state?.players.get(this.network.sessionId);
+    if (!isSpectating(this.network.state?.matchState, local?.alive)) return;
 
     const scene = this.getGameScene();
-    const local = this.network.state.players.get(this.network.sessionId);
     this.ui.setSpectating(true, scene?.spectatedName ?? "", local?.placement ?? 0);
   }
 
   private updateSpectatorBanner(targetName: string): void {
     const local = this.network.state?.players.get(this.network.sessionId);
-    if (!local || local.alive) return;
+    if (!local || !isSpectating(this.network.state?.matchState, local.alive)) return;
     this.ui.setSpectating(true, targetName, local.placement);
   }
 

@@ -1127,6 +1127,11 @@ kbd {
   color: var(--text-dim);
 }
 
+.spectator__subtitle.is-hidden,
+.spectator__hint.is-hidden {
+  display: none;
+}
+
 /* ---------------------------------------------------------------- results -- */
 
 .results__eyebrow {
