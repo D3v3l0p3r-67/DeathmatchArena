@@ -32,6 +32,12 @@ export const getWeaponAction: BrainAction = {
     score += profile.powerupInterest * 15 * closeness;
     score -= context.danger * profile.survival * 35;
 
+    // Nothing to fight is the moment to go and get a better gun, for the same
+    // reason a person would: it is free now and it will not be later.
+    if (context.visibleEnemies.length === 0 && context.danger < 0.3) {
+      score += 45 * clamp01(1 - pickup.distance / 1400);
+    }
+
     return score;
   },
 

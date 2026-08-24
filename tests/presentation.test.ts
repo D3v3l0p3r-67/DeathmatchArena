@@ -275,13 +275,14 @@ describe("reading a player at a glance", () => {
     }
   });
 
-  it("draws the visor in front of the weapon", () => {
+  it("draws the weapon in front of the visor, and holds it clear of one", () => {
     /*
-     * The second half of the guarantee, and the half a refactor can silently
-     * undo: the visor is the last thing drawn over the body, so a weapon swung
-     * across the face at a steep angle passes behind the eyes rather than
-     * blanking them. Read from the source because the order lives in a Phaser
-     * container, and this file deliberately never touches Phaser.
+     * Two rules that only work together. The weapon draws in front of the
+     * visor, because a dark bar cut across a rifle reads as a hole in the
+     * rifle. Nothing is hidden by that only because the weapon is *held* clear
+     * of the face -- out along the aim, and pushed further out on the angles
+     * where it would otherwise cross it. Layer them the other way and the eyes
+     * cut the gun; hold them together and the gun blanks the eyes.
      */
     const source = readFileSync(
       new URL("../client/src/game/entities/PlayerView.ts", import.meta.url),
@@ -295,6 +296,10 @@ describe("reading a player at a glance", () => {
 
     assert.ok(weapon > 0 && visor > 0 && body > 0, "the player container no longer lists its parts");
     assert.ok(weapon > body, "the weapon is drawn behind the body, hiding the silhouette");
-    assert.ok(visor > weapon, "the weapon is drawn over the visor, hiding which way a player looks");
+    assert.ok(weapon > visor, "the visor is drawn over the weapon, cutting a hole in it");
+    assert.ok(
+      source.includes("holdDistance"),
+      "with the weapon in front, only the hold keeps it off the face",
+    );
   });
 });

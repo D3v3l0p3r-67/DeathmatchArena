@@ -953,6 +953,38 @@ ledge's corner, which is the one shape the movement controller flies badly. The
 generous version is the better trade until that is fixed, and the simulator
 makes the next attempt cheap to judge.
 
+### Bots open crates now
+
+They could not before, and the reason was one line. The action that fetches
+things had a branch for a sealed crate, a comment reading "the bot only points
+and pulls", and a call to `lookAt` -- which points and does not pull. No bot in
+this game had ever opened a crate, which means no bot ever had a better weapon
+than the one it spawned with, or ever healed.
+
+Fixing it took four things, each of which was doing nothing useful on its own:
+
+- **A way to shoot at something that is not a person.** `shootAt` aims at a
+  spot and fires. Everything a shot at a person needs is skipped, on purpose:
+  no reaction time (a crate is not a surprise), no lead (it does not move), and
+  no aim wobble -- the wobble exists so a poor bot misses a *person*, and at
+  400px it is wider than the crate, so bots holding the trigger never once hit
+  one. Nobody's idea of skill includes missing the furniture.
+- **An aim tolerance from the size of the thing.** A fixed angle is the wrong
+  shape: a tenth of a radian is 40px of error at 400px, which misses a 44px box
+  entirely.
+- **A clear line, checked.** Crates sit on platforms and bots stand under them.
+  Nine thousand trigger pulls across thirty matches opened seven crates,
+  because the rest went into the underside of the platform. Asking first cut
+  that to three hundred pulls for the same seven crates.
+- **A reason to go at all.** Fetching scored a fraction of what wandering the
+  arena scores, so bots walked past crates for whole matches. With nobody to
+  fight and nothing to fear it now wins outright, which is when a person goes
+  and opens the box.
+
+Bots now spend about a quarter of their time going for things, and what stops
+them getting more is the same weakness as everything else: crates spawn on high
+platforms, and climbing is the thing this movement controller does least well.
+
 ### A jump pad is not a hazard
 
 Traps are one system: placed the same way, simulated the same way, drawn the
@@ -1392,6 +1424,14 @@ the screen calm, which meant the one thing you most want to know about somebody
 across the arena — whether they are hurt — was only legible once they were. An
 empty space above a head reads as "no information", not as "unhurt". The empty
 part of the bar is drawn too, so a short bar reads as short rather than as small.
+
+**The weapon is held out in front of everything, including the face.** It draws
+in front of the visor -- a dark bar cut across a rifle reads as a hole in the
+rifle -- and nothing is hidden by that because the two are kept apart by the
+*hold* rather than by layering. `holdDistance` pushes the weapon further out
+along the aim on exactly the angles where it would otherwise cross the face,
+which is every steep upward aim. Layer them the other way and the eyes cut the
+gun; hold them together and the gun blanks the eyes.
 
 **The weapon is held out in front, at chest height.** With the grip on the body's
 centre line a rifle's stock lay across the face, and the visor is the only part of

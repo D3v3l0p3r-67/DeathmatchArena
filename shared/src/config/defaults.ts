@@ -53,7 +53,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
     // whoever wants to join until the host starts it, or until it fills.
     minPlayers: 2,
     maxPlayers: 10,
-    countdownMs: 5000,
+    countdownMs: 3000,
     resultsMs: 12000,
     maxDurationMs: 10 * 60 * 1000,
   },

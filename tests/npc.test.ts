@@ -2010,7 +2010,16 @@ describe("knowing your own body", () => {
     harness.state.hostId = "human";
     harness.npcs.spawn("aggressive");
     harness.matchManager.requestStart();
-    harness.run(8);
+    // Until the match is actually running, rather than for a fixed eight
+    // seconds: the countdown is configurable, and a fixed wait meant this test
+    // measured a bot that had already been playing for a while -- so shortening
+    // the countdown turned a test about climbing into a test about what a bot
+    // happened to be doing at the eight-second mark.
+    for (let waited = 0; waited < 20; waited += 0.25) {
+      harness.run(0.25);
+      const state: string = harness.state.matchState;
+      if (state === MatchState.PLAYING) break;
+    }
 
     const agent = harness.npcs.list()[0]!;
     const player = harness.state.players.get(agent.sessionId)!;
@@ -2043,6 +2052,77 @@ describe("knowing your own body", () => {
       highest <= floorY - 155,
       `a bot should get on top of a block two jumps high; best was ${Math.round(floorY - highest)}px up`,
     );
+  });
+});
+
+describe("going and getting things", () => {
+  /** A stand-in agent that records what the action asked it to do. */
+  function fetcher(canShoot: boolean) {
+    const asked: string[] = [];
+    return {
+      asked,
+      agent: {
+        target: null,
+        effectiveProfile: profile(),
+        canShootAt: () => canShoot,
+        canLobAt: () => true,
+        setState: (state: string) => asked.push(`state:${state}`),
+        moveTo: (x: number) => asked.push(`moveTo:${Math.round(x)}`),
+        stopMoving: () => asked.push("stop"),
+        holdFire: () => asked.push("holdFire"),
+        shootAt: (x: number) => asked.push(`shootAt:${Math.round(x)}`),
+        lookAt: () => asked.push("lookAt"),
+      } as never,
+    };
+  }
+
+  const crate = { id: "c1", kind: "crate" as const, powerUpId: null, x: 900, y: 500, distance: 300 };
+
+  it("shoots a crate open instead of standing and looking at it", () => {
+    // For a long time the action aimed and never pulled: "the bot only points
+    // and pulls" said the comment, and only pointing is what it did -- so no
+    // bot in this game had ever opened a crate, or held anything but the weapon
+    // it spawned with.
+    const { agent, asked } = fetcher(true);
+    const context = emptyContext({ items: [crate], nearestPowerUp: crate });
+
+    actions.getPowerUpAction.execute(agent, context);
+
+    assert.ok(asked.some((call) => call.startsWith("shootAt:")), `never fired: ${asked.join(" ")}`);
+    assert.ok(asked.some((call) => call.startsWith("moveTo:")), "and closes the distance while it does");
+  });
+
+  it("does not fire at a crate it has no line to", () => {
+    // A crate on a platform above you is not opened by firing into the
+    // platform, however long you hold the trigger.
+    const { agent, asked } = fetcher(false);
+    const context = emptyContext({ items: [crate], nearestPowerUp: crate });
+
+    actions.getPowerUpAction.execute(agent, context);
+
+    assert.ok(!asked.some((call) => call.startsWith("shootAt:")), `fired blind: ${asked.join(" ")}`);
+    assert.ok(asked.includes("holdFire"), "holds fire and keeps walking");
+  });
+
+  it("is worth doing when there is nobody to fight", () => {
+    // Quiet moments are when a person goes and opens the box. Without this the
+    // score was a fraction of what wandering scores, and bots walked past
+    // crates for whole matches.
+    const quiet = emptyContext({ items: [crate], nearestPowerUp: crate, danger: 0, visibleEnemies: [] });
+    const enemy1 = enemy({ distance: 200 });
+    const busy = emptyContext({
+      items: [crate],
+      nearestPowerUp: crate,
+      danger: 0.8,
+      visibleEnemies: [enemy1],
+      enemies: [enemy1],
+    });
+
+    const calm = actions.getPowerUpAction.score(quiet, profile(), fetcher(true).agent);
+    const underFire = actions.getPowerUpAction.score(busy, profile(), fetcher(true).agent);
+
+    assert.ok(calm > underFire, "fetching should lose to being shot at");
+    assert.ok(calm > 30, `and win a quiet moment outright, scored ${calm.toFixed(0)}`);
   });
 });
 

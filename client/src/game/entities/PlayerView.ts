@@ -4,6 +4,10 @@ import { TextureKeys, getPlayerColor, weaponTextureKey } from "../TextureFactory
 import { DEATH_ANIMATION } from "../fx/effects.js";
 
 /** Where the wind-up arrow starts, in front of the hand. */
+/** How far the weapon may be pushed out to clear the face, and in what steps. */
+const HOLD_PUSH_STEPS = 10;
+const HOLD_PUSH_PX = 3;
+
 const THROW_ARROW_START = 16;
 /** How long it is at no charge, and at full charge. */
 const THROW_ARROW_MIN = 14;
@@ -58,6 +62,8 @@ export class PlayerView {
   private alive: boolean | null = null;
   /** Tracked so the weapon texture is only swapped when it actually changes. */
   private weaponId = "";
+  /** The held weapon's extent around its grip, for keeping it off the face. */
+  private weaponExtent: { left: number; right: number; top: number; bottom: number } | null = null;
   private beltCount = -1;
   /** What the bar last drew, so a full-health crowd costs no redraws. */
   private drawnHealth = -1;
@@ -116,22 +122,20 @@ export class PlayerView {
       /*
        * Order matters. The weapon draws in front of the body, so the whole of it
        * is visible whichever way the player is aiming -- which is the point of
-       * giving each weapon a silhouette at all. The visor draws in front of the
-       * weapon, because it is the one part of the figure that says where someone
-       * is looking and it must never be hidden.
+       * giving each weapon a silhouette at all. It draws in front of the visor
+       * too: a dark bar cut across a rifle reads as a hole in the rifle.
        *
-       * Holding the weapon forward at chest height keeps it off the face for any
-       * roughly level aim (a test pins that). Aiming steeply up is the case
-       * geometry cannot win: a weapon held in front of the chest and pointed at
-       * the sky crosses the head whatever the offsets, so the layering decides
-       * it there.
+       * Nothing is hidden by that, because the two are kept apart rather than
+       * layered apart -- the weapon is held out along the aim, and pushed
+       * further out on the angles where it would otherwise cross the face. See
+       * `holdDistance`.
        */
       .container(0, 0, [
         this.shadow,
         this.body,
         this.belt,
-        this.weapon,
         this.visor,
+        this.weapon,
         this.healthBar,
         this.throwArrow,
         this.label,
@@ -174,20 +178,19 @@ export class PlayerView {
     this.renderedAim = lerpAngle(this.renderedAim, state.aimAngle, clamp(deltaSeconds * 22, 0, 1));
     this.weapon.setRotation(this.renderedAim);
 
-    // Held out in front, at chest height. Both matter: forward so the weapon is
-    // read as a shape rather than a stub, and low enough that the stock clears
-    // the visor -- the one part of the figure that says where they are looking.
-    this.weapon.setPosition(
-      Math.cos(this.renderedAim) * PLAYER.WEAPON_FORWARD_X,
-      PLAYER.AIM_ORIGIN_Y + Math.sin(this.renderedAim) * PLAYER.WEAPON_FORWARD_X,
-    );
-
     // Flip the body to match the aim rather than the movement direction: in a
     // shooter you look where you shoot.
     const aimingLeft = Math.abs(this.renderedAim) > Math.PI / 2;
     this.body.setFlipX(aimingLeft);
     this.visor.setX(aimingLeft ? -4 : 4);
     this.weapon.setFlipY(aimingLeft);
+
+    // Held out in front, at chest height, and far enough out to clear the face.
+    const hold = this.holdDistance(aimingLeft);
+    this.weapon.setPosition(
+      Math.cos(this.renderedAim) * hold,
+      PLAYER.AIM_ORIGIN_Y + Math.sin(this.renderedAim) * hold,
+    );
 
     this.updateWalkCycle(state, deltaSeconds);
     this.updateShadow(state);
@@ -329,6 +332,76 @@ export class PlayerView {
 
     this.weapon.setTexture(key);
     this.weapon.setOrigin(shape.gripX / shape.length, shape.gripY / shape.height);
+
+    // The silhouette's extent around the grip, which is what has to be kept off
+    // the face. Measured once per weapon rather than per frame.
+    this.weaponExtent = {
+      left: -shape.gripX,
+      right: shape.length - shape.gripX,
+      top: -shape.gripY,
+      bottom: shape.height - shape.gripY,
+    };
+  }
+
+  /**
+   * How far along the aim to hold the weapon.
+   *
+   * `WEAPON_FORWARD_X` at rest, and further out on the angles where the
+   * silhouette would otherwise cross the visor -- which is every steep upward
+   * aim, because a weapon held in front of the chest and pointed at the sky
+   * passes the head on its way there.
+   *
+   * Pushing it *along the aim* rather than layering it behind the face keeps
+   * both readable: the whole weapon is visible, the eyes are visible, and the
+   * barrel stays on the line the shot leaves along, so the muzzle flash still
+   * sits on it.
+   */
+  private holdDistance(aimingLeft: boolean): number {
+    const extent = this.weaponExtent;
+    if (!extent) return PLAYER.WEAPON_FORWARD_X;
+
+    const cos = Math.cos(this.renderedAim);
+    const sin = Math.sin(this.renderedAim);
+    // The visor, in the same body-centred coordinates, with a little room.
+    const eyes = {
+      left: (aimingLeft ? -4 : 4) - 8,
+      right: (aimingLeft ? -4 : 4) + 8,
+      top: -PLAYER.HEIGHT / 2 + 12 - 5,
+      bottom: -PLAYER.HEIGHT / 2 + 12 + 5,
+    };
+
+    for (let step = 0; step <= HOLD_PUSH_STEPS; step++) {
+      const hold = PLAYER.WEAPON_FORWARD_X + step * HOLD_PUSH_PX;
+      const originX = cos * hold;
+      const originY = PLAYER.AIM_ORIGIN_Y + sin * hold;
+
+      // The rotated silhouette's bounding box. Conservative on purpose: a box
+      // is easier to reason about than the shape, and erring outwards only ever
+      // means holding the weapon a few pixels further from the face.
+      let minX = Infinity;
+      let maxX = -Infinity;
+      let minY = Infinity;
+      let maxY = -Infinity;
+      for (const [ex, ey] of [
+        [extent.left, extent.top],
+        [extent.right, extent.top],
+        [extent.right, extent.bottom],
+        [extent.left, extent.bottom],
+      ] as const) {
+        const flipped = aimingLeft ? -ey : ey;
+        const x = originX + ex * cos - flipped * sin;
+        const y = originY + ex * sin + flipped * cos;
+        minX = Math.min(minX, x);
+        maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y);
+        maxY = Math.max(maxY, y);
+      }
+
+      const clear = maxX <= eyes.left || minX >= eyes.right || maxY <= eyes.top || minY >= eyes.bottom;
+      if (clear) return hold;
+    }
+
+    return PLAYER.WEAPON_FORWARD_X + HOLD_PUSH_STEPS * HOLD_PUSH_PX;
   }
 
   /**
