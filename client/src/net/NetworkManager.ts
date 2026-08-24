@@ -31,6 +31,7 @@ import {
   type PowerUpCollectedPayload,
   type AddBotRequest,
   type RemoveBotRequest,
+  type SelectArenaRequest,
   type SyncedCrate,
   type SyncedGameState,
   type SyncedGrenade,
@@ -226,6 +227,17 @@ export class NetworkManager {
   removeBot(sessionId: string): void {
     const payload: RemoveBotRequest = { sessionId };
     this.room?.send(ClientMessage.REMOVE_BOT, payload);
+  }
+
+  /** Ask to play a different map. Only the host's asking means anything. */
+  selectArena(arenaId: string): void {
+    const payload: SelectArenaRequest = { arenaId };
+    this.room?.send(ClientMessage.SELECT_ARENA, payload);
+  }
+
+  /** What can be played, as the server listed it at join. For the map picker. */
+  get arenaChoices(): readonly { id: string; name: string }[] {
+    return this.welcome?.arenas ?? [];
   }
 
   /** Approximate server clock, used only for debug output and trail fading. */

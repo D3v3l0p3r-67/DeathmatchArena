@@ -453,6 +453,33 @@ kbd {
   letter-spacing: 0.1em;
 }
 
+/* The map row: what will be played, and (for the host) the way to change it. */
+.lobby__map {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line, rgba(140, 160, 200, 0.25));
+  border-radius: 10px;
+}
+
+.lobby__map-label {
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.lobby__map-name {
+  flex: 1;
+  font-weight: 600;
+}
+
+.lobby__map-change {
+  padding: 4px 12px;
+}
+
 .lobby__add {
   width: 100%;
   margin-top: 12px;

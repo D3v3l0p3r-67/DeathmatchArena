@@ -67,10 +67,23 @@
       <!-- =========================== WAITING ROOM ============================ -->
       <section class="screen screen--lobby" data-screen="lobby">
         <div class="panel">
-          <p class="panel__eyebrow" id="lobby-room-name">Room</p>
-          <h2 class="panel__title">Waiting for players</h2>
+          <!-- The room's own name is the headline: it is the one thing that
+               distinguishes this lobby from any other. -->
+          <h2 class="panel__title" id="lobby-room-name">Room</h2>
+          <p class="panel__eyebrow">Waiting for players</p>
           <p class="counter" id="lobby-count">Players: 0 / 10</p>
-          <p class="panel__subtitle" id="lobby-hint">Waiting for players...</p>
+
+          <!-- What will be played. The host can change it; everyone can see it. -->
+          <div class="lobby__map">
+            <span class="lobby__map-label">Map</span>
+            <span class="lobby__map-name" id="lobby-map-name">-</span>
+            <button class="button button--ghost lobby__map-change" id="change-map" type="button">Change</button>
+          </div>
+          <div class="difficulty-picker" id="map-picker">
+            <p class="difficulty-picker__title">Map</p>
+            <div class="difficulty-picker__options" id="map-picker-options"></div>
+            <button class="button button--ghost" id="map-picker-cancel" type="button">Cancel</button>
+          </div>
 
           <ul class="player-list" id="lobby-players"></ul>
 

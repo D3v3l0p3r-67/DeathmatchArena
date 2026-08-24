@@ -28,6 +28,8 @@ export const ClientMessage = {
    * only when the room holds a match's worth of players.
    */
   START_MATCH: "startMatch",
+  /** Host asks for a different arena for the coming match. */
+  SELECT_ARENA: "selectArena",
   /** Add one bot at the given difficulty. Host only, and only while waiting. */
   ADD_BOT: "addBot",
   /** Remove one bot from the room. Host only, and only while waiting. */
@@ -45,6 +47,11 @@ export const ClientMessage = {
 } as const;
 
 export type ClientMessageType = (typeof ClientMessage)[keyof typeof ClientMessage];
+
+/** Payload of {@link ClientMessage.SELECT_ARENA}. */
+export interface SelectArenaRequest {
+  arenaId: string;
+}
 
 /** Payload of {@link ClientMessage.ADD_BOT}. */
 export interface AddBotRequest {
@@ -142,6 +149,15 @@ export interface WelcomePayload {
    * anything else would put prediction and simulation on different physics.
    */
   config: GameConfig;
+  /**
+   * What can be played, for the lobby's map picker.
+   *
+   * Names only -- the full definition of whichever arena is current arrives in
+   * `arena`, and the rest would be dead weight. From the server for the same
+   * reason the arena itself is: an administrator can add maps after this
+   * client was built.
+   */
+  arenas: readonly { id: string; name: string }[];
   /** Server timestamp at the moment of joining; used to align clocks for debug output. */
   serverTime: number;
   /** The name actually assigned after server-side validation. */

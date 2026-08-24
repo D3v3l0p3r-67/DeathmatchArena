@@ -22,6 +22,7 @@ import { Server } from "@colyseus/core";
 import { WebSocketTransport } from "@colyseus/ws-transport";
 import { Client, getStateCallbacks, type Room } from "@colyseus/sdk";
 import {
+  BUILT_IN_ARENAS,
   ClientMessage,
   MatchState,
   ServerMessage,
@@ -225,6 +226,43 @@ describe("server-authoritative weapons", () => {
     assert.ok(spent <= 8, `fire rate not enforced: ${spent} rounds in ~500ms`);
 
     await Promise.all([shooter.leave(true), target.leave(true)]);
+  });
+});
+
+describe("choosing the map", () => {
+  it("lets the host pick, refuses everybody else, and checks the id", async () => {
+    const alice = await join("Alice");
+    await waitFor(() => alice.state?.players?.size === 1, "alice in state");
+    const bob = await join("Bob");
+    await waitFor(() => alice.state.players.size === 2, "both players in state");
+    await waitFor(() => alice.state.hostId === alice.sessionId, "the room to have an owner");
+
+    const before = alice.state.arenaId;
+    const other = BUILT_IN_ARENAS.find((arena) => arena.id !== before)!;
+
+    // Not the host: nothing happens, however long we wait.
+    bob.send(ClientMessage.SELECT_ARENA, { arenaId: other.id });
+    await delay(400);
+    assert.equal(alice.state.arenaId, before, "a guest cannot change the map");
+
+    // Nonsense id from the host: nothing happens either.
+    alice.send(ClientMessage.SELECT_ARENA, { arenaId: "no-such-arena" });
+    await delay(400);
+    assert.equal(alice.state.arenaId, before, "an unknown map is refused");
+
+    // The host picking a real map: everybody's room switches.
+    alice.send(ClientMessage.SELECT_ARENA, { arenaId: other.id });
+    await waitFor(() => alice.state.arenaId === other.id, "the map to change");
+    await waitFor(() => bob.state.arenaId === other.id, "the guest to see it too");
+
+    // Once the match is running, the map is settled.
+    await startMatch(alice, bob);
+    await waitFor(() => alice.state.matchState === MatchState.PLAYING, "match to start");
+    alice.send(ClientMessage.SELECT_ARENA, { arenaId: before });
+    await delay(400);
+    assert.equal(alice.state.arenaId, other.id, "no map changes mid-match");
+
+    await Promise.all([alice.leave(true), bob.leave(true)]);
   });
 });
 

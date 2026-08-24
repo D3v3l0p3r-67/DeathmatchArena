@@ -17,6 +17,7 @@ export interface UICallbacks {
   onStartMatch(): void;
   /** The host asked for another bot at this difficulty. */
   onAddBot(difficulty: number): void;
+  onSelectArena(arenaId: string): void;
   /** The host asked for this bot to go. */
   onRemoveBot(sessionId: string): void;
   onPlay(name: string): void;
@@ -44,7 +45,10 @@ export class UIManager {
 
   private readonly matchmakingStatus = requireElement("matchmaking-status");
   private readonly lobbyCount = requireElement("lobby-count");
-  private readonly lobbyHint = requireElement("lobby-hint");
+  private readonly mapName = requireElement("lobby-map-name");
+  private readonly changeMapButton = requireElement("change-map") as HTMLButtonElement;
+  private readonly mapPicker = requireElement("map-picker");
+  private readonly mapPickerOptions = requireElement("map-picker-options");
   private readonly lobbyPlayers = requireElement<HTMLUListElement>("lobby-players");
 
   private readonly roomName = requireElement("lobby-room-name");
@@ -55,6 +59,8 @@ export class UIManager {
 
   /** Whether this client owns the room, from the last patch. */
   private isHost = false;
+  /** Arena id to display name, from the server's welcome. */
+  private arenaNames = new Map<string, string>();
 
   private readonly countdownValue = requireElement("countdown-value");
 
@@ -98,6 +104,8 @@ export class UIManager {
 
     this.nameInput.addEventListener("input", () => this.clearNameError());
     this.buildBotPicker();
+    this.changeMapButton.addEventListener("click", () => this.toggleMapPicker(true));
+    requireElement("map-picker-cancel").addEventListener("click", () => this.toggleMapPicker(false));
   }
 
   // --------------------------------------------------------------- adding bots
@@ -132,6 +140,38 @@ export class UIManager {
       });
       this.botPickerOptions.appendChild(button);
     }
+  }
+
+  /**
+   * Learn what can be played.
+   *
+   * From the server's welcome rather than any client-side list, because an
+   * administrator can add arenas after this client was built. Called once per
+   * connection; the picker is rebuilt to match.
+   */
+  setArenaChoices(arenas: readonly { id: string; name: string }[]): void {
+    this.arenaNames = new Map(arenas.map((arena) => [arena.id, arena.name]));
+
+    this.mapPickerOptions.replaceChildren();
+    for (const arena of arenas) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "difficulty-option";
+      button.dataset.arena = arena.id;
+
+      const label = document.createElement("span");
+      label.textContent = arena.name;
+      button.append(label);
+      button.addEventListener("click", () => {
+        this.toggleMapPicker(false);
+        this.callbacks.onSelectArena(arena.id);
+      });
+      this.mapPickerOptions.appendChild(button);
+    }
+  }
+
+  private toggleMapPicker(open: boolean): void {
+    toggleClass(this.mapPicker, "is-active", open);
   }
 
   private toggleBotPicker(open: boolean): void {
@@ -213,22 +253,18 @@ export class UIManager {
     setText(this.roomName, state.roomName || "Room");
     setText(this.lobbyCount, `Players: ${state.playerCount} / ${state.maxPlayers}`);
 
-    // No countdown to a full room and no number to reach: the room stays open
-    // until its host starts it, so all there is to say is that it is open.
-    setText(
-      this.lobbyHint,
-      this.isHost
-        ? state.canStart
-          ? "Waiting for players... start whenever you like"
-          : "Waiting for players... add a bot to start on your own"
-        : "Waiting for players... the host decides when to start",
-    );
+    // The map being played, by name. The host may change it; everyone sees it.
+    setText(this.mapName, this.arenaNames.get(state.arenaId) ?? state.arenaId ?? "-");
+    this.changeMapButton.hidden = !this.isHost || this.arenaNames.size < 2;
 
     this.addBotButton.disabled = !this.isHost || state.playerCount >= state.maxPlayers;
     this.addBotButton.hidden = !this.isHost;
     this.startButton.disabled = !this.isHost || !state.canStart;
     this.startButton.hidden = !this.isHost;
-    if (!this.isHost) this.toggleBotPicker(false);
+    if (!this.isHost) {
+      this.toggleBotPicker(false);
+      this.toggleMapPicker(false);
+    }
 
     this.renderRoster(state, localSessionId);
   }
