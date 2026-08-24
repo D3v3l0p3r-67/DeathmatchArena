@@ -109,9 +109,11 @@ export const clock = { now: 0 };
  *
  * Takes an arena so a test can build the geometry its question is about -- a
  * wall of a particular height, a trap in a doorway -- instead of hunting for a
- * corner of the shipped map that happens to look like it.
+ * corner of the shipped map that happens to look like it. The seed decides
+ * which personalities and weapons turn up; leaving it alone keeps a test
+ * reproducible.
  */
-export function createHarness(arenaOverride?: ArenaDefinition): Harness {
+export function createHarness(arenaOverride?: ArenaDefinition, seed = 12345): Harness {
   const arena = arenaOverride ?? defaultArena;
   const world = new CollisionWorld(arena);
   const state = new GameState();
@@ -211,7 +213,9 @@ export function createHarness(arenaOverride?: ArenaDefinition): Harness {
   );
 
   movement = new MovementSystem(context, world, weapons, grenadeSystem, () => arenaShrink.bounds);
-  npcs = new NpcSystem(context, movement, 12345);
+  // Seeded, so a test is reproducible -- and settable, so a simulation can play
+  // a hundred *different* matches rather than the same one a hundred times.
+  npcs = new NpcSystem(context, movement, seed);
   matchManager.setNpcSystem(npcs);
   arenaShrink.reset();
   // The arena's own traps, exactly as a room loads them at startup. A harness

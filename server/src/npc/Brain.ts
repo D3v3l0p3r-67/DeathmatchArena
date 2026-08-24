@@ -113,15 +113,30 @@ export class Brain {
     const noise = Math.max(0, profile.decisionNoise);
     const entries: { action: BrainAction; score: number }[] = [];
 
+    /*
+     * Whether the thing we are already doing is still worth anything.
+     *
+     * An action scores zero when it *cannot act*: attacking with no target,
+     * chasing nobody. Commitment must not apply to those. It used to, and the
+     * bonus was enough to keep a zero above every real alternative -- so a bot
+     * whose target went out of sight stayed in "attack", which with no target
+     * issues no movement at all, and stood still for the rest of the match.
+     * Commitment is for finishing what you started, not for standing still.
+     */
+    let incumbentWorthKeeping = false;
+
     for (const action of this.actions.values()) {
       let score = action.score(context, profile, agent);
       if (!Number.isFinite(score)) score = 0;
+
+      const incumbent = this.current !== null && action.id === this.current.id;
+      if (incumbent && score > 0) incumbentWorthKeeping = true;
 
       // A little jitter, so identical bots in identical situations diverge.
       if (noise > 0) score += (this.random() * 2 - 1) * noise;
 
       // Commitment: what we are already doing counts for a bit more.
-      if (this.current && action.id === this.current.id) score += profile.currentActionBonus;
+      if (incumbent && score > 0) score += profile.currentActionBonus;
 
       entries.push({ action, score });
     }
@@ -144,9 +159,16 @@ export class Brain {
     } else if (best.action.id !== previous.id) {
       const settled = now - this.currentSince >= profile.minimumActionMs;
       const currentScore = entries.find((entry) => entry.action.id === previous.id)?.score ?? 0;
-      // The bonus is already inside `currentScore`; the threshold is the extra
-      // margin a challenger must clear on top of it.
-      if (settled && best.score > currentScore + profile.actionSwitchThreshold) {
+
+      // Nothing to finish: an action that scores nothing has no claim on the
+      // minimum duration either, so anything with a positive score takes over
+      // at once.
+      if (!incumbentWorthKeeping && best.score > 0) {
+        chosen = best.action;
+        switched = true;
+      } else if (settled && best.score > currentScore + profile.actionSwitchThreshold) {
+        // The bonus is already inside `currentScore`; the threshold is the
+        // extra margin a challenger must clear on top of it.
         chosen = best.action;
         switched = true;
       }
