@@ -39,12 +39,23 @@ const UNREACHABLE_DISTANCE = 220;
 const FAILED_GOAL_MS = 3500;
 /** A new goal this close to a recently failed one is the same goal. */
 const FAILED_GOAL_RADIUS = 80;
+/** A goal this close is worth another attempt rather than being written off. */
+const NEARBY_GOAL = 260;
 /** Walls are re-planned around at most this often, in ms. */
 const REPATH_COOLDOWN_MS = 450;
 /** How far ahead to look for something dangerous, in px. */
 const HAZARD_LOOKAHEAD = 130;
 /** A hazard shorter than this can be jumped over rather than avoided. */
 const HAZARD_CLEARABLE_HEIGHT = 46;
+/**
+ * How far above a hazard still counts as being in it, in px.
+ *
+ * A storey. A bot dropping off a ledge onto a strip of spikes has to start
+ * steering clear on the way down, and the ledges in these arenas sit about
+ * 180px above the floor -- so a threshold of one jump's height was just short
+ * enough to miss every fall that mattered.
+ */
+const OVER_HAZARD = 340;
 /** How close to a low hazard to leave the jump. Too early and you land in it. */
 const HAZARD_JUMP_GAP = 55;
 
@@ -316,9 +327,18 @@ export class MovementController {
     this.navigationSkill = clamp01(skill);
   }
 
-  /** How far ahead this bot looks for something dangerous, in px. */
-  private get hazardLookahead(): number {
-    return HAZARD_LOOKAHEAD * (0.35 + 0.65 * this.navigationSkill);
+  /**
+   * How far ahead this bot looks for something dangerous, in px.
+   *
+   * Skill decides how far ahead a bot *plans*; it must not decide whether a bot
+   * can react to the thing under its nose. At a run the body covers 5px a tick,
+   * so a fixed 45px of awareness for a poor bot is eight ticks of warning --
+   * and it walked into spikes at full speed, which is not "playing badly", it
+   * is not playing. The floor is what the current speed needs.
+   */
+  private hazardLookahead(self: SelfContext): number {
+    const skilled = HAZARD_LOOKAHEAD * (0.35 + 0.65 * this.navigationSkill);
+    return Math.max(skilled, Math.abs(self.velocityX) * 0.45);
   }
 
   /** How long it flails before deciding it is stuck, in ms. */
@@ -335,7 +355,8 @@ export class MovementController {
     // other side of it. A destination inside a trap's reach is moved to the
     // near edge instead of refused, so chasing somebody who is standing in one
     // still happens -- it just stops short.
-    const { x, y } = this.graph.clearOfHazards(goalX, goalY);
+    const reachable = this.graph.reachable(goalX, goalY);
+    const { x, y } = this.graph.clearOfHazards(reachable.x, reachable.y);
 
     // A goal that was just abandoned as unreachable is not accepted back until
     // the arena has had a chance to change -- somebody moved, a trap cooled.
@@ -368,8 +389,17 @@ export class MovementController {
     }
   }
 
-  private rememberFailure(now: number): void {
+  private rememberFailure(now: number, self?: SelfContext): void {
     if (!this.hasGoal) return;
+
+    /*
+     * A place you are standing next to is not a place you cannot reach.
+     * Climbing a ledge takes a run-up and sometimes two goes, and the stall
+     * that a missed attempt produces looks exactly like a wall from here --
+     * so remembering it as a failure meant one bad jump barred the ledge for
+     * seconds, and the bot stood at the bottom of it doing nothing.
+     */
+    if (self && Math.hypot(this.goalX - self.x, this.goalY - self.y) <= NEARBY_GOAL) return;
     this.failedGoals.push({ x: this.goalX, y: this.goalY, until: now + FAILED_GOAL_MS });
     if (this.failedGoals.length > 4) this.failedGoals.shift();
   }
@@ -402,7 +432,7 @@ export class MovementController {
     // cannot hand it straight back -- lets it pick something it can actually do.
     const straightLine = Math.hypot(this.goalX - self.x, this.goalY - self.y);
     if (this.path.length === 0 && straightLine > UNREACHABLE_DISTANCE) {
-      this.rememberFailure(now);
+      this.rememberFailure(now, self);
       this.clearGoal();
     }
   }
@@ -466,6 +496,7 @@ export class MovementController {
 
     this.considerJump(self, waypoint, rise, dx, now);
     this.avoidHazards(self, hazards);
+    this.refuseHazard(self, hazards);
     this.updateJump(self);
     this.trackProgress(self, now);
   }
@@ -481,13 +512,56 @@ export class MovementController {
     const standing = this.hazardUnderfoot(self, hazards);
     if (!standing) return false;
 
-    const toLeftEdge = self.x - standing.x;
-    const toRightEdge = standing.x + standing.width - self.x;
-    this.intent.direction = toLeftEdge <= toRightEdge ? -1 : 1;
+    const clearance = PLAYER_HALF_WIDTH + 6;
+    const left = { direction: -1, distance: self.x - standing.x + clearance };
+    const right = { direction: 1, distance: standing.x + standing.width - self.x + clearance };
 
-    // Low enough to hop out of; anything taller is left on foot, because
-    // jumping into the middle of a tall hazard is how you stay in it.
-    if (self.onGround && standing.height <= HAZARD_CLEARABLE_HEIGHT) this.jump();
+    const [nearer, further] = left.distance <= right.distance ? [left, right] : [right, left];
+
+    /*
+     * The nearest way out is not a way out if something solid is standing in
+     * it. The Foundry's left spike strip is split down the middle by a column:
+     * a bot caught on the short side took the short way, walked into the
+     * column, and stood there being spiked until it died. That was the single
+     * most common way a bot died -- more common than being shot.
+     */
+    const escape = this.canWalkOut(self, nearer) ? nearer : this.canWalkOut(self, further) ? further : nearer;
+
+    /*
+     * Already on the way out -- crossing it, or leaving from an earlier tick --
+     * is left alone. Turning somebody round mid-flight because the edge behind
+     * them is marginally closer is how a bot ends up rocking over a spike pit
+     * instead of clearing it.
+     */
+    const travelling = Math.sign(self.velocityX);
+    const carriedOut =
+      travelling !== 0 &&
+      this.canWalkOut(self, {
+        direction: travelling,
+        distance: travelling < 0 ? left.distance : right.distance,
+      });
+
+    this.intent.direction = carriedOut ? travelling : escape.direction;
+
+    /*
+     * And no jumping. Spikes hurt on *entry*, so a hop out of a strip you are
+     * standing in lands you back in it for another full hit -- which is what a
+     * bot bouncing on the spot was doing to itself, 25 health at a time, until
+     * it died. Walking out costs nothing and works.
+     */
+    return true;
+  }
+
+  /** Could the body walk this far this way without meeting something solid? */
+  private canWalkOut(self: SelfContext, exit: { direction: number; distance: number }): boolean {
+    const step = 12;
+
+    for (let travelled = step; travelled <= exit.distance; travelled += step) {
+      const x = self.x + exit.direction * travelled;
+      if (this.world.isBoxBlocked(x, self.y, PLAYER_HALF_WIDTH * 0.8, PLAYER_HALF_HEIGHT * 0.9)) {
+        return false;
+      }
+    }
 
     return true;
   }
@@ -510,7 +584,11 @@ export class MovementController {
       if (self.x - PLAYER_HALF_WIDTH >= hazard.x + hazard.width + margin) continue;
       if (self.x + PLAYER_HALF_WIDTH <= hazard.x - margin) continue;
       if (self.y - PLAYER_HALF_HEIGHT >= hazard.y + hazard.height + margin) continue;
-      if (self.y + PLAYER_HALF_HEIGHT <= hazard.y - margin) continue;
+      // Being *above* one counts, out to a jump's height: a bot in the air over
+      // a spike strip is a bot about to land in it, and it steers while it is
+      // up there. Waiting for the landing means steering resumes with a goal
+      // on the far side and walks straight back in.
+      if (self.y + PLAYER_HALF_HEIGHT <= hazard.y - OVER_HAZARD) continue;
       return hazard;
     }
 
@@ -536,12 +614,36 @@ export class MovementController {
     if (!hazard) return;
 
     if (hazard.height <= HAZARD_CLEARABLE_HEIGHT) {
-      // Leave the jump late. Jumping the moment a strip of spikes comes into
-      // view carries the bot over the near edge and down into the middle of it,
-      // which is worse than not jumping at all.
       const leading = self.x + Math.sign(this.intent.direction) * PLAYER_HALF_WIDTH;
       const nearEdge = this.intent.direction > 0 ? hazard.x : hazard.x + hazard.width;
-      if (self.onGround && Math.abs(nearEdge - leading) <= HAZARD_JUMP_GAP) this.jump();
+      const gap = Math.abs(nearEdge - leading);
+
+      /*
+       * Leave the jump late, but not so late that it cannot be left at all.
+       * Jumping the moment a strip of spikes comes into view carries the bot
+       * over the near edge and down into the middle of it; jumping within a
+       * fixed 55px means a bot at a run has a sixth of a second to notice, and
+       * most of them did not. The window is what the speed needs.
+       */
+      const window = Math.max(HAZARD_JUMP_GAP, Math.abs(self.velocityX) * 0.3);
+      if (!self.onGround || gap > window) return;
+
+      /*
+       * Only jump if the jump gets you over. A bot that has just started moving
+       * jumps a fraction of its running distance, and a jump that lands in the
+       * middle of a strip of spikes is worse than not jumping: it costs the
+       * entry it was meant to avoid, and another one on the way out.
+       */
+      const flight = Math.abs(self.velocityX) * this.graph.jumpAirtime;
+      if (flight >= gap + hazard.width + PLAYER_HALF_WIDTH) {
+        this.jump();
+        return;
+      }
+
+      // Not fast enough to clear it: stop at the edge rather than walk in, and
+      // count that as being stuck so the goal is given up and re-planned.
+      this.intent.direction = 0;
+      this.stuck = true;
       return;
     }
 
@@ -550,10 +652,57 @@ export class MovementController {
     this.clearGoal();
   }
 
+  /**
+   * Do not take a step that ends inside a trap.
+   *
+   * The last thing steering does, and deliberately the dumbest: whatever the
+   * brain wanted, whatever the route says, a foot about to land in spikes is a
+   * foot that does not move. Everything above this is a heuristic that has to
+   * *notice* danger in time -- looking ahead, timing a jump, remembering a
+   * plan -- and each of them leaks a little. This one cannot leak, because it
+   * asks the only question that matters at the moment it matters: is the place
+   * I am about to be a place that hurts?
+   *
+   * With four entries enough to kill, that difference is most of a bot's life.
+   */
+  private refuseHazard(self: SelfContext, hazards: readonly PerceivedTrap[]): void {
+    if (this.intent.direction === 0 || hazards.length === 0) return;
+    // Airborne is the jump's business; this is about where a walk ends up.
+    if (!self.onGround) return;
+
+    const stride = PLAYER_HALF_WIDTH + Math.max(14, Math.abs(self.velocityX) * 0.1);
+    const nextX = self.x + this.intent.direction * stride;
+
+    let blocking: PerceivedTrap | null = null;
+    for (const hazard of hazards) {
+      if (!hazard.hot || !hazard.harmful) continue;
+      if (nextX + PLAYER_HALF_WIDTH <= hazard.x || nextX - PLAYER_HALF_WIDTH >= hazard.x + hazard.width) continue;
+      if (self.y + PLAYER_HALF_HEIGHT <= hazard.y) continue;
+      if (self.y - PLAYER_HALF_HEIGHT >= hazard.y + hazard.height) continue;
+      blocking = hazard;
+      break;
+    }
+
+    if (!blocking) return;
+
+    // Over it in one go, or not at all.
+    const gap = Math.abs(
+      (this.intent.direction > 0 ? blocking.x : blocking.x + blocking.width) - self.x,
+    );
+    const flight = Math.abs(self.velocityX) * this.graph.jumpAirtime;
+    if (blocking.height <= HAZARD_CLEARABLE_HEIGHT && flight >= gap + blocking.width + PLAYER_HALF_WIDTH) {
+      this.jump();
+      return;
+    }
+
+    this.intent.direction = 0;
+    this.stuck = true;
+  }
+
   /** The first live hazard sitting in the direction of travel. */
   private hazardAhead(self: SelfContext, hazards: readonly PerceivedTrap[]): PerceivedTrap | null {
     const from = self.x - PLAYER_HALF_WIDTH;
-    const to = self.x + PLAYER_HALF_WIDTH + this.intent.direction * this.hazardLookahead;
+    const to = self.x + PLAYER_HALF_WIDTH + this.intent.direction * this.hazardLookahead(self);
 
     const left = Math.min(from, to);
     const right = Math.max(from, to);
@@ -683,7 +832,7 @@ export class MovementController {
     // recomputePath keeps a close pathless goal on the theory that walking
     // straight at it will do. The wall in front of us is proof it will not.
     if (this.hasGoal && this.path.length === 0) {
-      this.rememberFailure(now);
+      this.rememberFailure(now, self);
       this.clearGoal();
       this.stop();
     }
@@ -725,7 +874,7 @@ export class MovementController {
     // something else next time it thinks, rather than leaving a bot pressed
     // against the underside of a platform for the rest of the match.
     if (stalled > this.abandonAfterMs) {
-      this.rememberFailure(now);
+      this.rememberFailure(now, self);
       this.clearGoal();
       this.stop();
       this.lastProgressAt = now;

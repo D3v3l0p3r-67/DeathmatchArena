@@ -915,6 +915,44 @@ blast. Measured across the three arenas at two, four and six bots, self-inflicte
 damage fell from 1963 to 1222 over the same two-minute samples, and improved in
 every one of the nine.
 
+### How bots die, and what that says
+
+`npm run simulate -- --matches 100 --bots 2` plays a hundred matches with nobody
+watching and reports what killed everybody. It runs the real room -- the same
+systems, the same fixed step, the same input queue -- and it exists because the
+interesting question about bots is not whether they win but whether they die of
+things a person would be embarrassed by.
+
+The first run of it was damning: **74% of bot deaths were spikes and 20% were
+gunfire.** Bots were not losing fights, they were walking into scenery. Chasing
+that number down turned up a series of faults, each real, each fixed:
+
+| | at the start | now |
+|---|---|---|
+| killed by a trap | 73.8% | 66.3% |
+| killed by another bot | 20.4% | 27.9% |
+| killed by its own grenade | 5.8% | 5.8% |
+| median time of death | 16.3s | 22.8s |
+
+The largest single fault was not in the hazard code at all. An action that
+scores zero -- attacking with no target -- was being *kept* by the brain's
+commitment bonus, and attacking with no target issues no movement, so a bot
+whose target went out of sight stood still for the rest of the match. Next to
+that: goals were being invented outside the arena (`self.x + 180` runs off the
+end of the world), a bot standing in spikes escaped by the nearest edge even
+when a column stood in the way, and it hopped on the spot to get out of a strip
+that hurts on entry -- landing back in it for another full hit.
+
+**It is not finished.** Two thirds of bot deaths are still spikes, and the
+reason is measured rather than guessed: the navigation graph links a jump if the
+height is in reach and the gap is in reach, checked separately, when they are
+one jump. Enforcing the arc properly takes spike deaths from 69 to 54 per
+hundred matches -- and costs bots the ability to climb in three pinned cases,
+because the alternative to a long running jump is a near-vertical hop at a
+ledge's corner, which is the one shape the movement controller flies badly. The
+generous version is the better trade until that is fixed, and the simulator
+makes the next attempt cheap to judge.
+
 ### A jump pad is not a hazard
 
 Traps are one system: placed the same way, simulated the same way, drawn the

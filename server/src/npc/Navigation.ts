@@ -29,10 +29,18 @@ export type NavLinkKind = "walk" | "jump" | "drop";
 
 /** How far around a trap a route should stay, in px. */
 const HAZARD_MARGIN = 26;
-/** What ending a step inside a trap's reach costs, in pixels of detour. */
-const HAZARD_STANDING_COST = 1400;
-/** What walking through one on the way costs. */
-const HAZARD_CROSSING_COST = 1100;
+/*
+ * What a trap costs a route, in pixels of detour it is worth taking to avoid.
+ *
+ * These were far too cheap. A strip of spikes takes a quarter of a player's
+ * health on contact, so crossing one to save 1100px of walking is a trade
+ * nobody should make -- and bots made it constantly: in a hundred simulated
+ * matches, three quarters of all bot deaths were spikes, against a fifth from
+ * being shot. Priced at a few thousand pixels, the long way round wins, which
+ * is the answer a person would give.
+ */
+const HAZARD_STANDING_COST = 6000;
+const HAZARD_CROSSING_COST = 5000;
 
 export interface NavLink {
   to: number;
@@ -61,11 +69,23 @@ export class NavGraph {
    * routes were planned with, rather than guessing with a constant.
    */
   maxClimb = 0;
+  /**
+   * How long a full jump keeps a body off the ground, in seconds.
+   *
+   * Exposed so steering can ask the question the graph already answers: given
+   * how fast I am going, how far will this jump actually carry me?
+   */
+  jumpAirtime = 0;
 
   /** Trap rectangles, grown by a margin, that routes should avoid. */
   private readonly hazards: { left: number; right: number; top: number; bottom: number }[] = [];
 
+  private readonly width: number;
+  private readonly height: number;
+
   constructor(arena: ArenaDefinition, private readonly world: CollisionWorld, player: PlayerConfig) {
+    this.width = arena.width;
+    this.height = arena.height;
     this.collectHazards(arena);
     this.buildNodes(arena, world);
     this.buildLinks(player);
@@ -182,6 +202,40 @@ export class NavGraph {
   }
 
   /**
+   * Somewhere a body could actually be, near where you asked for.
+   *
+   * Half the actions in the brain pick a destination by arithmetic -- back off
+   * 180px, sidestep 90px, get clear of the blast -- and arithmetic runs off the
+   * end of the arena. A goal outside the world, or inside a wall, is a goal the
+   * router cannot reach, which is abandoned, which is refused for a few seconds
+   * while the brain keeps proposing it: a bot standing against the left wall
+   * doing nothing at all, which is exactly what happened.
+   */
+  reachable(x: number, y: number): { x: number; y: number } {
+    // Outside the arena counts as blocked. Nothing is *solid* out there -- the
+    // collision world has no geometry past the walls -- so asking it alone
+    // reports a spot beyond the left wall as perfectly walkable.
+    const inside =
+      x > PLAYER_HALF_WIDTH &&
+      x < this.width - PLAYER_HALF_WIDTH &&
+      y > PLAYER_HALF_HEIGHT &&
+      y < this.height - PLAYER_HALF_HEIGHT;
+
+    /*
+     * Probed with a body slightly smaller than a real one. Every standing
+     * position rests *on* a surface, so a full-size box always touches
+     * something -- and a check that strict declared every ledge unusable and
+     * dragged goals down to the floor, which is a bot that never climbs.
+     */
+    if (inside && !this.world.isBoxBlocked(x, y, PLAYER_HALF_WIDTH * 0.8, PLAYER_HALF_HEIGHT * 0.8)) {
+      return { x, y };
+    }
+
+    const node = this.nodes[this.nearest(x, y)];
+    return node ? { x: node.x, y: node.y } : { x, y };
+  }
+
+  /**
    * The nearest spot outside any trap's reach, given somewhere to stand.
    *
    * Used to keep a *destination* out of a hazard: chasing somebody who is
@@ -289,7 +343,9 @@ export class NavGraph {
 
     // Roughly how far you travel horizontally over a full jump arc.
     const airtime = (2 * jumpSpeed) / gravity;
+    this.jumpAirtime = airtime * (jumps > 1 ? 1.55 : 1);
     const maxReach = player.moveSpeed * airtime * (jumps > 1 ? 1.55 : 1);
+
 
     // A drop is only limited by how far sideways you can steer on the way down.
     const maxDropReach = maxReach * 1.2;
@@ -318,8 +374,29 @@ export class NavGraph {
         }
 
         if (rise > 4) {
-          // Climbing. Both the height and the gap have to be within reach.
+          /*
+           * Climbing. Both the height and the gap have to be within reach --
+           * measured independently, which is generous: they are one jump, and
+           * a link like "263px across and 80px up" is at the edge of flyable.
+           *
+           * Enforcing the arc properly (the horizontal budget shrinking as the
+           * climb grows) was tried and measured: bot deaths to spikes fell from
+           * 69 to 54 per hundred matches, because a bot that misses a long jump
+           * lands in whatever is under the ledge. It also cost bots the ability
+           * to climb at all in three pinned cases -- the alternative to a long
+           * running jump is a near-vertical hop at a ledge's corner, and that
+           * is the one shape the movement controller flies badly. Until it
+           * flies that reliably, the generous version is the better trade.
+           */
           if (rise <= maxRise && dx <= maxReach) {
+            /*
+             * Deliberately not priced by how demanding the jump is. Charging
+             * for reach and height was tried, on the theory that a bot should
+             * take the gentler of two links to the same ledge -- and it made
+             * bots worse: the gentle link is a near-vertical hop at a ledge's
+             * corner, which is the one shape this controller flies badly, and
+             * the "demanding" one is a running jump, which it flies well.
+             */
             this.links[i]!.push({
               to: j,
               kind: "jump",
