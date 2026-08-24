@@ -547,7 +547,9 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
     // bots cost a fraction of a tick.
     thinkIntervalMs: 125,
     perceptionIntervalMs: 125,
-    sightRange: 1100,
+    // Wide on purpose: measured over sixty simulated matches, 1500 turns a
+    // few percent of trap deaths into gunfights, which is the game working.
+    sightRange: 1500,
     names: [
       "Vex", "Rook", "Nyx", "Kane", "Juno", "Onyx",
       "Pike", "Wren", "Cyrus", "Mara", "Drift", "Halo",

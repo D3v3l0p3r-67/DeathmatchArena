@@ -929,10 +929,12 @@ that number down turned up a series of faults, each real, each fixed:
 
 | | at the start | now |
 |---|---|---|
-| killed by a trap | 73.8% | 66.3% |
-| killed by another bot | 20.4% | 27.9% |
-| killed by its own grenade | 5.8% | 5.8% |
-| median time of death | 16.3s | 22.8s |
+| killed by a trap | 73.8% | 45.2% |
+| killed by another bot | 20.4% | 47.1% |
+| killed by its own grenade | 5.8% | 7.7% |
+| median time of death | 16.3s | 37.7s |
+
+Being shot is the leading cause of death now, which is the game working.
 
 The largest single fault was not in the hazard code at all. An action that
 scores zero -- attacking with no target -- was being *kept* by the brain's
@@ -943,15 +945,28 @@ end of the world), a bot standing in spikes escaped by the nearest edge even
 when a column stood in the way, and it hopped on the spot to get out of a strip
 that hurts on entry -- landing back in it for another full hit.
 
-**It is not finished.** Two thirds of bot deaths are still spikes, and the
-reason is measured rather than guessed: the navigation graph links a jump if the
-height is in reach and the gap is in reach, checked separately, when they are
-one jump. Enforcing the arc properly takes spike deaths from 69 to 54 per
-hundred matches -- and costs bots the ability to climb in three pinned cases,
-because the alternative to a long running jump is a near-vertical hop at a
-ledge's corner, which is the one shape the movement controller flies badly. The
-generous version is the better trade until that is fixed, and the simulator
-makes the next attempt cheap to judge.
+The largest gain came from a bug that had eaten every planned jump for as long
+as bots have existed. The jump machine's press was judged in the same tick it
+was made, before the physics had seen it: the body read as not rising, so the
+machine concluded the ascent was over, spent its rising phase and the mid-air
+flag on the spot -- and every commanded jump flew as a single one, about 135px
+against the 203 the navigation graph plans with. Bots planned routes they could
+not fly, bounced under ledges, and dropped into whatever was beneath. One tick
+of patience fixed it, a bench test pins it, and with jumps real again two more
+things became safe to do: the graph now refuses jump links whose height and
+length cannot be flown *together* (they were checked separately, which linked
+leaps like "353px across and 180px up"), and a coming climb starts its jump on
+the run-up -- pressed at the ledge's base, a jump rises into the ledge's
+underside.
+
+Falls got their own steering, because the measurements said falls were the
+killer: of the harmful trap hits bots took, five in six landed while falling.
+A fall's landing spot is known the moment it starts -- it is ballistics -- so
+an airborne bot now flies its landing point and steers off anything that hurts.
+
+Verified after the changes: 98% of jumps that need the mid-air press spend it,
+achieved rises run to 248px, and the bench climbs that used to take several
+attempts land on the first one.
 
 ### Bots open crates now
 
@@ -984,6 +999,48 @@ Fixing it took four things, each of which was doing nothing useful on its own:
 Bots now spend about a quarter of their time going for things, and what stops
 them getting more is the same weakness as everything else: crates spawn on high
 platforms, and climbing is the thing this movement controller does least well.
+
+### Bots that actually cross the arena
+
+A blunt probe -- put one bot and one idle victim in an arena, start the clock --
+returned the worst number of the project: **the bot never found the victim.
+Not once, in eighteen runs of two minutes each, in any arena.** Tracking its
+position showed why: bots roamed a small box around wherever they spawned. In
+the Silo the box was 200 by 375 pixels of a 2000-by-2400 arena.
+
+Four out of five wander journeys were being abandoned halfway, each for a
+mechanical reason, each found by tracing one journey tick by tick:
+
+- **"Progress" meant closing on the destination.** A real route walks *away*
+  from the goal for seconds at a time -- around a wall, up the far side of a
+  spiral -- and the stall detector read that as being stuck. Progress is now
+  measured against the next waypoint, and consuming one is progress by
+  definition.
+- **Jumps launched into the underside of their own destination.** The climb to
+  a ledge started at the ledge's base, under it. The run-up now continues until
+  the launch column is open all the way up, short launch windows are accepted
+  (a jump is flown by held height, not speed), and a waypoint not consumed in
+  four seconds hands the route back to the planner.
+- **The graph linked climbs with no launch spot.** Where platforms stack like
+  shelves, every inch of a lower shelf can sit under another one; a link is now
+  built only if somewhere near its start has open sky to the landing height.
+- **A trap's edge was a tollbooth.** Escaping a strip of spikes ended exactly
+  on its boundary, the route marched straight back in, and the trap re-arms on
+  exit -- so a bot oscillated across the edge paying 25 health per wobble.
+  Escapes now end a stride clear and force a replan from the safe side.
+
+After the fixes, two bots meet in a median of **3.8 seconds** (previously they
+could wander past each other for whole matches), and they cross arenas
+end-to-end. Two perception changes ride along: the sight range is 1500 (measured
+across sixty matches, the wider view turns a few percent of trap deaths into
+gunfights), and bots *hear* -- an enemy bullet in flight leaves a decaying lead
+at the bullet's position, never overwriting a fresh sighting, so a fight can be
+rejoined without wallhacks.
+
+The same probes found a genuine map defect: the Silo's crown had a crate spawn
+and no way up -- a 440px gap in its ladder, past any jump, for people as much as
+bots. The ladder got its missing rung, and a test now walks every arena's crate
+spawns from a player spawn.
 
 ### A jump pad is not a hazard
 

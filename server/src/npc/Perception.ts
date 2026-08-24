@@ -25,6 +25,9 @@ import type {
 import type { Memory } from "./Memory.js";
 
 /** Beyond this many pixels a grenade is somebody else's problem. */
+/** How far gunfire carries, in px. Well past sight, and through walls. */
+const HEARING_RANGE = 2200;
+
 const GRENADE_ALARM_RADIUS = 320;
 /**
  * How near a trap has to be before it is worth steering around.
@@ -73,6 +76,7 @@ export class Perception {
     // Anything seen is worth remembering; anything remembered but not seen is
     // worth acting on for a while longer.
     for (const enemy of visible) memory.see(enemy, now);
+    this.listen(self, memory, now);
     const enemies = this.mergeMemories(self, visible, memory, profile, now);
 
     const grenades = this.senseGrenades(self, now);
@@ -177,6 +181,29 @@ export class Perception {
     target.weapon = weapon;
 
     return target;
+  }
+
+  /**
+   * Hear the fight.
+   *
+   * Every projectile in flight is somebody shooting, and gunfire carries much
+   * further than sight. Each enemy bullet within earshot leaves a memory of
+   * its owner at the *bullet's* position -- not the shooter's, so hearing is
+   * honest about walls and gets vaguer with distance flown -- and the ordinary
+   * memory machinery ages it away like any other lead.
+   */
+  private listen(self: PlayerState, memory: Memory, now: number): void {
+    for (const projectile of this.context.state.projectiles.values()) {
+      if (projectile.ownerId === self.sessionId) continue;
+
+      const owner = this.context.state.players.get(projectile.ownerId);
+      if (!owner || !owner.alive || !owner.inMatch) continue;
+
+      const distance = distanceBetween(self.x, self.y, projectile.x, projectile.y);
+      if (distance > HEARING_RANGE) continue;
+
+      memory.hear(owner.sessionId, owner.name, projectile.x, projectile.y, now);
+    }
   }
 
   // -------------------------------------------------------------------------

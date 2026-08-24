@@ -349,6 +349,13 @@ const SILO: ArenaDefinition = {
     element("step-8", 900, 810, 200, 22, PLATFORM),
     element("ledge-9", 140, 720, 420, 24, PLATFORM),
     element("step-9", 660, 630, 200, 22, PLATFORM),
+    // The rung the ladder was missing. Without it the crown of the tower --
+    // and the crate that spawns on it -- could not be reached by anybody, bot
+    // or person: the gap from step-9 to ledge-10 was 440px, past any jump.
+    element("step-9b", 1080, 590, 160, 22, PLATFORM),
+    // The rung the ladder was missing. Without it the crown of the tower --
+    // and the crate that spawns on it -- could not be reached by anybody, bot
+    // or person: the gap from step-9 to ledge-10 was 440px, past any jump.
     element("ledge-10", 1300, 540, 420, 24, PLATFORM),
     element("step-10", 900, 450, 200, 22, PLATFORM),
     // --- The top of the silo -----------------------------------------------

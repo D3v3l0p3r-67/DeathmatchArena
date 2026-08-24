@@ -530,6 +530,37 @@ describe("memory", () => {
   });
 });
 
+describe("hearing the fight", () => {
+  it("a bullet in earshot leaves a lead at the bullet, not at the shooter", () => {
+    const memory = new Memory();
+    memory.hear("e1", "Enemy", 500, 300, 1000);
+
+    const remembered = memory.recall(2000, 10000);
+    assert.equal(remembered.length, 1);
+    assert.equal(remembered[0]!.lastSeenX, 500, "the lead is where the sound was");
+  });
+
+  it("never overwrites a fresh sighting with a vague sound", () => {
+    // Seeing somebody pins them exactly; the bullet they fired a moment later
+    // must not smear that knowledge back along its own flight path.
+    const memory = new Memory();
+    memory.see(enemy({ sessionId: "e1", x: 800, y: 500 }), 1000);
+    memory.hear("e1", "Enemy", 300, 300, 1200);
+
+    const remembered = memory.recall(1300, 10000);
+    assert.equal(remembered[0]!.lastSeenX, 800, "the sighting outranks the sound");
+  });
+
+  it("does update knowledge that has gone stale", () => {
+    const memory = new Memory();
+    memory.see(enemy({ sessionId: "e1", x: 800, y: 500 }), 1000);
+    memory.hear("e1", "Enemy", 300, 300, 5000);
+
+    const remembered = memory.recall(5100, 10000);
+    assert.equal(remembered[0]!.lastSeenX, 300, "old knowledge yields to a new sound");
+  });
+});
+
 describe("target selection", () => {
   const selector = new TargetSelector();
 
@@ -1063,12 +1094,18 @@ describe("bots in a real match", () => {
     const travelled = new Map(ids.map((id) => [id, 0]));
     let previous = new Map(ids.map((id) => [id, harness.state.players.get(id)!.x]));
 
-    for (let second = 0; second < 6; second++) {
-      harness.run(1);
+    // Sampled finely, because what a fighting bot mostly does is strafe -- and
+    // with everybody kept alive, because the wide sight range means the fight
+    // is real from the first second, and a corpse covers no ground however
+    // well its input queue works.
+    for (let step = 0; step < 24; step++) {
+      harness.run(0.25);
       for (const id of ids) {
-        const x = harness.state.players.get(id)!.x;
-        travelled.set(id, travelled.get(id)! + Math.abs(x - previous.get(id)!));
-        previous.set(id, x);
+        const player = harness.state.players.get(id)!;
+        player.health = MAX_HEALTH;
+        player.alive = true;
+        travelled.set(id, travelled.get(id)! + Math.abs(player.x - previous.get(id)!));
+        previous.set(id, player.x);
       }
     }
 
@@ -1802,13 +1839,19 @@ describe("how a bot flies a jump", () => {
     // The other half of the same bug: the graph was linking ledges 237px up
     // while the controller could manage 35, so bots routed themselves under
     // platforms and stayed there. Whatever the graph plans has to be flyable.
+    //
+    // The upper storey deliberately stops short of the right wall. It used to
+    // span the arena, and the "real climb" this test celebrated was a link from
+    // the storey below straight up through the solid slab -- exactly the kind
+    // of route the launch check now refuses. An honest climb needs an edge
+    // with open sky beside it.
     const arena = createEmptyArena("reach", "Reach", 1600, 1400);
-    arena.elements.push({ id: "floor", type: "floor", x: 0, y: 1200, width: 1600, height: 40 });
+    arena.elements.push({ id: "floor", type: "floor", x: 0, y: 1200, width: 700, height: 40 });
     for (let step = 1; step <= 10; step++) {
       arena.elements.push({
         id: `ledge-${step}`,
         type: "platform",
-        x: 700,
+        x: 1100,
         y: 1200 - step * 30,
         width: 200,
         height: 10,
@@ -1825,6 +1868,71 @@ describe("how a bot flies a jump", () => {
     const highest = Math.max(0, ...rises);
     assert.ok(highest > 100, `the graph should still plan real climbs, got ${highest}`);
     assert.ok(highest <= 210, `the graph plans a ${Math.round(highest)}px climb a bot cannot fly`);
+  });
+});
+
+describe("flying a jump to its full height", () => {
+  /** A flat floor, a controller, and one commanded jump. */
+  function flyOneJump(): number {
+    const arena = createEmptyArena("flat", "Flat", 1600, 1200);
+    const floorY = 1200 - 60;
+    const world = new CollisionWorld(arena);
+    const graph = new NavGraph(arena, world, getPlayerConfig());
+    const controller = new MovementController(graph, world);
+
+    const state = createMovementState(400, floorY - PLAYER_HALF_HEIGHT);
+    state.onGround = true;
+    const input = createInputCommand();
+    let apex = state.y;
+
+    for (let tick = 0; tick < 120; tick++) {
+      const self = {
+        x: state.x,
+        y: state.y,
+        velocityX: state.velocityX,
+        velocityY: state.velocityY,
+        onGround: state.onGround,
+        jumpsRemaining: state.jumpsRemaining,
+        health: 1,
+        ammo: 1,
+        reloading: false,
+        grenades: 0,
+        weapon: null,
+      } as never;
+
+      // A goal at its own feet, because steering (which flies the jump) does
+      // nothing without one; and an unreachable jump target, so the machine
+      // flies the whole profile -- full first ascent, and the mid-air jump
+      // spent at its apex.
+      controller.setGoal(400, floorY - PLAYER_HALF_HEIGHT, self, tick * 16.67);
+      if (tick === 3) controller.jumpTo(state.y - 1000);
+      controller.steer(self, tick * 16.67);
+      const buttons = controller.takeButtons();
+      input.seq = tick + 1;
+      input.jump = buttons.jump;
+      stepPlayerMovement(state, input, FIXED_DELTA, world);
+      apex = Math.min(apex, state.y);
+    }
+
+    return floorY - PLAYER_HALF_HEIGHT - apex;
+  }
+
+  it("spends both jumps and reaches what the graph promises", () => {
+    /*
+     * The bug this pins ate every planned jump for as long as bots have
+     * existed. A press made in `considerJump` was judged by `updateJump` in
+     * the same tick, before the physics had seen it: the body read as not
+     * rising, so the machine concluded the ascent was over, spent its rising
+     * phase and the mid-air flag on the spot, and the whole flight came out a
+     * single jump -- about 135px against the 203 the navigation graph plans
+     * with. Bots planned routes they could not fly, bounced under ledges, and
+     * fell into whatever was beneath them.
+     */
+    const rise = flyOneJump();
+    assert.ok(
+      rise > 190,
+      `a full commanded jump should get close to the graph's ${"maxClimb"}, rose ${Math.round(rise)}px`,
+    );
   });
 });
 
@@ -2336,6 +2444,65 @@ describe("throwing a grenade somewhere useful", () => {
     // And somewhere harmless is left exactly where it was.
     const clear = graph.clearOfHazards(400, floorY - PLAYER_HALF_HEIGHT);
     assert.equal(clear.x, 400);
+  });
+
+  it("steers a fall off the spikes it would land in", () => {
+    /*
+     * Five in six of the harmful trap hits bots took were taken while falling:
+     * a bot walking off a ledge, or knocked off one, dropped diagonally onto
+     * the strip below and rode it down. The landing spot is known the moment
+     * the fall starts -- it is ballistics -- so the fall is steered off it.
+     */
+    const arena = createEmptyArena("pit", "Pit", 2000, 1000);
+    const floorY = 1000 - 60;
+    const world = new CollisionWorld(arena);
+    const graph = new NavGraph(arena, world, getPlayerConfig());
+    const controller = new MovementController(graph, world);
+
+    const spikes = {
+      id: "spikes",
+      x: 900,
+      y: floorY - 24,
+      width: 200,
+      height: 24,
+      distance: 120,
+      hot: true,
+      harmful: true,
+      threat: 1,
+    };
+
+    // Falling from above and to the left, drifting right: the unsteered landing
+    // point is inside the strip.
+    const falling = (x: number) =>
+      ({
+        x,
+        y: floorY - 320,
+        velocityX: 160,
+        velocityY: 300,
+        onGround: false,
+        jumpsRemaining: 1,
+        health: 1,
+        ammo: 1,
+        reloading: false,
+        grenades: 0,
+        weapon: null,
+      }) as never;
+
+    const self = falling(880);
+    controller.setGoal(1400, floorY - PLAYER_HALF_HEIGHT, self, 0);
+    controller.steer(self, 0, [spikes]);
+
+    assert.equal(
+      controller.takeButtons().moveLeft,
+      true,
+      "a fall landing in the spikes steers for the near edge",
+    );
+
+    // The same fall over clear ground is left alone: it flies the goal.
+    const clear = falling(400);
+    controller.setGoal(1400, floorY - PLAYER_HALF_HEIGHT, clear, 100);
+    controller.steer(clear, 100, [spikes]);
+    assert.equal(controller.takeButtons().moveRight, true, "a clear fall keeps going where it was going");
   });
 
   it("never wanders into a trap on purpose", () => {
