@@ -106,6 +106,55 @@ export class CombatController {
   }
 
   /**
+   * Aim at a spot and shoot it.
+   *
+   * For the things worth shooting that are not people: a sealed crate is a
+   * better weapon or a medkit behind a few rounds, and bots used to walk up to
+   * one, point at it, and never pull the trigger -- which is why no bot in this
+   * game had ever opened a crate.
+   *
+   * Everything a shot at a person needs is skipped on purpose. There is no
+   * reaction time (a crate is not a surprise), no lead (it does not move) and no
+   * line-of-sight test -- if the shot goes into the wall in front, that is what
+   * the wall is for. What is kept is the aim slew, so a bot still has to bring
+   * the gun round, and the range check.
+   */
+  shootAt(
+    x: number,
+    y: number,
+    radius: number,
+    context: BrainContext,
+    profile: BrainProfile,
+    dt: number,
+  ): CombatOutput {
+    const weapon = context.self.weapon;
+    const desired = Math.atan2(y - context.self.y, x - context.self.x);
+    this.aimAt(desired, profile, dt, context.now, true);
+
+    const distance = Math.hypot(x - context.self.x, y - context.self.y);
+    const empty = usesAmmo(weapon) && context.self.ammo <= 0;
+    /*
+     * How close the aim has to be, from how big the thing is and how far away.
+     * A fixed angle is the wrong shape: at 400px a tenth of a radian is 40px of
+     * error, which misses a crate entirely -- and bots emptied magazines past
+     * crates they were standing in front of.
+     */
+    const onTarget = Math.abs(angleDelta(this.aimAngle, desired)) <= Math.atan2(radius, Math.max(1, distance));
+
+    // Nothing explosive at arm's length, for the same reason as ever.
+    const tooCloseToDetonate =
+      weapon.ranged?.explosion != null &&
+      distance < weapon.ranged.explosion.radius + SELF_BLAST_MARGIN;
+
+    return {
+      aimAngle: this.aimAngle,
+      fire: onTarget && distance <= weapon.range && !empty && !context.self.reloading && !tooCloseToDetonate,
+      reload: empty && !context.self.reloading,
+      chargeGrenade: false,
+    };
+  }
+
+  /**
    * Aim at a target and shoot when it is worth shooting.
    *
    * Fire is withheld until the reaction time has elapsed, the aim is actually on
@@ -268,13 +317,20 @@ export class CombatController {
    * tick rate averages out to nothing and looks like a vibrating gun, while a
    * slow drift looks like a person not quite holding still.
    */
-  private aimAt(desired: number, profile: BrainProfile, dt: number, now: number): void {
+  private aimAt(desired: number, profile: BrainProfile, dt: number, now: number, steady = false): void {
     if (now - this.driftRolledAt >= AIM_DRIFT_INTERVAL_MS) {
       this.driftRolledAt = now;
       this.aimDrift = (this.random() * 2 - 1) * MAX_AIM_ERROR * (1 - clamp01(profile.aimSkill));
     }
 
-    const target = normalizeAngle(desired + this.aimDrift);
+    /*
+     * A steady aim skips the wobble. Aim error is there so a poor bot misses a
+     * *person* -- a moving, shooting, interesting target. A crate is a box that
+     * does not move, and at 400px the wobble is wider than the box, so a bot
+     * shooting at one held the trigger and never once hit it. Nobody's idea of
+     * skill includes missing the furniture.
+     */
+    const target = normalizeAngle(desired + (steady ? 0 : this.aimDrift));
     const delta = angleDelta(this.aimAngle, target);
 
     // Turn rate scales with skill: a poor shot is still swinging round while a

@@ -1,4 +1,5 @@
 import {
+  PLAYER,
   applyBotDifficulty,
   createInputCommand,
   type BotDifficultyLevel,
@@ -22,6 +23,7 @@ type CombatMode =
   | { kind: "engage"; targetId: string }
   | { kind: "track"; targetId: string }
   | { kind: "look"; x: number; y: number }
+  | { kind: "shoot"; x: number; y: number; radius: number }
   | { kind: "throw"; x: number; y: number };
 
 /** One line of the decision log. */
@@ -261,6 +263,33 @@ export class NpcAgent {
     this.combatMode = { kind: "track", targetId: target.sessionId };
   }
 
+  /**
+   * Is there a clear line to this spot?
+   *
+   * The same question `shootable` answers for a person, for the things that
+   * are not people. Crates sit on platforms, bots stand under them, and a bot
+   * that did not ask emptied magazine after magazine into the underside of the
+   * platform: nine thousand trigger pulls across thirty matches opened seven
+   * crates.
+   */
+  canShootAt(x: number, y: number): boolean {
+    const context = this.context;
+    if (!context) return false;
+
+    const fromX = context.self.x;
+    const fromY = context.self.y + PLAYER.AIM_ORIGIN_Y;
+    const hit = this.room.world.raycast(fromX, fromY, x, y);
+    if (!hit) return true;
+
+    const blocked = Math.hypot(hit.x - fromX, hit.y - fromY);
+    return blocked >= Math.hypot(x - fromX, y - fromY) - 1;
+  }
+
+  /** Shoot at something that is not a person -- a crate worth opening. */
+  shootAt(x: number, y: number, radius: number): void {
+    this.combatMode = { kind: "shoot", x, y, radius };
+  }
+
   /** Point somewhere, e.g. where an enemy was last seen. */
   lookAt(x: number, y: number): void {
     this.combatMode = { kind: "look", x, y };
@@ -393,6 +422,16 @@ export class NpcAgent {
         this.combat.lookAt(this.combatMode.x, this.combatMode.y, context, this.effective, dt);
         return this.combat.idle(context);
       }
+
+      case "shoot":
+        return this.combat.shootAt(
+          this.combatMode.x,
+          this.combatMode.y,
+          this.combatMode.radius,
+          context,
+          this.effective,
+          dt,
+        );
 
       case "throw": {
         const config = this.room.config.getGrenadeConfig();
