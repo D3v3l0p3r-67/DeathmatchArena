@@ -1115,6 +1115,30 @@ Measured as the share of bot-time spent inside a trap that actually hurts,
 across three arenas at two, four and six bots: **2.37% → 0.77%**, better or
 unchanged in all nine.
 
+### The wall coming towards you
+
+The closing walls were invisible to bots. Not by omission -- nothing about the
+shrink ever reached the movement code, and no simulation caught it, because the
+shrink starts at two minutes and a bot match ends in well under one. In a real
+match with the walls in play a bot chased a memory the walls had already
+swallowed, walked into the edge, and stood there being pushed along and ground
+down: across six closing matches, bots spent **37% of the endgame flat against
+an edge**.
+
+Two things fixed it, both feeding the movement controller the playable bounds
+each think:
+
+- **A goal the walls have swallowed is brought inside.** Clamped into the
+  playable strip before the route is planned, so a chase across a boundary that
+  no longer exists becomes a chase to the last place inside that does.
+- **Stepping in from a wall runs before everything else.** A wall does not miss,
+  cannot be shot back at, and is coming whatever the bot decides -- so getting
+  off it outranks the goal, the hazard flinch and the fall steering, the same
+  way "get out of the fire" outranks them.
+
+Measured over the same six matches: **37.4% → 9.4%** of the endgame spent
+against an edge, and crush damage taken 11615 → 7302.
+
 ### Routes a bot cannot fly
 
 Three fixes in the navigation graph, all the same shape: a link that describes a
@@ -1689,6 +1713,38 @@ under the mid-air jump, sparks where a grenade bounces, debris when a crate
 breaks, a burst tinted with a power-up's own colour when it is collected, and a
 blast drawn at the radius the server actually used.
 
+### Every hit is legible, whoever landed it
+
+A damage number used to appear only for hits you landed or took, and the server
+only told the attacker and the victim a hit had happened. Watching two other
+players fight -- or spectating after your own elimination -- showed muzzle
+flashes over a health bar that quietly shortened, which reads as nothing
+happening at all.
+
+The server now broadcasts each `DAMAGE` to the room. That is not a new leak:
+every player's position and health is already in the synchronised state each
+client receives, so a modified client learns nothing it could not read before,
+and the cost is a few dozen bytes per hit against a patch that already carries
+every player twenty times a second.
+
+The client draws all three cases in different voices (`DamageVoice` in
+`EffectsSystem`), because they are not equally your business: a hit you landed
+is amber, a hit you took is red, and somebody else's exchange is paler, smaller
+and dimmer -- there to be read if you look, not to compete with your own fight.
+
+### Health is two bytes on the wire
+
+`player.maxHealth` may be set as high as 1000 in the admin, and `health` on the
+schema was a `uint8`. An administrator who raised it got players spawning on 232
+health -- 1000 wrapped into a byte -- and a red sliver of a health bar, with
+nothing anywhere reporting a problem: the server was authoritative, correct, and
+truncated on the way out.
+
+It is a `uint16` now. `tests/wire.test.ts` walks the admin's own declared maxima
+(`buildConfigFields`) and pushes each through a real `Encoder`/`Decoder` round
+trip, so a field that cannot survive its configured maximum fails the suite
+rather than reaching a player as a wrong number.
+
 ### Dying, and the last kill of a match
 
 A death used to be a body disappearing on the frame its health hit zero, and only
@@ -1862,7 +1918,12 @@ npm test
   weapon, that it is capped however absurd the configuration, that it adds to the
   speed already carried, that it never moves a position directly, that recoil is
   per shot rather than per pellet — and that holding a movement key no longer
-  cancels a knockback.
+  cancels a knockback. Also that a hit is announced to the whole room rather than
+  to the two players involved, so a bystander can see a fight they are not in.
+- **`tests/wire.test.ts`** — every configurable maximum survives the wire. The
+  schema's field widths are checked against the admin's own declared maxima by
+  encoding real state and decoding it again, so a setting the game would silently
+  truncate fails here instead of reaching a player as a wrong number.
 - **`tests/debug.test.ts`** — debug authorization over a real socket: a refusal leaks
   no catalogue, a hand-crafted command from an unauthorized session changes nothing,
   arguments are clamped, unknown config paths are refused, and a room override never

@@ -20,6 +20,7 @@ import {
   getPlayerConfig,
   getWeapon,
   stepPlayerMovement,
+  type DamagePayload,
   type KillPayload,
 } from "@deathmatch/shared";
 import { createHarness, fireAt, type Harness } from "./harness.js";
@@ -182,6 +183,33 @@ describe("weapon validation", () => {
 
     assert.equal(harness.state.projectiles.size, 0, "the dead must not shoot");
     assert.equal(player.ammo, getWeapon(player.weaponId).magazineSize);
+  });
+});
+
+describe("who hears about a hit", () => {
+  it("tells the whole room, not only the two players involved", () => {
+    /*
+     * A bystander needs this: without it, watching two other players trade
+     * fire showed flashes and no numbers, and spectating after your own
+     * elimination showed a silent fight. It leaks nothing -- every player's
+     * position and health is already in the state every client receives.
+     */
+    const harness = createHarness();
+    const shooter = harness.addPlayer("shooter", 200, 1700);
+    harness.addPlayer("target", 600, 1700);
+    harness.addPlayer("bystander", 1200, 1700);
+
+    fireAt(harness, "shooter", 0, 0);
+    harness.step(30, 0);
+
+    const damage = harness.broadcasts.filter((entry) => entry.type === ServerMessage.DAMAGE);
+    assert.equal(damage.length, 1, "one hit, announced once to everybody");
+
+    const payload = damage[0]!.payload as DamagePayload;
+    assert.equal(payload.victimId, "target");
+    assert.equal(payload.attackerId, "shooter");
+    assert.equal(payload.amount, getWeapon(shooter.weaponId).damage);
+    assert.equal(payload.fatal, false);
   });
 });
 

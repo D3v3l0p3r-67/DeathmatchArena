@@ -374,11 +374,20 @@ export class MatchManager {
       fatal,
     };
 
-    // Only the two players involved need this; broadcasting it would be waste.
-    this.context.sendTo(victimId, ServerMessage.DAMAGE, payload);
-    if (attackerId && attackerId !== victimId) {
-      this.context.sendTo(attackerId, ServerMessage.DAMAGE, payload);
-    }
+    /*
+     * Everybody, not just the two involved. A fight you can see but not read
+     * looks like nothing happening: players watching two others trade fire --
+     * or spectating after their own elimination -- saw silent flashes and no
+     * numbers, because this used to go only to the attacker and the victim.
+     * The client draws somebody else's exchange quieter than your own.
+     *
+     * No new information leaves the server: every player's position and health
+     * is already in the synchronised state that all clients receive, so this
+     * tells a modified client nothing it could not already read. The cost is a
+     * few dozen bytes per hit per client, against a schema patch that carries
+     * every player twenty times a second.
+     */
+    this.context.broadcast(ServerMessage.DAMAGE, payload);
 
     if (fatal) this.eliminate(victim, attacker, weaponId);
   }

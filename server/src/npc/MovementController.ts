@@ -1,4 +1,5 @@
 import {
+  PLAYER,
   PLAYER_HALF_HEIGHT,
   PLAYER_HALF_WIDTH,
   clamp01,
@@ -31,6 +32,13 @@ const CLIMB_ANTICIPATION = 300;
 const RUN_UP_PATIENCE_MS = 1200;
 /** A waypoint not consumed in this long is not going to be, in ms. */
 const WAYPOINT_DEADLINE_MS = 4000;
+/**
+ * How much room to keep from a closing wall, in px.
+ *
+ * Comfortably more than the contact width the crush damage uses, so a bot is
+ * moving before it is being hurt rather than after.
+ */
+const WALL_MARGIN = 90;
 /** Give up on a goal that has made no progress for this long, in ms. */
 const ABANDON_AFTER_MS = 2600;
 /** How far above a ledge to aim, so a landing is a landing and not a scrape. */
@@ -141,6 +149,16 @@ export class MovementController {
   private runningUpSince = 0;
   /** 0..1, from this bot's difficulty. See `setNavigationSkill`. */
   private navigationSkill = 1;
+  /**
+   * What is still playable, as the closing walls narrow it.
+   *
+   * Without this a bot chases a memory the walls have already swallowed: it
+   * walks into the wall, the wall pushes it along, and it stands there being
+   * crushed with its goal somewhere outside the world. Which is precisely what
+   * bots did -- 84% of the endgame spent inside the alarm distance, most of it
+   * flat against the edge.
+   */
+  private playable: { left: number; right: number } | null = null;
 
   constructor(
     private graph: NavGraph,
@@ -356,6 +374,11 @@ export class MovementController {
     this.navigationSkill = clamp01(skill);
   }
 
+  /** Track the closing walls, so no goal is set outside them. */
+  setPlayableBounds(left: number, right: number): void {
+    this.playable = right - left > PLAYER.WIDTH * 2 ? { left, right } : null;
+  }
+
   /**
    * How far ahead this bot looks for something dangerous, in px.
    *
@@ -384,7 +407,13 @@ export class MovementController {
     // other side of it. A destination inside a trap's reach is moved to the
     // near edge instead of refused, so chasing somebody who is standing in one
     // still happens -- it just stops short.
-    const reachable = this.graph.reachable(goalX, goalY);
+    // Inside the walls first: a destination the arena no longer contains is not
+    // a destination, and walking at one means walking into the wall.
+    const inside = this.playable
+      ? Math.min(Math.max(goalX, this.playable.left + WALL_MARGIN), this.playable.right - WALL_MARGIN)
+      : goalX;
+
+    const reachable = this.graph.reachable(inside, goalY);
     const { x, y } = this.graph.clearOfHazards(reachable.x, reachable.y);
 
     // A goal that was just abandoned as unreachable is not accepted back until
@@ -484,7 +513,7 @@ export class MovementController {
      * was standing in one. Measured in the shipped arenas, that was most of the
      * damage the arena ever did to a bot.
      */
-    if (this.escapeHazard(self, hazards) || this.steerFallClear(self, hazards)) {
+    if (this.escapeWalls(self) || this.escapeHazard(self, hazards) || this.steerFallClear(self, hazards)) {
       this.updateJump(self);
       this.trackProgress(self, now);
       return;
@@ -590,6 +619,25 @@ export class MovementController {
     this.refuseHazard(self, hazards);
     this.updateJump(self);
     this.trackProgress(self, now);
+  }
+
+  /**
+   * Step in from a closing wall.
+   *
+   * First of all the overrides, because being crushed is not something to be
+   * weighed against attacking: a wall does not miss, it cannot be shot back at,
+   * and it is coming whatever the bot decides. Below the margin the tick's
+   * movement is "inwards" and nothing else.
+   */
+  private escapeWalls(self: SelfContext): boolean {
+    if (!this.playable) return false;
+
+    const fromLeft = self.x - this.playable.left;
+    const fromRight = this.playable.right - self.x;
+    if (fromLeft >= WALL_MARGIN && fromRight >= WALL_MARGIN) return false;
+
+    this.intent.direction = fromLeft < fromRight ? 1 : -1;
+    return true;
   }
 
   /**

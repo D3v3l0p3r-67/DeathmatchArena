@@ -1936,6 +1936,71 @@ describe("flying a jump to its full height", () => {
   });
 });
 
+describe("the arena closing in", () => {
+  /** A bot standing where the wall is about to be. */
+  function cornered(wallLeft: number, wallRight: number, x: number) {
+    const arena = createEmptyArena("closing", "Closing", 2000, 1000);
+    const floorY = 1000 - 60;
+    const world = new CollisionWorld(arena);
+    const graph = new NavGraph(arena, world, getPlayerConfig());
+    const controller = new MovementController(graph, world);
+    controller.setPlayableBounds(wallLeft, wallRight);
+
+    const self = {
+      x,
+      y: floorY - PLAYER_HALF_HEIGHT,
+      velocityX: 0,
+      velocityY: 0,
+      onGround: true,
+      jumpsRemaining: 2,
+      health: 1,
+      ammo: 1,
+      reloading: false,
+      grenades: 0,
+      weapon: null,
+    } as never;
+
+    return { controller, self, floorY };
+  }
+
+  it("steps in from a wall it is being pressed against", () => {
+    /*
+     * A wall does not miss, cannot be shot back at, and is coming whatever the
+     * bot decides -- so it comes before every other decision. Without that a
+     * bot chased a memory the walls had already swallowed, walked into the
+     * wall, and stood there being pushed along and crushed: measured over six
+     * closing matches, bots spent 37% of the endgame flat against an edge.
+     */
+    const { controller, self, floorY } = cornered(400, 1600, 420);
+
+    // A goal further left still, which is where the trouble used to start.
+    controller.setGoal(150, floorY - PLAYER_HALF_HEIGHT, self, 0);
+    controller.steer(self, 0);
+
+    assert.equal(controller.takeButtons().moveRight, true, "it should step in, away from the wall");
+  });
+
+  it("never takes a goal the walls have swallowed", () => {
+    const { controller, self, floorY } = cornered(400, 1600, 900);
+
+    controller.setGoal(120, floorY - PLAYER_HALF_HEIGHT, self, 0);
+
+    const goal = controller.goal;
+    assert.ok(goal, "a goal outside the walls should be brought inside, not dropped");
+    assert.ok(goal!.x > 400, `the goal is still outside the wall at ${Math.round(goal!.x)}`);
+  });
+
+  it("leaves a bot with room alone", () => {
+    // Mid-arena the walls are nobody's business: the goal decides.
+    const { controller, self, floorY } = cornered(400, 1600, 1000);
+
+    controller.setGoal(1400, floorY - PLAYER_HALF_HEIGHT, self, 0);
+    controller.steer(self, 0);
+
+    assert.equal(controller.takeButtons().moveRight, true, "it should just go where it was going");
+  });
+});
+
 describe("meeting a wall", () => {
   /**
    * Put a bot on a floor with a solid wall between it and its goal, drive the
