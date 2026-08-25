@@ -1656,6 +1656,31 @@ Bots hold fire with an explosive weapon when the target is inside their own blas
 radius. The same reasoning the grenade action already applied, moved to the
 trigger: a bot with a launcher backs off instead of killing itself.
 
+**A reload costs what is actually missing.** `reloadTime` is configured as the
+time for a full reload -- empty magazine to full -- but a reload used to take
+that long regardless of how empty the gun actually was, and the HUD swept its
+gauge from empty every time even when most of the magazine was still loaded.
+Topping off 29 of 30 rounds looked and felt identical to reloading from zero.
+
+`getReloadDurationMs(weapon, currentAmmo)` scales `reloadTime` by the fraction of
+the magazine actually gone: a rifle missing 1 of 30 rounds reloads in a
+thirtieth of the full time, missing 14 of 30 takes just under half of it. One
+function, asked by three places that all used to assume a full reload on their
+own: `WeaponSystem` (which enforces the deadline), the client's `LocalFireModel`
+(which predicts it, so the trigger gate does not mispredict an early shot after
+a short reload), and the HUD (which times the gauge's sweep). Asking one place
+means the three cannot drift into disagreeing about how long a reload takes.
+
+The gauge itself starts its sweep from wherever the ammunition actually sits --
+`ammoRatio`, the same number the ordinary ammo bar is drawn at -- rather than
+from empty. A bar that already read 97% full no longer has to fall to nothing
+and climb back up to say "resupplying"; it visibly tops off the last sliver
+instead. Measured in a live client with the built bundle instrumented to record
+every reload: missing 1 of 30 rounds swept from 96.7% to full in 60ms (exactly
+`1800ms * 1/30`), and missing 14 of 30 swept from 53.3% in an 840ms reload
+(`1800ms * 14/30`), the gauge's width tracking the elapsed fraction of that
+window throughout.
+
 ---
 
 ## Knockback and recoil
@@ -2034,7 +2059,13 @@ npm test
   own setting for traps and the closing walls, counted once when a bot blows
   itself up, and picked up on the next hit when the ladder is retuned mid-match.
   Also that the countdown publishes every player's spawn before anybody stands on
-  it, and that the match then puts them there.
+  it, and that the match then puts them there. And that a reload costs exactly
+  the configured time when it starts from empty, none at all when the magazine
+  is already full, and the proportional time for what is actually missing in
+  between — `getReloadDurationMs` pinned against the exact numbers in the spec
+  it was built to satisfy (5, 6 and 9 of 10 rounds), plus a live server case that
+  starts a manual reload with a single round missing and checks it finishes on
+  its own, much shorter deadline rather than the full one.
 - **`tests/wire.test.ts`** — every configurable maximum survives the wire. The
   schema's field widths are checked against the admin's own declared maxima by
   encoding real state and decoding it again, so a setting the game would silently

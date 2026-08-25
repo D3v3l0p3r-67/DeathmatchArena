@@ -2,6 +2,7 @@ import {
   MatchState,
   getPlayerConfig,
   clamp,
+  getReloadDurationMs,
   getWeapon,
   isMelee,
   usesAmmo,
@@ -18,6 +19,18 @@ export interface HudSnapshot {
   /** Whole seconds until the arena starts closing; 0 once it has. */
   shrinkCountdownSeconds: number;
   shrinking: boolean;
+}
+
+/**
+ * How full the ammo bar reads right now, 0..1.
+ *
+ * A free function rather than a method: `updateAmmo` draws the bar at this
+ * width, and `updateReload` needs the exact same number as the sweep's
+ * starting point, so the two must ask the one place rather than compute it
+ * twice and risk drifting apart.
+ */
+function ammoRatio(player: SyncedPlayer, weapon: ReturnType<typeof getWeapon>): number {
+  return clamp(player.ammo / Math.max(1, weapon.magazineSize), 0, 1);
 }
 
 /**
@@ -57,6 +70,8 @@ export class HUD {
   /** Local reload clock: the server only tells us that a reload is in progress. */
   private reloadStartedAt = 0;
   private reloadDurationMs = 0;
+  /** The bar's width, 0..1, at the moment the current reload began. */
+  private reloadStartedRatio = 0;
   private hitmarkerTimer = 0;
   private damageFlashTimer = 0;
 
@@ -88,9 +103,9 @@ export class HUD {
     setText(this.weaponName, weapon.name);
 
     this.updateAmmo(player, weapon);
+    this.updateReload(player, weapon);
     toggleClass(this.meleeBadge, "is-active", isMelee(weapon));
 
-    this.updateReload(player.reloading, weapon.reloadTime);
     this.updateEffects(player, snapshot);
 
     const inFight = snapshot.matchState === MatchState.PLAYING && player.alive;
@@ -115,11 +130,13 @@ export class HUD {
     setText(this.ammo, String(player.ammo));
     setText(this.magazine, String(weapon.magazineSize));
 
-    // The bar is empty during a reload: the magazine is genuinely out, and it
-    // leaves the whole bar for the reload sweep to fill. Otherwise the sweep
-    // would be hidden behind the rounds it is about to replace until it grew
-    // past them, so the first half of every reload would look like nothing.
-    const ratio = player.reloading ? 0 : clamp(player.ammo / Math.max(1, weapon.magazineSize), 0, 1);
+    /*
+     * Left showing whatever is actually left, reload or not: a reload starting
+     * at 9 of 10 rounds has almost nothing to fill, and a bar that dropped to
+     * empty regardless said otherwise. The sweep in `updateReload` starts from
+     * this same width and grows to full, so the two always agree.
+     */
+    const ratio = ammoRatio(player, weapon);
     this.ammoFill.style.width = `${ratio * 100}%`;
     toggleClass(this.ammoGauge, "is-empty", player.ammo === 0 && !player.reloading);
     toggleClass(this.ammoFill, "is-low", ratio > 0 && ratio <= 0.25);
@@ -153,11 +170,22 @@ export class HUD {
     }
   }
 
-  /** Track reload progress locally so the server does not have to stream a timer. */
-  private updateReload(reloading: boolean, durationMs: number): void {
+  /**
+   * Track reload progress locally so the server does not have to stream a timer.
+   *
+   * Starts the sweep at the ammunition already in the magazine and finishes it
+   * at 100%, over `getReloadDurationMs` for however much is actually missing --
+   * the same duration the server is enforcing. A gun topped up to 9 of 10 sweeps
+   * a tenth of the bar in a tenth of the time; one reloaded from empty sweeps
+   * all of it, exactly as before.
+   */
+  private updateReload(player: SyncedPlayer, weapon: ReturnType<typeof getWeapon>): void {
+    const reloading = player.reloading;
+
     if (reloading && this.reloadStartedAt === 0) {
       this.reloadStartedAt = performance.now();
-      this.reloadDurationMs = durationMs;
+      this.reloadStartedRatio = ammoRatio(player, weapon);
+      this.reloadDurationMs = getReloadDurationMs(weapon, player.ammo);
     } else if (!reloading && this.reloadStartedAt !== 0) {
       this.reloadStartedAt = 0;
     }
@@ -169,8 +197,11 @@ export class HUD {
     }
 
     const elapsed = performance.now() - this.reloadStartedAt;
-    const progress = clamp(elapsed / Math.max(1, this.reloadDurationMs), 0, 1);
-    this.reload.style.width = `${progress * 100}%`;
+    // A configured reloadTime of 0 (or nothing left missing) means it finished
+    // the instant it started, rather than dividing by zero.
+    const progress = this.reloadDurationMs > 0 ? clamp(elapsed / this.reloadDurationMs, 0, 1) : 1;
+    const width = this.reloadStartedRatio + (1 - this.reloadStartedRatio) * progress;
+    this.reload.style.width = `${width * 100}%`;
   }
 
   /** Position the DOM crosshair over the pointer. */

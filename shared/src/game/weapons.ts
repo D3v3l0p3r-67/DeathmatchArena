@@ -35,6 +35,26 @@ export function getFireIntervalMs(weapon: WeaponDefinition): number {
   return 60000 / weapon.fireRate;
 }
 
+/**
+ * How long a reload takes, starting from `currentAmmo`.
+ *
+ * `weapon.reloadTime` is configured as the time for a *full* reload -- empty
+ * magazine to full -- so this scales it by the fraction actually missing: 5 of
+ * 10 rounds gone reloads in half that time, 1 of 10 gone reloads in a tenth of
+ * it. A weapon topped up already needs none at all.
+ *
+ * One function, asked by the server (which enforces it), the client's local
+ * fire model (which predicts it) and the HUD (which animates it), so the three
+ * cannot drift into disagreeing about how long a reload takes -- the failure
+ * mode being fixed here, where the HUD always showed the full-magazine time and
+ * animated the gauge from empty regardless of what was actually missing.
+ */
+export function getReloadDurationMs(weapon: WeaponDefinition, currentAmmo: number): number {
+  if (weapon.magazineSize <= 0) return 0;
+  const missing = clamp(weapon.magazineSize - currentAmmo, 0, weapon.magazineSize);
+  return (weapon.reloadTime * missing) / weapon.magazineSize;
+}
+
 /** Lifetime implied by a projectile weapon's range and muzzle velocity. */
 export function getProjectileLifetimeMs(weapon: WeaponDefinition): number {
   const speed = weapon.ranged?.bulletSpeed ?? 0;
