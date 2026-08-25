@@ -65,7 +65,7 @@ Mouse               aim
 Left Mouse          fire (hold — the rifle is automatic)
 Right Mouse         hold to charge a grenade throw, release to throw
 R                   reload
-Left / Right Arrow  switch spectated player (while dead)
+A / D / Arrows      switch spectated player (while dead) — the same keys that moved you
 O                   open settings (audio and effects)
 F3                  toggle the debug overlay
 ```

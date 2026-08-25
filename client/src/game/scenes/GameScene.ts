@@ -198,8 +198,15 @@ export class GameScene extends Phaser.Scene {
     // Start looking at the middle of the arena until we spawn.
     this.cameraController.snapTo(this.arena.width / 2, this.arena.height / 2);
 
-    this.input.keyboard?.on("keydown-LEFT", () => this.cycleSpectateTarget(-1));
-    this.input.keyboard?.on("keydown-RIGHT", () => this.cycleSpectateTarget(1));
+    // The same keys that walked left and right switch who you watch once you
+    // cannot walk any more. Cycling is ignored while the local player is alive,
+    // so the extra bindings cost nothing during play.
+    for (const key of ["LEFT", "A"]) {
+      this.input.keyboard?.on(`keydown-${key}`, () => this.cycleSpectateTarget(-1));
+    }
+    for (const key of ["RIGHT", "D"]) {
+      this.input.keyboard?.on(`keydown-${key}`, () => this.cycleSpectateTarget(1));
+    }
   }
 
   private subscribeToNetwork(): void {
