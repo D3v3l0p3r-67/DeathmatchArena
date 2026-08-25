@@ -10,11 +10,12 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
-import { PLAYER, PLAYER_HALF_WIDTH, listWeapons } from "@deathmatch/shared";
+import { MatchState, PLAYER, PLAYER_HALF_WIDTH, listWeapons } from "@deathmatch/shared";
 
 const { SOUNDS, SoundChannel, SoundId, getSound } = await import("../client/src/audio/sounds.js");
 const { BURSTS, SHAKES, DEFAULT_EFFECTS_SETTINGS } = await import("../client/src/game/fx/effects.js");
 const { SoundThrottle } = await import("../client/src/audio/SoundThrottle.js");
+const { shouldHideCursor } = await import("../client/src/ui/cursor.js");
 
 describe("sound catalogue", () => {
   const channels = new Set<string>(Object.values(SoundChannel));
@@ -79,6 +80,21 @@ describe("sound catalogue", () => {
       const sound = getSound(id)!;
       assert.ok((sound.throttleMs ?? 0) > 0, `${id} should be throttled`);
     }
+  });
+});
+
+describe("hiding the OS cursor during play", () => {
+  it("hides only while a match is running and nothing needs a click", () => {
+    assert.equal(shouldHideCursor(MatchState.PLAYING, false), true);
+    assert.equal(
+      shouldHideCursor(MatchState.PLAYING, true),
+      false,
+      "the settings panel or debug console needs a real cursor",
+    );
+    assert.equal(shouldHideCursor(MatchState.WAITING, false), false);
+    assert.equal(shouldHideCursor(MatchState.COUNTDOWN, false), false);
+    assert.equal(shouldHideCursor(MatchState.FINISHED, false), false);
+    assert.equal(shouldHideCursor(undefined, false), false);
   });
 });
 

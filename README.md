@@ -1774,6 +1774,22 @@ camera's world bounds come off with it -- zoomed out far enough to fit the
 arena, Phaser's bounds clamping would pin the level into a corner of the screen
 instead of the middle. Both come back the moment the player spawns.
 
+### One cursor, not two
+
+During a match the system arrow used to sit on top of the crosshair, aiming at
+slightly different pixels than the thing doing the actual aiming. The OS
+pointer is now hidden for the duration (`body.hide-cursor`, toggled every frame
+off `network.state.matchState`) and restored the moment something needs a real
+cursor to click -- the settings panel or the debug console, both reachable by a
+key press mid-match.
+
+Hiding it exposed a real bug in the crosshair itself: its screen position was
+only refreshed on the HUD's throttled 80ms tick, meant for a health bar rather
+than a pointer, so it visibly stepped behind a fast mouse movement instead of
+tracking it. It now updates every rendered frame, unthrottled, alongside the
+cursor visibility check -- both cheap enough that there was never a reason to
+throttle them, only a shared code path that happened to.
+
 ### Every hit is legible, whoever landed it
 
 A damage number used to appear only for hits you landed or took, and the server

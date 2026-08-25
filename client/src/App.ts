@@ -26,6 +26,8 @@ import { KillFeed } from "./ui/KillFeed.js";
 import { TouchControls } from "./ui/TouchControls.js";
 import { UIManager } from "./ui/UIManager.js";
 import { isSpectating } from "./ui/spectating.js";
+import { shouldHideCursor } from "./ui/cursor.js";
+import { toggleClass } from "./ui/dom.js";
 
 /** HUD text does not need to change 60 times a second. */
 const HUD_UPDATE_INTERVAL_MS = 80;
@@ -545,6 +547,14 @@ export class App {
     this.hud.tick(now);
     this.updateResultsCountdown(now);
 
+    /*
+     * Unthrottled, unlike everything below: this is a mouse position, and the
+     * 80ms HUD interval that is fine for a health bar reads as stutter for
+     * something meant to track the pointer. Run it every rendered frame instead.
+     */
+    this.updateCrosshair();
+    this.updateCursorVisibility();
+
     if (now - this.lastHudUpdate < HUD_UPDATE_INTERVAL_MS) return;
     this.lastHudUpdate = now;
 
@@ -552,6 +562,28 @@ export class App {
     this.updateHud();
     this.updateDebugOverlay();
     this.updateLobby();
+  }
+
+  /** The pointer's screen position, every frame -- see the comment in `onFrame`. */
+  private updateCrosshair(): void {
+    const scene = this.getGameScene();
+    if (scene && this.network.state?.matchState === MatchState.PLAYING) {
+      const pointer = scene.getPointerScreenPosition();
+      this.hud.setCrosshairPosition(pointer.x, pointer.y);
+    }
+  }
+
+  /**
+   * The OS pointer is only in the way during play: aiming already has the
+   * crosshair, so the system arrow just sits on top of it doubling up. Hidden
+   * whenever a match is actually running, restored the moment something needs
+   * a real cursor to click -- the settings panel or the debug console, both
+   * reachable by a key press at any time during a match.
+   */
+  private updateCursorVisibility(): void {
+    const needsPointer = this.settings.isOpen || this.debugConsole.isOpen;
+    const hidden = shouldHideCursor(this.network.state?.matchState, needsPointer);
+    toggleClass(document.body, "hide-cursor", hidden);
   }
 
   /** The audio listener follows the camera, so sound pans with the view. */
@@ -573,12 +605,6 @@ export class App {
       shrinkCountdownSeconds: state.shrinkCountdownSeconds,
       shrinking: state.shrinking,
     });
-
-    const scene = this.getGameScene();
-    if (scene && state.matchState === MatchState.PLAYING) {
-      const pointer = scene.getPointerScreenPosition();
-      this.hud.setCrosshairPosition(pointer.x, pointer.y);
-    }
   }
 
   private updateDebugOverlay(): void {

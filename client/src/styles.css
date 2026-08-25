@@ -41,6 +41,18 @@ body {
   -webkit-user-select: none;
 }
 
+/*
+ * During a match the crosshair is the pointer -- the OS arrow sitting on top
+ * of it doubled up as two cursors aiming at slightly different pixels. Applied
+ * to the body rather than just the canvas so it also covers the HUD layer,
+ * which sits above the canvas and would otherwise show the arrow whenever the
+ * mouse crossed a HUD element. Toggled off the moment something needs a real
+ * cursor to click -- the settings panel or the debug console.
+ */
+body.hide-cursor {
+  cursor: none;
+}
+
 #game-root {
   position: fixed;
   inset: 0;
