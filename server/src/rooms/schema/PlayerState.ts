@@ -37,6 +37,16 @@ export class PlayerState extends Schema implements SyncedPlayer {
 
   @type("float32") x = 0;
   @type("float32") y = 0;
+
+  /*
+   * Where this player will stand when the match starts, published while the
+   * countdown is still running. The client's countdown flyover needs it: the
+   * whole arena is shown during 3-2-1 and the camera then dives to the spawn,
+   * which only works if the spawn is known before anybody is spawned. Zero
+   * means "not decided yet" -- no real spawn sits at the arena's edge.
+   */
+  @type("uint16") spawnX = 0;
+  @type("uint16") spawnY = 0;
   @type("float32") velocityX = 0;
   @type("float32") velocityY = 0;
 
