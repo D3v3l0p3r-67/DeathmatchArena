@@ -147,6 +147,15 @@ export class GameScene extends Phaser.Scene {
   private spectateTargetId = "";
   private wasAlive = false;
 
+  /*
+   * The countdown flyover: while the numbers run, the camera holds the whole
+   * arena so the player can read the level, then dives to their spawn on the
+   * final second. While it is active the ordinary follow keeps its hands off
+   * the camera.
+   */
+  private introActive = false;
+  private introMarker: Phaser.GameObjects.Container | null = null;
+
   constructor() {
     super({ key: GAME_SCENE_KEY });
   }
@@ -214,6 +223,7 @@ export class GameScene extends Phaser.Scene {
     events.on("damage", (payload) => this.onDamage(payload));
     events.on("kill", (payload) => this.onKill(payload));
     events.on("matchStateChanged", ({ matchState }) => this.onMatchStateChanged(matchState));
+    events.on("countdownChanged", ({ seconds }) => this.onCountdownTick(seconds));
     // A debug command can retune a weapon mid-match, including how it looks.
     events.on("configChanged", () => generateWeaponTextures(this));
     events.on("arenaChanged", (arena) => this.onArenaChanged(arena));
@@ -615,7 +625,10 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (!this.wasAlive && local.alive) {
-      // Fresh spawn: drop prediction history and re-enable controls.
+      // Fresh spawn: drop prediction history and re-enable controls. The
+      // flyover, if it is still gliding in, ends here -- the dive lands within
+      // a frame or two of this anyway, and the spawn is where it was heading.
+      this.endIntro();
       this.prediction.reset(local);
       this.inputController.setEnabled(true);
       this.spectateTargetId = this.network.sessionId;
@@ -650,6 +663,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private onMatchStateChanged(matchState: string): void {
+    if (matchState === MatchState.COUNTDOWN) this.beginIntro();
+    else if (matchState !== MatchState.PLAYING) this.endIntro();
+
     if (matchState === MatchState.PLAYING) {
       this.inputController.setEnabled(true);
       this.cancelFinale();
@@ -1037,7 +1053,78 @@ export class GameScene extends Phaser.Scene {
     for (const view of this.projectileViews.values()) view.render(now);
   }
 
+  // ---------------------------------------------------------------------------
+  // The countdown flyover
+  // ---------------------------------------------------------------------------
+
+  /** Pull back to the whole arena and mark where the local player will land. */
+  private beginIntro(): void {
+    this.introActive = true;
+    this.cameraController.overview(this.arena.width, this.arena.height);
+    this.refreshIntroMarker();
+  }
+
+  /**
+   * The last second: dive from the overview to the spawn, arriving at normal
+   * zoom just as the match starts.
+   */
+  private onCountdownTick(seconds: number): void {
+    if (!this.introActive) return;
+
+    // The spawn can be dealt a patch after the countdown begins; place the
+    // marker as soon as it is known rather than only on entry.
+    this.refreshIntroMarker();
+    if (seconds !== 1) return;
+
+    const spot = this.localSpawnSpot();
+    this.cameraController.flyTo(spot.x, spot.y, 900);
+  }
+
+  /** The flyover is over: bounds back on, marker gone, camera handed back. */
+  private endIntro(): void {
+    if (!this.introActive) return;
+    this.introActive = false;
+    this.introMarker?.destroy();
+    this.introMarker = null;
+    this.cameraController.endOverview(this.arena);
+  }
+
+  /** Where the server has promised to put the local player, if it has. */
+  private localSpawnSpot(): { x: number; y: number } {
+    const local = this.network.state?.players.get(this.network.sessionId);
+    if (local && local.spawnX > 0) return { x: local.spawnX, y: local.spawnY };
+    return { x: this.arena.width / 2, y: this.arena.height / 2 };
+  }
+
+  /**
+   * A pulsing ring on the local spawn, so the dive has a visible destination.
+   * Sized for the zoomed-out view: at overview zoom a player-sized mark would
+   * be a few pixels.
+   */
+  private refreshIntroMarker(): void {
+    const spot = this.localSpawnSpot();
+    if (this.introMarker) {
+      this.introMarker.setPosition(spot.x, spot.y);
+      return;
+    }
+
+    const ring = this.add.circle(0, 0, 60, 0x37d0ff, 0).setStrokeStyle(6, 0x37d0ff, 0.9);
+    const dot = this.add.circle(0, 0, 10, 0x37d0ff, 0.9);
+    this.introMarker = this.add.container(spot.x, spot.y, [ring, dot]).setDepth(24);
+
+    this.tweens.add({
+      targets: ring,
+      scale: { from: 0.55, to: 1.25 },
+      alpha: { from: 1, to: 0.25 },
+      duration: 850,
+      repeat: -1,
+    });
+  }
+
   private updateCamera(deltaSeconds: number): void {
+    // The flyover owns the camera until the match hands it to the player.
+    if (this.introActive) return;
+
     const target = this.getCameraTarget();
     if (!target) return;
 

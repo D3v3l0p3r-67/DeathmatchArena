@@ -25,6 +25,9 @@ export interface SyncedPlayer {
   readonly botDifficultyName: string;
   readonly x: number;
   readonly y: number;
+  /** Where this player will spawn, published during the countdown. 0 = not decided. */
+  readonly spawnX: number;
+  readonly spawnY: number;
   readonly velocityX: number;
   readonly velocityY: number;
   readonly aimAngle: number;

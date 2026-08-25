@@ -21,6 +21,7 @@ import {
   getGameConfig,
   getDefaultWeaponId,
   getFireIntervalMs,
+  getMatchConfig,
   getNpcConfig,
   getPlayerConfig,
   getWeapon,
@@ -320,6 +321,46 @@ describe("difficulty and damage", () => {
     harness.matchManager.applyDamage("easy", "easy", 20, victim.x, victim.y, "grenade");
 
     assert.equal(before - victim.health, Math.round(20 * rung(1).damageTakenMultiplier));
+  });
+});
+
+describe("the countdown promises spawns", () => {
+  it("publishes everybody's spawn before anyone stands on it, and keeps the promise", () => {
+    /*
+     * The client's flyover dives to the local player's spawn during the last
+     * second of the countdown, which only works if the spot is decided and
+     * published while the numbers are still running -- spawns used to be dealt
+     * out at the moment the match started.
+     */
+    const harness = createHarness();
+    harness.state.matchState = MatchState.WAITING;
+
+    const players = ["one", "two", "three"].map((id) => {
+      const player = harness.addPlayer(id, 100, 100);
+      player.connected = true;
+      return player;
+    });
+    harness.state.hostId = "one";
+
+    harness.matchManager.requestStart();
+    harness.run(0.5);
+
+    assert.equal(harness.state.matchState, MatchState.COUNTDOWN);
+    const promised = new Map(players.map((player) => [player.sessionId, { x: player.spawnX, y: player.spawnY }]));
+    for (const [id, spot] of promised) {
+      assert.ok(spot.x > 0, `${id} has no published spawn during the countdown`);
+    }
+
+    harness.run(getMatchConfig().countdownMs / 1000 + 0.5);
+    assert.equal(harness.state.matchState, MatchState.PLAYING);
+
+    for (const player of players) {
+      const spot = promised.get(player.sessionId)!;
+      assert.ok(
+        Math.hypot(player.x - spot.x, player.y - spot.y) < 60,
+        `${player.sessionId} spawned at ${Math.round(player.x)},${Math.round(player.y)} but was promised ${spot.x},${spot.y}`,
+      );
+    }
   });
 });
 

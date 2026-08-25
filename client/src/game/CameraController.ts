@@ -93,6 +93,44 @@ export class CameraController {
     this.camera.setZoom(1);
   }
 
+  /**
+   * Show the whole arena at once, for the countdown flyover.
+   *
+   * The bounds come off for the duration: with the camera zoomed far enough out
+   * to fit everything, Phaser's clamping pins the arena into a corner of the
+   * view instead of the middle. `endOverview` puts the bounds back.
+   */
+  overview(arenaWidth: number, arenaHeight: number): void {
+    this.camera.panEffect.reset();
+    this.camera.zoomEffect.reset();
+    this.camera.removeBounds();
+
+    // Fit both axes, with a sliver of margin so the outer walls read as walls
+    // rather than as the edge of the screen.
+    const fit = Math.min(this.camera.width / arenaWidth, this.camera.height / arenaHeight) * 0.94;
+    this.camera.setZoom(fit);
+    this.camera.centerOn(arenaWidth / 2, arenaHeight / 2);
+  }
+
+  /**
+   * Dive from the overview to a point, arriving at normal zoom.
+   *
+   * Pan and zoom run together as camera effects rather than through `follow`,
+   * because during the countdown there is nobody to follow yet.
+   */
+  flyTo(x: number, y: number, durationMs: number): void {
+    this.camera.pan(x, y, durationMs, "Sine.easeInOut", true);
+    this.camera.zoomTo(1, durationMs, "Sine.easeInOut", true);
+  }
+
+  /** The overview is done: restore the bounds and hand the camera back. */
+  endOverview(arena: ArenaDefinition): void {
+    this.camera.panEffect.reset();
+    this.camera.zoomEffect.reset();
+    this.camera.setZoom(1);
+    this.camera.setBounds(0, 0, arena.width, arena.height);
+  }
+
   shake(durationMs: number, intensity: number): void {
     this.camera.shake(durationMs, intensity, true);
   }

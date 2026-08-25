@@ -1752,6 +1752,28 @@ under the mid-air jump, sparks where a grenade bounces, debris when a crate
 breaks, a burst tinted with a power-up's own colour when it is collected, and a
 blast drawn at the radius the server actually used.
 
+### The countdown shows you the arena
+
+While 3-2-1 runs, the camera pulls back to the whole arena -- the level is the
+one thing worth reading in those seconds, and a new map was previously something
+you discovered mid-firefight. A pulsing ring marks where you will land, and on
+the final second the camera dives to it, arriving at normal zoom just as the
+match starts.
+
+The dive only works because the server now decides spawns *before* anybody
+spawns: the deal used to happen at the moment the match started, so during the
+countdown there was nothing to dive to. `beginCountdown` deals every connected
+player a spot and publishes it on their state (`spawnX`/`spawnY`), and
+`startMatch` honours the promise -- reserved by session rather than by list
+position, so a player leaving mid-countdown does not shift everybody else onto
+spots the flyover no longer matches. Somebody who slips in after the deal gets
+an unreserved spot.
+
+While the flyover runs the ordinary camera follow keeps its hands off, and the
+camera's world bounds come off with it -- zoomed out far enough to fit the
+arena, Phaser's bounds clamping would pin the level into a corner of the screen
+instead of the middle. Both come back the moment the player spawns.
+
 ### Every hit is legible, whoever landed it
 
 A damage number used to appear only for hits you landed or took, and the server
@@ -1995,6 +2017,8 @@ npm test
   bot rather than its target, applied to a human in neither direction, left at its
   own setting for traps and the closing walls, counted once when a bot blows
   itself up, and picked up on the next hit when the ladder is retuned mid-match.
+  Also that the countdown publishes every player's spawn before anybody stands on
+  it, and that the match then puts them there.
 - **`tests/wire.test.ts`** — every configurable maximum survives the wire. The
   schema's field widths are checked against the admin's own declared maxima by
   encoding real state and decoding it again, so a setting the game would silently

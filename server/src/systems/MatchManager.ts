@@ -63,6 +63,9 @@ export class MatchManager {
    */
   private npcs: NpcSystem | null = null;
 
+  /** Spawn spots promised during the countdown, by session. See reserveSpawns. */
+  private readonly reservedSpawns = new Map<string, number>();
+
   setNpcSystem(npcs: NpcSystem): void {
     this.npcs = npcs;
   }
@@ -141,7 +144,35 @@ export class MatchManager {
     this.context.state.matchState = MatchState.COUNTDOWN;
     this.phaseEndsAt = now + this.rules.countdownMs;
     this.context.state.countdownSeconds = Math.ceil(this.rules.countdownMs / 1000);
+    this.reserveSpawns();
     this.context.logger.info("Countdown started", { players: this.countConnectedPlayers() });
+  }
+
+  /**
+   * Decide who will spawn where, before anybody does.
+   *
+   * Spawns used to be dealt out at the moment the match started, which was fine
+   * until the countdown needed to *show* them: the client flies the camera over
+   * the arena during 3-2-1 and dives to the local player's spot, and it cannot
+   * dive to a decision that has not been made. So the deal happens here, is
+   * published on each player (`spawnX`/`spawnY`), and `startMatch` honours it.
+   *
+   * The reservation is by session, not by position in a list: a player leaving
+   * mid-countdown must not shift everybody else onto spots the flyover no
+   * longer matches.
+   */
+  private reserveSpawns(): void {
+    const spawns = this.playerSpawns();
+    const order = this.shuffledSpawnIndices();
+    this.reservedSpawns.clear();
+
+    this.getConnectedPlayers().forEach((player, index) => {
+      const spawnIndex = order[index % order.length]!;
+      const spawn = spawns[spawnIndex]!;
+      this.reservedSpawns.set(player.sessionId, spawnIndex);
+      player.spawnX = Math.round(spawn.x);
+      player.spawnY = Math.round(spawn.y);
+    });
   }
 
   private updateCountdown(now: number): void {
@@ -150,6 +181,7 @@ export class MatchManager {
     if (!this.couldStart()) {
       this.context.state.matchState = MatchState.WAITING;
       this.context.state.countdownSeconds = 0;
+      this.reservedSpawns.clear();
       this.context.logger.info("Countdown aborted, not enough players");
       return;
     }
@@ -172,13 +204,22 @@ export class MatchManager {
     this.context.setLocked(true);
 
     const participants = this.getConnectedPlayers();
+
+    // The countdown promised everybody a spot; keep that promise. Somebody who
+    // slipped in after the deal (a reconnect landing mid-countdown) gets a spot
+    // nobody holds, falling back to any spot only when all are reserved.
     const spawnOrder = this.shuffledSpawnIndices();
+    const taken = new Set(this.reservedSpawns.values());
+    const free = spawnOrder.filter((index) => !taken.has(index));
 
     participants.forEach((player, index) => {
       const runtime = this.context.runtimes.get(player.sessionId);
       if (!runtime) return;
-      this.spawnPlayer(player, runtime, spawnOrder[index % spawnOrder.length]!, now);
+      const reserved = this.reservedSpawns.get(player.sessionId);
+      const spawnIndex = reserved ?? free.shift() ?? spawnOrder[index % spawnOrder.length]!;
+      this.spawnPlayer(player, runtime, spawnIndex, now);
     });
+    this.reservedSpawns.clear();
 
     // Anyone who arrived but is not participating (e.g. reconnecting) stays a spectator.
     for (const player of state.players.values()) {
@@ -324,6 +365,8 @@ export class MatchManager {
 
     player.x = position.x;
     player.y = position.y;
+    player.spawnX = Math.round(position.x);
+    player.spawnY = Math.round(position.y);
     player.velocityX = 0;
     player.velocityY = 0;
     player.onGround = false;
