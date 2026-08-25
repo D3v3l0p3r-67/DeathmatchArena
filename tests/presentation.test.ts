@@ -16,6 +16,7 @@ const { SOUNDS, SoundChannel, SoundId, getSound } = await import("../client/src/
 const { BURSTS, SHAKES, DEFAULT_EFFECTS_SETTINGS } = await import("../client/src/game/fx/effects.js");
 const { SoundThrottle } = await import("../client/src/audio/SoundThrottle.js");
 const { shouldHideCursor } = await import("../client/src/ui/cursor.js");
+const { normalisePosition, withinRadius } = await import("../client/src/ui/minimapGeometry.js");
 
 describe("sound catalogue", () => {
   const channels = new Set<string>(Object.values(SoundChannel));
@@ -95,6 +96,37 @@ describe("hiding the OS cursor during play", () => {
     assert.equal(shouldHideCursor(MatchState.COUNTDOWN, false), false);
     assert.equal(shouldHideCursor(MatchState.FINISHED, false), false);
     assert.equal(shouldHideCursor(undefined, false), false);
+  });
+});
+
+describe("placing a dot on the minimap", () => {
+  it("normalises a world position to a 0..1 fraction of the arena", () => {
+    const arena = { width: 2000, height: 1000 } as never;
+    assert.deepEqual(normalisePosition(0, 0, arena), { nx: 0, ny: 0 });
+    assert.deepEqual(normalisePosition(2000, 1000, arena), { nx: 1, ny: 1 });
+    assert.deepEqual(normalisePosition(1000, 500, arena), { nx: 0.5, ny: 0.5 });
+  });
+
+  it("clamps a position outside the arena rather than drawing a dot off the panel", () => {
+    // A player mid-knockback, or a power-up on the far side of a wall the
+    // arena's own bounds do not quite match, still has to land somewhere on a
+    // fixed-size panel.
+    const arena = { width: 2000, height: 1000 } as never;
+    assert.deepEqual(normalisePosition(-500, 2000, arena), { nx: 0, ny: 1 });
+  });
+
+  it("treats a radius of 0, or anything nonsensical, as no limit at all", () => {
+    // The admin field's own description promises "0 shows the whole arena" --
+    // this is the function that promise has to actually hold in.
+    assert.equal(withinRadius(0, 0, 5000, 5000, 0), true);
+    assert.equal(withinRadius(0, 0, 5000, 5000, -1), true);
+    assert.equal(withinRadius(0, 0, 5000, 5000, NaN), true);
+  });
+
+  it("otherwise only reveals what is actually within range", () => {
+    assert.equal(withinRadius(0, 0, 300, 400, 500), true, "exactly on the boundary (a 3-4-5 triangle)");
+    assert.equal(withinRadius(0, 0, 300, 401, 500), false);
+    assert.equal(withinRadius(100, 100, 100, 100, 1), true, "the center itself is always in range");
   });
 });
 

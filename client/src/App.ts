@@ -22,6 +22,7 @@ import { GameScene, GAME_SCENE_KEY } from "./game/scenes/GameScene.js";
 import { DebugConsole } from "./ui/DebugConsole.js";
 import { DebugOverlay } from "./ui/DebugOverlay.js";
 import { HUD } from "./ui/HUD.js";
+import { Minimap } from "./ui/Minimap.js";
 import { KillFeed } from "./ui/KillFeed.js";
 import { TouchControls } from "./ui/TouchControls.js";
 import { UIManager } from "./ui/UIManager.js";
@@ -124,6 +125,7 @@ export class App {
   private readonly network = new NetworkManager();
   private readonly ui: UIManager;
   private readonly hud = new HUD();
+  private readonly minimap = new Minimap();
   private readonly killFeed: KillFeed;
   private readonly audio = new AudioEngine();
   private readonly sound: SoundController;
@@ -605,6 +607,10 @@ export class App {
       shrinkCountdownSeconds: state.shrinkCountdownSeconds,
       shrinking: state.shrinking,
     });
+
+    // Same cadence as the rest of the HUD: a minimap dot does not need
+    // per-frame precision the way the crosshair's pointer tracking does.
+    this.minimap.update(state, this.network.arena, this.network.sessionId);
   }
 
   private updateDebugOverlay(): void {

@@ -1946,6 +1946,45 @@ movement.
 
 ---
 
+## The minimap
+
+A transparent panel in the HUD's top-right corner, off by default in nothing but
+its presence -- it ships enabled, drawing the whole arena. Every position it can
+show is already in `SyncedGameState`: a player's `x`/`y`, a power-up's, both
+already sent to every client for the world itself to render, so the panel
+decides what gets *drawn*, never what gets *sent*. Switching it off costs
+nothing on the wire, and turning it on reveals nothing a client could not
+already compute for itself.
+
+Three settings, all in `minimap.*` and all ordinary configuration -- editable in
+the admin interface and the debug console like anything else, applied on the
+next update rather than needing a rejoin:
+
+- **`enabled`** -- whether the panel appears at all.
+- **`showPlayers`** / **`showPowerUps`** -- either layer can be dropped
+  independently. A living player gets a dot in a colour that marks yours out
+  from everyone else's; a dead one gets none, the same way a body stops
+  appearing on the HUD's other gauges.
+- **`radius`** -- how far from the local player something has to be to earn a
+  dot, in world px. 0 means no limit, the whole arena regardless of distance.
+  The radius is measured from where the player actually *is*, though, which
+  only means something while they are still playing: once eliminated, the
+  filter drops rather than staying centred on a corpse, because a spectator
+  watching a fight that has moved on deserves a minimap that still shows it
+  rather than one that went blank the moment the action left wherever they
+  died.
+
+Positions are normalised to 0..1 fractions of the arena (`normalisePosition`)
+and placed with CSS percentages, so the panel never has to measure its own
+on-screen size or recompute anything when it changes. Dots are pooled DOM nodes
+keyed by entity id -- reused and repositioned across updates, only ever
+created or removed when something actually enters or leaves the picture -- the
+same discipline as everything else added to this HUD, and it runs on the same
+80ms cadence as the rest of it: a corner dot does not need the per-frame
+precision the crosshair's pointer tracking does.
+
+---
+
 ## Debugging
 
 Debug tooling is gated by **server-side authorization**, not by the build or the
@@ -2087,7 +2126,10 @@ npm test
   definition, every sound routes to a real channel and renders (no sub-audible tones,
   no zero-length layers), burst-prone sounds are throttled, and no camera shake is
   set hard enough to be unplayable. Also that a rate limit counts your own hits
-  separately from other people's, so a distant exchange cannot silence yours.
+  separately from other people's, so a distant exchange cannot silence yours,
+  and the minimap's own geometry: a world position normalises to the right 0..1
+  fraction of the arena (clamped when something sits outside its bounds), and a
+  reveal radius of 0 or anything nonsensical is treated as no limit at all.
 - **`tests/protocol.test.ts`** — input codec round-trips, malformed payload rejection,
   name validation, rate limiting.
 - **`tests/match.test.ts`** — end-to-end against a real Colyseus server over a real
@@ -2100,7 +2142,9 @@ npm test
 - **`tests/config.test.ts`** — the configuration metadata: that the field list is
   generated from the catalogue, that only the fields a weapon actually has appear, and
   that ranges, whole numbers, enums, dependencies and whole-configuration invariants are
-  enforced.
+  enforced. Also that the minimap's visibility, its two layers and its radius are
+  ordinary editable fields, and that a negative radius is refused rather than
+  silently accepted as "unlimited".
 - **`tests/traps.test.ts`** — traps from the server's side: contact damage that fires
   once and re-arms, continuous damage metered per second, the warning before the hurt,
   the full cycle, proximity triggering, a trap that moves into someone, inheritance and

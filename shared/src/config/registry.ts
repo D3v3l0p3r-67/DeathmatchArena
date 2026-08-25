@@ -25,6 +25,7 @@ import type {
   GrenadeConfig,
   BrainProfile,
   MatchConfig,
+  MinimapConfig,
   NpcConfig,
   PlayerConfig,
   PowerUpDefinition,
@@ -140,6 +141,10 @@ export class GameConfigView {
 
   getArenaShrinkConfig(): ArenaShrinkConfig {
     return this.config.arenaShrink;
+  }
+
+  getMinimapConfig(): MinimapConfig {
+    return this.config.minimap;
   }
 
   getGrenadeConfig(): GrenadeConfig {
@@ -278,6 +283,10 @@ export function getPowerUpSpawnConfig(): PowerUpSpawnConfig {
 
 export function getArenaShrinkConfig(): ArenaShrinkConfig {
   return current.getArenaShrinkConfig();
+}
+
+export function getMinimapConfig(): MinimapConfig {
+  return current.getMinimapConfig();
 }
 
 export function getGrenadeConfig(): GrenadeConfig {
