@@ -1794,6 +1794,47 @@ under the mid-air jump, sparks where a grenade bounces, debris when a crate
 breaks, a burst tinted with a power-up's own colour when it is collected, and a
 blast drawn at the radius the server actually used.
 
+### Where the health and ammo bars live
+
+Both bars are drawn over every player's head by default, and the corner panel's
+copy of them is off (`gauges.overPlayer`, `gauges.inHud`). Two ordinary
+switches, so a room can have either, both, or neither.
+
+Over the player they sit where you are already looking -- at your own character,
+in the fight -- rather than in a corner you have to glance away to read. And
+they are legible for *everybody*, which is the point rather than a side effect:
+a bar over somebody's head says whether they are hurt and whether they are out,
+and an enemy who has just started a reload is the clearest opening the game
+offers. That is the same argument the health bar was already making; the ammo
+bar simply finishes it.
+
+The ammo bar is the health bar's shape exactly -- same width, same border, same
+visible empty track -- so the pair reads as one block rather than two unrelated
+marks. A weapon with no magazine draws nothing at all, because the chainsaw
+never runs out and an empty track under it would say it can.
+
+It animates a reload rather than sitting frozen: the server does not refill
+`ammo` until the reload completes, so a bar drawn straight from the round count
+would stall and then jump. It sweeps from where the magazine was to full over
+exactly `getReloadDurationMs` -- the same function the weapon system enforces
+and the HUD gauge uses -- and turns amber while it does. Measured live with the
+built bundle instrumented to record every draw: the ratio climbed 0.000 to
+0.768 without once going backwards while the round count sat at 0.
+
+Redrawing a `Graphics` object re-tessellates it, so the bar is skipped whenever
+nothing changed, keyed on the *drawn ratio* rather than the round count --
+during a reload that is what moves while `ammo` does not.
+
+### The arena notice, top and centre
+
+"ARENA IN 1:57" used to sit in the bottom-right stack beside the speed buff. It
+is not a buff: it is a deadline for everybody in the arena at once, and the
+bottom-right corner is the last place a player looks during a fight. It now sits
+top and centre, in its own notice strip (`.hud__notice`), a little larger and
+with a heavier backdrop than a corner pill so it reads from further away.
+Centred on the viewport rather than laid out with the corners, so it stays put
+whatever the corners hold.
+
 ### Trails, and why they are one mechanism
 
 A running player leaves a short streak; a grenade leaves its whole arc, so a
@@ -2214,7 +2255,9 @@ npm test
   that ranges, whole numbers, enums, dependencies and whole-configuration invariants are
   enforced. Also that the minimap's visibility, its two layers and its radius are
   ordinary editable fields, and that a negative radius is refused rather than
-  silently accepted as "unlimited".
+  silently accepted as "unlimited". And that the health and ammo bars ship over
+  the player with the corner panel's copy switched off, and that both switches
+  can be flipped either way.
 - **`tests/traps.test.ts`** — traps from the server's side: contact damage that fires
   once and re-arms, continuous damage metered per second, the warning before the hurt,
   the full cycle, proximity triggering, a trap that moves into someone, inheritance and

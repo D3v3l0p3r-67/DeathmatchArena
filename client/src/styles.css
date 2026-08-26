@@ -819,6 +819,11 @@ kbd {
   gap: 8px;
 }
 
+/* Switched off in favour of the bars over each player's head; see `gauges.*`. */
+.gauges.is-hidden {
+  display: none;
+}
+
 .gauge {
   display: flex;
   align-items: center;
@@ -940,6 +945,21 @@ kbd {
 /* The wind-up bar. Hidden unless a throw is actually being charged. */
 /* ------------------------------------------------- active power-up effects -- */
 
+/*
+ * The top-centre notice strip: the closing walls, and anything else that is
+ * about the whole arena rather than about you. Centred on the viewport rather
+ * than laid out with the corners, so it stays put whatever the corners hold.
+ */
+.hud__notice {
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+}
+
 .effects {
   display: grid;
   gap: 6px;
@@ -970,6 +990,13 @@ kbd {
 /* The closing walls are a threat, not a buff -- colour it accordingly. */
 .effect--shrink {
   border-color: rgba(255, 77, 94, 0.55);
+  /* Read from further away than a corner pill: this one is a deadline for
+     everybody in the arena, not a buff on one player. */
+  padding: 5px 14px;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  background: rgba(5, 7, 12, 0.72);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.5);
 }
 
 .effect--shrink .effect__label {

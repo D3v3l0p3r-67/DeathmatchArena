@@ -1,5 +1,14 @@
 import Phaser from "phaser";
-import { PLAYER, clamp, getPlayerConfig, getWeapon, lerpAngle } from "@deathmatch/shared";
+import {
+  PLAYER,
+  clamp,
+  getGaugesConfig,
+  getPlayerConfig,
+  getReloadDurationMs,
+  getWeapon,
+  lerpAngle,
+  usesAmmo,
+} from "@deathmatch/shared";
 import { TextureKeys, getPlayerColor, weaponTextureKey } from "../TextureFactory.js";
 import { DEATH_ANIMATION } from "../fx/effects.js";
 import { TrailRenderer } from "../fx/TrailRenderer.js";
@@ -23,6 +32,9 @@ export interface PlayerViewState {
   onGround: boolean;
   health: number;
   speedX: number;
+  /** Rounds left in the magazine, and whether one is being put in. */
+  ammo: number;
+  reloading: boolean;
   /** What they are carrying, so everyone can see who they are dealing with. */
   weaponId: string;
   /** Grenades on the belt. Server state, like everything else here. */
@@ -46,6 +58,8 @@ export class PlayerView {
   private readonly belt: Phaser.GameObjects.Graphics;
   private readonly label: Phaser.GameObjects.Text;
   private readonly healthBar: Phaser.GameObjects.Graphics;
+  /** Under the health bar, in the same shape. See `drawAmmoBar`. */
+  private readonly ammoBar: Phaser.GameObjects.Graphics;
   /** The wind-up indicator: an arrow from the hand, growing with the charge. */
   private readonly throwArrow: Phaser.GameObjects.Graphics;
   /** Drawn under everybody, so a trail never sits on top of a player. */
@@ -70,6 +84,12 @@ export class PlayerView {
   private beltCount = -1;
   /** What the bar last drew, so a full-health crowd costs no redraws. */
   private drawnHealth = -1;
+  /** What the ammo bar last drew, or null when it drew nothing. */
+  private drawnAmmo: string | null = null;
+  /** The local clock for the reload sweep; -1 when no reload is running. */
+  private reloadStartedAt = -1;
+  private reloadFrom = 0;
+  private reloadDurationMs = 0;
   /** Whether the throw arrow drew anything last frame; a clear is only owed if so. */
   private throwArrowDrawn = false;
 
@@ -112,6 +132,7 @@ export class PlayerView {
       .setTint(0x0b1220);
 
     this.healthBar = scene.add.graphics();
+    this.ammoBar = scene.add.graphics();
     this.throwArrow = scene.add.graphics();
 
     this.label = scene.add
@@ -142,6 +163,7 @@ export class PlayerView {
         this.visor,
         this.weapon,
         this.healthBar,
+        this.ammoBar,
         this.throwArrow,
         this.label,
       ])
@@ -212,6 +234,7 @@ export class PlayerView {
     this.updateShadow(state);
     this.drawBelt(state.grenades, aimingLeft);
     this.drawHealthBar(state.health);
+    this.drawAmmoBar(state);
   }
 
   /**
@@ -236,6 +259,7 @@ export class PlayerView {
     this.container.setAlpha(1);
     this.label.setVisible(false);
     this.healthBar.setVisible(false);
+    this.ammoBar.setVisible(false);
     this.weapon.setVisible(false);
     this.throwArrow.setVisible(false);
     this.belt.setVisible(false);
@@ -246,6 +270,7 @@ export class PlayerView {
   private reviveVisuals(): void {
     this.dyingFor = -1;
     this.dyingTrailFade = false;
+    this.drawnAmmo = null;
     // A respawn is a teleport: the path from where they died to where they came
     // back is not a path anything travelled.
     this.trail.clear();
@@ -256,6 +281,7 @@ export class PlayerView {
     this.body.setScale(1);
     this.label.setVisible(true);
     this.healthBar.setVisible(true);
+    this.ammoBar.setVisible(true);
     this.weapon.setVisible(true);
     this.throwArrow.setVisible(true);
     this.belt.setVisible(true);
@@ -523,6 +549,94 @@ export class PlayerView {
     const color = ratio > 0.6 ? 0x52e08a : ratio > 0.3 ? 0xffc857 : 0xff4d5e;
     this.healthBar.fillStyle(color, 1);
     this.healthBar.fillRect(x, y, width * ratio, height);
+  }
+
+  /**
+   * The magazine, under the health bar and in the same shape.
+   *
+   * Same width, same border, same empty track, so the pair reads as one block
+   * rather than two unrelated marks -- and drawn for everybody, exactly as the
+   * health bar is. That is not an accident of consistency: a bar over somebody
+   * says whether they are hurt *and* whether they are out, and an enemy who
+   * just started a reload is the clearest opening the game offers.
+   *
+   * A weapon with no magazine draws nothing at all. The chainsaw never runs
+   * out, and an empty track under it would say it can.
+   */
+  private drawAmmoBar(state: PlayerViewState): void {
+    if (!getGaugesConfig().overPlayer) {
+      if (this.drawnAmmo !== null) {
+        this.ammoBar.clear();
+        this.drawnAmmo = null;
+      }
+      return;
+    }
+
+    const weapon = getWeapon(state.weaponId);
+    if (!usesAmmo(weapon)) {
+      if (this.drawnAmmo !== null) {
+        this.ammoBar.clear();
+        this.drawnAmmo = null;
+      }
+      return;
+    }
+
+    /*
+     * A reload has to animate, so while one is running this redraws every
+     * frame; the rest of the time it is skipped exactly as the health bar is.
+     * Keyed on the drawn *ratio* rather than the round count, because that is
+     * what is actually on screen -- the sweep moves while `ammo` does not.
+     */
+    const ratio = this.ammoFillRatio(state, weapon);
+    const key = `${state.weaponId}:${ratio.toFixed(3)}:${state.reloading}`;
+    if (key === this.drawnAmmo) return;
+    this.drawnAmmo = key;
+
+    const width = 34;
+    const height = 3;
+    const x = -width / 2;
+    // Directly under the health bar: its own 4px plus a 2px gap.
+    const y = PLAYER.NAME_LABEL_OFFSET_Y + 4 + 4 + 2;
+
+    this.ammoBar.clear();
+    this.ammoBar.fillStyle(0x000000, 0.55);
+    this.ammoBar.fillRect(x - 1, y - 1, width + 2, height + 2);
+    this.ammoBar.fillStyle(0xffffff, 0.12);
+    this.ammoBar.fillRect(x, y, width, height);
+
+    // Amber while reloading, pale blue otherwise -- the HUD gauge's own two
+    // colours, so moving the gauge here did not also change what it means.
+    this.ammoBar.fillStyle(state.reloading ? 0xffc857 : 0xdfe9fb, 1);
+    this.ammoBar.fillRect(x, y, width * ratio, height);
+  }
+
+  /**
+   * How full the magazine reads right now, 0..1.
+   *
+   * Mid-reload that is not the round count: the server does not refill until
+   * the reload completes, so a bar drawn from `ammo` would sit frozen and then
+   * jump. It sweeps from where the magazine was to full over exactly the
+   * duration the server is enforcing -- the same `getReloadDurationMs` the HUD
+   * gauge and the weapon system use, so all three agree.
+   */
+  private ammoFillRatio(state: PlayerViewState, weapon: ReturnType<typeof getWeapon>): number {
+    const magazine = Math.max(1, weapon.magazineSize);
+    const resting = clamp(state.ammo / magazine, 0, 1);
+
+    if (!state.reloading) {
+      this.reloadStartedAt = -1;
+      return resting;
+    }
+
+    if (this.reloadStartedAt < 0) {
+      this.reloadStartedAt = this.scene.time.now;
+      this.reloadFrom = resting;
+      this.reloadDurationMs = getReloadDurationMs(weapon, state.ammo);
+    }
+
+    const elapsed = this.scene.time.now - this.reloadStartedAt;
+    const progress = this.reloadDurationMs > 0 ? clamp(elapsed / this.reloadDurationMs, 0, 1) : 1;
+    return this.reloadFrom + (1 - this.reloadFrom) * progress;
   }
 
   /**

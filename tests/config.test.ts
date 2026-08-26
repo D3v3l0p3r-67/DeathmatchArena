@@ -63,7 +63,7 @@ const RAILGUN: WeaponDefinition = {
 describe("the configuration field list", () => {
   it("covers every category the administration interface promises", () => {
     const categories = new Set(buildConfigFields(base()).map((field) => field.category));
-    for (const expected of ["Player", "Weapons", "Grenades", "Power-ups", "Crates", "Match", "Traps", "Arena", "Minimap"]) {
+    for (const expected of ["Player", "Weapons", "Grenades", "Power-ups", "Crates", "Match", "Traps", "Arena", "Minimap", "Gauges"]) {
       assert.ok(categories.has(expected), `missing category ${expected}`);
     }
   });
@@ -220,6 +220,26 @@ describe("applying a change", () => {
   it("rejects an unknown key", () => {
     const registry = new ConfigRegistry(base());
     assert.equal(applyChange(registry, base(), "player.telepathy", 1).ok, false);
+  });
+
+  it("ships the gauges over the player and out of the corner panel, and lets that be swapped", () => {
+    /*
+     * The default is the interesting half: the bars belong over each player's
+     * head, where the fight is, and the corner copy of the same two numbers is
+     * off. Both are ordinary switches, so a room that wants the old layout --
+     * or both at once, or neither -- says so in configuration.
+     */
+    assert.equal(base().gauges.overPlayer, true);
+    assert.equal(base().gauges.inHud, false);
+
+    const registry = new ConfigRegistry(base());
+    const restored = applyChange(registry, base(), "gauges.inHud", true);
+    assert.equal(restored.ok, true);
+    assert.equal(restored.config.gauges.inHud, true);
+
+    const off = applyChange(registry, base(), "gauges.overPlayer", false);
+    assert.equal(off.ok, true);
+    assert.equal(off.config.gauges.overPlayer, false);
   });
 
   it("changes the minimap live, and refuses a negative radius", () => {

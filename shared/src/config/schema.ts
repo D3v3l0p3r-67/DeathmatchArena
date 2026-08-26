@@ -179,6 +179,7 @@ const CATEGORY = {
   TRAPS: "Traps",
   NPC: "NPCs",
   MINIMAP: "Minimap",
+  GAUGES: "Gauges",
 } as const;
 
 interface NumberOptions {
@@ -512,6 +513,14 @@ function arenaFields(): FieldDescriptor[] {
   ];
 }
 
+function gaugeFields(): FieldDescriptor[] {
+  const { GAUGES } = CATEGORY;
+  return [
+    boolean("gauges.overPlayer", GAUGES, "Health and ammo", "Above every player", "Health and ammunition bars over each player's head, where the fight is. Legible for everybody, not just you."),
+    boolean("gauges.inHud", GAUGES, "Health and ammo", "In the corner panel", "The same two gauges in the HUD's bottom-left panel, for the local player only. Off by default -- the bars over the player replace them."),
+  ];
+}
+
 function minimapFields(): FieldDescriptor[] {
   const { MINIMAP } = CATEGORY;
   return [
@@ -648,6 +657,7 @@ export function buildConfigFields(config: GameConfig, baseline: GameConfig = con
     ...crateFields(),
     ...arenaFields(),
     ...minimapFields(),
+    ...gaugeFields(),
     ...trapFields(),
     ...npcFields(),
     ...config.npc.difficulties.flatMap(botDifficultyFields),
