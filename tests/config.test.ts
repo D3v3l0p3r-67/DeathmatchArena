@@ -63,9 +63,24 @@ const RAILGUN: WeaponDefinition = {
 describe("the configuration field list", () => {
   it("covers every category the administration interface promises", () => {
     const categories = new Set(buildConfigFields(base()).map((field) => field.category));
-    for (const expected of ["Player", "Weapons", "Grenades", "Power-ups", "Crates", "Match", "Traps", "Arena"]) {
+    for (const expected of ["Player", "Weapons", "Grenades", "Power-ups", "Crates", "Match", "Traps", "Arena", "Minimap"]) {
       assert.ok(categories.has(expected), `missing category ${expected}`);
     }
+  });
+
+  it("exposes the minimap's visibility, what it draws, and its radius as ordinary fields", () => {
+    // Nothing about the panel should be a constant somewhere in client code: an
+    // administrator turns it off, drops either layer, or narrows the radius the
+    // same way they retune anything else.
+    const keys = buildConfigFields(base()).map((field) => field.key);
+    for (const key of ["minimap.enabled", "minimap.showPlayers", "minimap.showPowerUps", "minimap.radius"]) {
+      assert.ok(keys.includes(key), `missing ${key}`);
+    }
+
+    const registry = new ConfigRegistry(base());
+    assert.equal(registry.get("minimap.enabled")!.type, ConfigFieldType.BOOLEAN);
+    assert.equal(registry.get("minimap.radius")!.type, ConfigFieldType.NUMBER);
+    assert.equal(registry.get("minimap.radius")!.min, 0, "0 is the documented \"whole arena\" value, not an arbitrary floor");
   });
 
   it("is generated from the catalogue, so a new weapon brings its own fields", () => {
@@ -205,6 +220,21 @@ describe("applying a change", () => {
   it("rejects an unknown key", () => {
     const registry = new ConfigRegistry(base());
     assert.equal(applyChange(registry, base(), "player.telepathy", 1).ok, false);
+  });
+
+  it("changes the minimap live, and refuses a negative radius", () => {
+    const registry = new ConfigRegistry(base());
+
+    const off = applyChange(registry, base(), "minimap.enabled", false);
+    assert.equal(off.ok, true);
+    assert.equal(off.config.minimap.enabled, false);
+
+    const narrowed = applyChange(registry, base(), "minimap.radius", 600);
+    assert.equal(narrowed.ok, true);
+    assert.equal(narrowed.config.minimap.radius, 600);
+
+    const negative = applyChange(registry, base(), "minimap.radius", -1);
+    assert.equal(negative.ok, false, "a negative radius has no meaning to clamp to");
   });
 
   it("refuses a change that would break the configuration as a whole", () => {

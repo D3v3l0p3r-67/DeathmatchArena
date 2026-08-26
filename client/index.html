@@ -127,6 +127,14 @@
           </div>
         </div>
 
+        <!-- A rough, admin-configurable read of the arena: whether it shows at
+             all, whether it draws players and/or power-ups, and how far from
+             the local player something has to be to earn a dot, all come from
+             `minimap.*` config -- see `Minimap.ts`. -->
+        <div class="minimap" id="minimap">
+          <div class="minimap__frame" id="minimap-frame"></div>
+        </div>
+
         <ul class="kill-feed" id="kill-feed"></ul>
 
         <div class="hud__bottom">

@@ -24,6 +24,7 @@ import {
   getMatchConfig,
   getNpcConfig,
   getPlayerConfig,
+  getReloadDurationMs,
   getWeapon,
   stepPlayerMovement,
   type DamagePayload,
@@ -130,6 +131,35 @@ describe("projectile collision", () => {
   });
 });
 
+describe("reload duration scales with what's missing", () => {
+  // reloadTime is the configured full-reload time -- empty to full -- so a
+  // round 10/1000 weapon makes the arithmetic easy to read back.
+  const weapon = { ...getWeapon(getDefaultWeaponId()), magazineSize: 10, reloadTime: 1000 };
+
+  it("takes the full time from empty, none at all when already full", () => {
+    assert.equal(getReloadDurationMs(weapon, 0), 1000);
+    assert.equal(getReloadDurationMs(weapon, 10), 0);
+  });
+
+  it("costs exactly the time for the rounds actually missing", () => {
+    // The three cases from the spec, verbatim: capacity 10, reloadTime 1000ms.
+    assert.equal(getReloadDurationMs(weapon, 5), 500, "5/10: missing 5, half the time");
+    assert.equal(getReloadDurationMs(weapon, 6), 400, "6/10: missing 4, four tenths");
+    assert.equal(getReloadDurationMs(weapon, 9), 100, "9/10: missing 1, a tenth");
+  });
+
+  it("never goes negative or past a full reload for an out-of-range ammo count", () => {
+    // A defensive clamp, not a real scenario: ammo never legitimately exceeds
+    // the magazine or drops below zero.
+    assert.equal(getReloadDurationMs(weapon, -5), 1000);
+    assert.equal(getReloadDurationMs(weapon, 999), 0);
+  });
+
+  it("is 0 for a weapon with no magazine", () => {
+    assert.equal(getReloadDurationMs({ ...weapon, magazineSize: 0 }, 0), 0);
+  });
+});
+
 describe("weapon validation", () => {
   let harness: Harness;
 
@@ -179,6 +209,46 @@ describe("weapon validation", () => {
 
     harness.weapons.processInput(player, runtime, input, emptiedAt + weapon.reloadTime + 1);
     assert.equal(player.ammo, weapon.magazineSize, "reload should refill the magazine");
+    assert.equal(player.reloading, false);
+  });
+
+  it("reloads faster the fewer rounds are missing, and never longer than a full reload", () => {
+    /*
+     * weapon.reloadTime is the time for a full reload, empty to full. Topping
+     * off nine of ten rounds should cost a tenth of that, not the whole thing --
+     * a player who taps reload after one shot must not be punished as though
+     * they emptied the magazine.
+     */
+    const player = harness.addPlayer("shooter", 200, 1700);
+    const runtime = harness.runtimes.get("shooter")!;
+    const weapon = getWeapon(player.weaponId);
+    const interval = getFireIntervalMs(weapon);
+
+    // Fire once, leaving all but one round -- the smallest possible reload.
+    let now = 0;
+    fireAt(harness, "shooter", 0, now);
+    const ammoBeforeReload = player.ammo;
+    assert.equal(ammoBeforeReload, weapon.magazineSize - 1);
+
+    now += interval + 1;
+    const reloadPress = createInputCommand(2);
+    reloadPress.reload = true;
+    harness.weapons.processInput(player, runtime, reloadPress, now);
+
+    assert.equal(player.reloading, true, "pressing reload with rounds still in the magazine should start one");
+
+    const expected = getReloadDurationMs(weapon, ammoBeforeReload);
+    assert.ok(
+      expected > 0 && expected < weapon.reloadTime,
+      `a one-round reload (${expected}ms) should take less than a full one (${weapon.reloadTime}ms)`,
+    );
+
+    const stillHeld = createInputCommand(3);
+    harness.weapons.processInput(player, runtime, stillHeld, now + expected - 5);
+    assert.equal(player.ammo, ammoBeforeReload, "reload finished before its proportional deadline");
+
+    harness.weapons.processInput(player, runtime, stillHeld, now + expected + 1);
+    assert.equal(player.ammo, weapon.magazineSize, "the magazine should be full once the shorter reload elapses");
     assert.equal(player.reloading, false);
   });
 

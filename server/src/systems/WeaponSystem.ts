@@ -3,6 +3,7 @@ import {
   ServerMessage,
   getFireIntervalMs,
   getMeleeArcRadians,
+  getReloadDurationMs,
   isMelee,
   usesAmmo,
   type InputCommand,
@@ -101,7 +102,10 @@ export class WeaponSystem {
     if (player.ammo >= weapon.magazineSize) return false;
 
     player.reloading = true;
-    runtime.reloadEndsAt = now + weapon.reloadTime;
+    // Proportional to what is actually missing, not the full-magazine time
+    // regardless of how empty the gun is -- topping off nine of ten rounds
+    // should not cost as long as starting from zero.
+    runtime.reloadEndsAt = now + getReloadDurationMs(weapon, player.ammo);
     return true;
   }
 

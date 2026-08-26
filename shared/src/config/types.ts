@@ -369,6 +369,28 @@ export interface ArenaShrinkConfig {
 }
 
 /**
+ * The corner minimap.
+ *
+ * Purely a presentation convenience: every position it can show is already in
+ * the state each client receives (a player's `x`/`y`, a power-up's), so this
+ * decides what gets *drawn*, never what gets *sent*. Switching it off costs
+ * nothing on the wire, and turning it on reveals nothing a client could not
+ * already compute for itself from state it already has.
+ */
+export interface MinimapConfig {
+  /** Off means the panel never appears, whatever the two switches below say. */
+  enabled: boolean;
+  showPlayers: boolean;
+  showPowerUps: boolean;
+  /**
+   * How far from the local player (or, while spectating, whoever is being
+   * watched) something must be to earn a dot, in world px. 0 means no limit --
+   * the whole arena is shown regardless of distance.
+   */
+  radius: number;
+}
+
+/**
  * The player character: how it moves, how much it can take.
  *
  * These used to be compile-time constants, and they are the values client
@@ -666,4 +688,5 @@ export interface GameConfig {
   grenades: GrenadeConfig;
   traps: TrapConfig;
   npc: NpcConfig;
+  minimap: MinimapConfig;
 }

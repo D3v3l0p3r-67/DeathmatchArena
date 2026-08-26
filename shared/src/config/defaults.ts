@@ -923,4 +923,13 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
     moveSpeed: 160,
     triggerRadius: 90,
   },
+
+  minimap: {
+    enabled: true,
+    showPlayers: true,
+    showPowerUps: true,
+    // Unlimited: the whole arena is shown. An admin who wants less awareness
+    // dials this down rather than everyone needing to opt in.
+    radius: 0,
+  },
 };

@@ -1,11 +1,13 @@
 import {
   FIXED_DELTA_MS,
   getFireIntervalMs,
+  getReloadDurationMs,
   getWeapon,
   isMelee,
   usesAmmo,
   type InputCommand,
   type SyncedPlayer,
+  type WeaponDefinition,
 } from "@deathmatch/shared";
 
 /** One shot the model believes the server will also fire. */
@@ -111,7 +113,7 @@ export class LocalFireModel {
     }
 
     // Reload on a fresh key press only.
-    if (input.reload && !this.lastReload && ammoLimited) this.tryStartReload(weapon.magazineSize, weapon.reloadTime);
+    if (input.reload && !this.lastReload && ammoLimited) this.tryStartReload(weapon);
 
     if (!input.fire) return null;
     if (!weapon.automatic && this.lastFire) return null;
@@ -119,7 +121,7 @@ export class LocalFireModel {
     if (this.reloading) return null;
 
     if (ammoLimited && this.ammo <= 0) {
-      this.tryStartReload(weapon.magazineSize, weapon.reloadTime);
+      this.tryStartReload(weapon);
       return null;
     }
 
@@ -127,7 +129,7 @@ export class LocalFireModel {
 
     this.lastShotAtMs = this.simMs;
     if (ammoLimited) this.ammo -= 1;
-    if (ammoLimited && this.ammo === 0) this.tryStartReload(weapon.magazineSize, weapon.reloadTime);
+    if (ammoLimited && this.ammo === 0) this.tryStartReload(weapon);
 
     const shot: PredictedShot = {
       seq: input.seq,
@@ -140,11 +142,13 @@ export class LocalFireModel {
     return shot;
   }
 
-  private tryStartReload(magazineSize: number, reloadTimeMs: number): void {
+  private tryStartReload(weapon: WeaponDefinition): void {
     if (this.reloading) return;
-    if (this.ammo >= magazineSize) return;
+    if (this.ammo >= weapon.magazineSize) return;
     this.reloading = true;
-    this.reloadEndsAtMs = this.simMs + reloadTimeMs;
+    // Proportional to what is missing, mirroring the server -- see
+    // getReloadDurationMs.
+    this.reloadEndsAtMs = this.simMs + getReloadDurationMs(weapon, this.ammo);
   }
 
   /**
@@ -185,9 +189,10 @@ export class LocalFireModel {
     if (this.unacked.length === 0 && this.reloading !== player.reloading) {
       this.reloading = player.reloading;
       // Adopting a reload the model never started: it cannot know how far along
-      // the server is, so assume the worst. Firing resumes at the ammunition
-      // resync above the moment the server actually finishes.
-      this.reloadEndsAtMs = player.reloading ? this.simMs + weapon.reloadTime : 0;
+      // the server is, so assume the worst -- a full reload for however much is
+      // actually missing, starting now. Firing resumes at the ammunition resync
+      // above the moment the server actually finishes.
+      this.reloadEndsAtMs = player.reloading ? this.simMs + getReloadDurationMs(weapon, this.ammo) : 0;
     }
   }
 }

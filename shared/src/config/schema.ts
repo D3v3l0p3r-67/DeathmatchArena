@@ -178,6 +178,7 @@ const CATEGORY = {
   ARENA: "Arena",
   TRAPS: "Traps",
   NPC: "NPCs",
+  MINIMAP: "Minimap",
 } as const;
 
 interface NumberOptions {
@@ -511,6 +512,16 @@ function arenaFields(): FieldDescriptor[] {
   ];
 }
 
+function minimapFields(): FieldDescriptor[] {
+  const { MINIMAP } = CATEGORY;
+  return [
+    boolean("minimap.enabled", MINIMAP, "Panel", "Enabled", "Off means the panel never appears, whatever the switches below say."),
+    boolean("minimap.showPlayers", MINIMAP, "Panel", "Show players", "A dot for every living player within range -- yours in a different colour from everyone else's."),
+    boolean("minimap.showPowerUps", MINIMAP, "Panel", "Show power-ups", "A marker for every power-up currently on the ground and within range."),
+    number("minimap.radius", MINIMAP, "Panel", "Reveal radius (px)", "How far from the local player (or whoever a spectator is watching) something must be to earn a dot. 0 shows the whole arena regardless of distance.", { min: 0, max: 4000, step: 50 }),
+  ];
+}
+
 function trapFields(): FieldDescriptor[] {
   const { TRAPS } = CATEGORY;
   return [
@@ -636,6 +647,7 @@ export function buildConfigFields(config: GameConfig, baseline: GameConfig = con
     }),
     ...crateFields(),
     ...arenaFields(),
+    ...minimapFields(),
     ...trapFields(),
     ...npcFields(),
     ...config.npc.difficulties.flatMap(botDifficultyFields),
