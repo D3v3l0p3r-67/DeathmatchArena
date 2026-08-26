@@ -180,6 +180,8 @@ export class ProjectileSystem {
           getDamageAtDistance(runtime.weapon, distance),
           state.ownerId,
           this.context.now(),
+          // The round's own direction: a crate is shoved the way it was shot.
+          state.velocityX,
         );
         this.destroy(state.id);
         return;

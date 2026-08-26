@@ -282,6 +282,44 @@ export interface CrateConfig {
    * its spawn point. 0 disables expiry.
    */
   lifetimeMs: number;
+
+  /**
+   * Whether a crate is a physical object at all.
+   *
+   * Off means it hangs wherever it landed and nothing moves it, which is how
+   * crates behaved before this existed. On, it falls, slides, is shoved by
+   * anyone who walks into it, is nudged by gunfire, and can be pushed off a
+   * ledge -- which turns a crate from scenery into something you can play with,
+   * and occasionally into something you destroy by accident.
+   */
+  physicsEnabled: boolean;
+  /** Downward acceleration, px/s². */
+  gravity: number;
+  /** Terminal velocity for a falling crate, px/s. */
+  maxFallSpeed: number;
+  /** How quickly a shoved crate stops once it is resting, px/s². */
+  groundFriction: number;
+  /** The same in the air. Low, so a crate knocked off a ledge keeps its arc. */
+  airFriction: number;
+  /**
+   * Top speed a player walking into a crate can push it at, px/s.
+   *
+   * A speed rather than a force: a crate should move with you at a believable
+   * pace whatever you are carrying, and shoving is not supposed to be a way of
+   * launching one across the arena.
+   */
+  pushSpeed: number;
+  /** How hard a single hit shoves a crate along the shot's direction, px/s. */
+  shotImpulse: number;
+  /**
+   * How far a crate must fall before landing hurts it, in px.
+   *
+   * Below this a drop is free, so nudging one off a step does not quietly
+   * destroy it. 0 means any fall at all does damage.
+   */
+  fallDamageMinDrop: number;
+  /** Damage per 100px of fall beyond `fallDamageMinDrop`. */
+  fallDamagePer100px: number;
 }
 
 /** How often crates appear, and how long their contents linger. */

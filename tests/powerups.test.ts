@@ -20,8 +20,10 @@ import {
   ServerMessage,
   applyHealthRestore,
   getArena,
+  cloneConfig,
   getCrateConfig,
   getGameConfig,
+  getPlayerConfig,
   getPowerUpSpawnConfig,
   getWeapon,
   listSpawnablePowerUps,
@@ -191,6 +193,156 @@ describe("crates", () => {
     assert.ok(id, "a crate should have spawned");
     return id;
   }
+
+  /**
+   * A crate placed by hand, high in the air over open floor.
+   *
+   * Spawn points are on the ground by design, which is exactly where a falling
+   * crate has nothing to prove -- so these tests put one where it can fall.
+   */
+  function crateInTheAir(dropHeight: number) {
+    const crateId = runUntilCrateSpawns(harness);
+    const crate = harness.state.crates.get(crateId)!;
+    const body = harness.powerUps.crateBody(crateId)!;
+
+    body.x = crate.x;
+    body.y = crate.y - dropHeight;
+    body.velocityX = 0;
+    body.velocityY = 0;
+    body.onGround = false;
+    crate.x = body.x;
+    crate.y = body.y;
+    return { crateId, crate, body, restingY: crate.y + dropHeight };
+  }
+
+  it("falls until it lands on something", () => {
+    const { crateId, body, restingY } = crateInTheAir(120);
+    const startY = body.y;
+
+    for (let i = 0; i < 120 && !body.onGround; i++) harness.stepPowerUps(clock.now += 16);
+
+    assert.equal(body.onGround, true, "a crate in the air should come down");
+    assert.ok(body.y > startY, "and end up lower than it started");
+    assert.ok(Math.abs(body.y - restingY) < 4, `it should land on the floor, at ${restingY}, not ${body.y}`);
+    assert.ok(harness.state.crates.has(crateId), "a short drop must not break it");
+  });
+
+  it("charges for the fall it actually took, and nothing for the free part", () => {
+    /*
+     * Measured against the drop that happened rather than the drop that was
+     * intended: the arenas are full of ledges, and a crate dropped from a great
+     * height often lands on one part-way down. That is the behaviour we want --
+     * each airborne stretch is judged on its own -- so the test reads the real
+     * distance and holds the formula to it.
+     */
+    const config = getCrateConfig();
+    const { crateId, crate, body } = crateInTheAir(config.fallDamageMinDrop + 600);
+    const startY = body.y;
+
+    for (let i = 0; i < 400; i++) {
+      harness.stepPowerUps((clock.now += 16));
+      if (!harness.state.crates.has(crateId) || body.onGround) break;
+    }
+
+    const drop = body.y - startY;
+    const beyondFree = Math.max(0, drop - config.fallDamageMinDrop);
+    const expected = Math.round((beyondFree / 100) * config.fallDamagePer100px);
+
+    if (expected >= config.health) {
+      assert.equal(harness.state.crates.has(crateId), false, "a drop that big should break it open");
+      return;
+    }
+
+    assert.equal(
+      crate.health,
+      config.health - expected,
+      `fell ${Math.round(drop)}px, so it should have lost ${expected} of ${config.health}`,
+    );
+  });
+
+  it("charges nothing for a drop inside the free height", () => {
+    const config = getCrateConfig();
+    const { crate, body } = crateInTheAir(Math.max(10, config.fallDamageMinDrop - 60));
+
+    for (let i = 0; i < 200 && !body.onGround; i++) harness.stepPowerUps((clock.now += 16));
+
+    assert.equal(body.onGround, true, "it should have landed");
+    assert.equal(crate.health, config.health, "nudging one down a step must not damage it");
+  });
+
+  it("is carried along by a player who walks into it", () => {
+    const crateId = runUntilCrateSpawns(harness);
+    const crate = harness.state.crates.get(crateId)!;
+    const startX = crate.x;
+
+    // Standing against its left side, running right.
+    const player = harness.addPlayer("shover", crate.x - 20, crate.y);
+    player.velocityX = getPlayerConfig().moveSpeed;
+
+    for (let i = 0; i < 30; i++) {
+      player.x = crate.x - 20;
+      player.y = crate.y;
+      harness.stepPowerUps(clock.now += 16);
+    }
+
+    assert.ok(crate.x > startX + 5, `the crate should have been pushed right, moved ${crate.x - startX}px`);
+  });
+
+  it("is not dragged by somebody standing still inside it", () => {
+    // Overlap alone is not a shove: a player who has stopped should not slowly
+    // walk a crate across the arena.
+    const crateId = runUntilCrateSpawns(harness);
+    const crate = harness.state.crates.get(crateId)!;
+    const startX = crate.x;
+
+    const player = harness.addPlayer("loiterer", crate.x - 10, crate.y);
+    player.velocityX = 0;
+
+    for (let i = 0; i < 60; i++) {
+      player.x = crate.x - 10;
+      harness.stepPowerUps(clock.now += 16);
+    }
+
+    assert.ok(Math.abs(crate.x - startX) < 1, `a stationary player moved it ${crate.x - startX}px`);
+  });
+
+  it("is nudged along the direction of a shot", () => {
+    const crateId = runUntilCrateSpawns(harness);
+    const crate = harness.state.crates.get(crateId)!;
+    const body = harness.powerUps.crateBody(crateId)!;
+
+    // A hit travelling right, well short of breaking it.
+    harness.powerUps.damageCrate(crateId, 1, "shooter", clock.now, 900);
+    assert.ok(body.velocityX > 0, "a shot from the left should shove it right");
+
+    const after = body.velocityX;
+    harness.powerUps.damageCrate(crateId, 1, "shooter", clock.now, 900);
+    assert.ok(body.velocityX > after, "sustained fire should keep walking it along");
+
+    harness.powerUps.damageCrate(crateId, 1, "shooter", clock.now, -900);
+    assert.ok(body.velocityX < after * 2, "and a hit from the other side should push back");
+    void crate;
+  });
+
+  it("stays exactly where it is when physics is switched off", () => {
+    // The setting has to mean it: off is how crates behaved before they had a
+    // body at all, and an admin who turns it off should get that back.
+    const config = cloneConfig(getGameConfig());
+    config.crate.physicsEnabled = false;
+    harness.replaceConfig(config);
+
+    const crateId = runUntilCrateSpawns(harness);
+    const crate = harness.state.crates.get(crateId)!;
+    const body = harness.powerUps.crateBody(crateId)!;
+    body.y = crate.y - 400;
+    crate.y = body.y;
+    const held = { x: crate.x, y: crate.y };
+
+    for (let i = 0; i < 120; i++) harness.stepPowerUps(clock.now += 16);
+
+    assert.equal(crate.x, held.x);
+    assert.equal(crate.y, held.y, "a crate with no physics should hang where it is");
+  });
 
   it("spawns crates only at the map's configured spawn points", () => {
     const crateId = runUntilCrateSpawns(harness);

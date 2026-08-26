@@ -2,8 +2,13 @@ import {
   MatchState,
   PowerUpType,
   ServerMessage,
+  FIXED_DELTA,
+  PLAYER_HALF_HEIGHT,
+  PLAYER_HALF_WIDTH,
   applyHealthRestore,
   clamp,
+  stepBox,
+  type BoxBody,
   type CrateDestroyedPayload,
   type PowerUpCollectedPayload,
   type PowerUpDefinition,
@@ -26,6 +31,22 @@ interface CrateRuntime {
   /** Index into the arena's power-up spawn points, so it can be freed again. */
   spawnIndex: number;
   expiresAt: number;
+  /**
+   * Where the crate is and how it is moving.
+   *
+   * Server-side, like the contents: a crate that clients could shove would be a
+   * client deciding where a power-up ends up. `state.x`/`state.y` are written
+   * from this every tick, so the wire carries the result and never the cause.
+   */
+  body: BoxBody;
+  /**
+   * The height the current fall started from, or null while resting.
+   *
+   * Kept rather than derived from velocity because what breaks a crate is *how
+   * far it fell*, and a crate that clips a ledge on the way down has survived
+   * the drop so far -- so each airborne stretch is measured on its own.
+   */
+  fellFrom: number | null;
 }
 
 /**
@@ -168,6 +189,7 @@ export class PowerUpSystem {
 
     if (this.context.state.matchState !== MatchState.PLAYING) return;
 
+    this.stepCrates(now);
     this.expireEntities(now);
     this.collectPickups(now);
     this.updatePending(now);
@@ -353,6 +375,10 @@ export class PowerUpSystem {
       contents,
       spawnIndex,
       expiresAt: config.lifetimeMs > 0 ? now + config.lifetimeMs : 0,
+      // Starts resting where it landed, which is what it did before it had a
+      // body at all -- the first tick settles it onto whatever is underneath.
+      body: { x: state.x, y: state.y, velocityX: 0, velocityY: 0, onGround: false },
+      fellFrom: null,
     });
     this.occupiedSpawns.set(spawnIndex, state.id);
     this.context.state.crates.set(state.id, state);
@@ -390,9 +416,121 @@ export class PowerUpSystem {
    * Called from projectile and melee resolution, both of which computed the hit
    * server-side — a client never names a crate it claims to have hit.
    */
-  damageCrate(crateId: string, amount: number, attackerId: string, now: number): void {
+  /**
+   * Move every crate: gravity, shoves, and the landing that can break one.
+   *
+   * A crate is not solid to players -- shots pass through it and it is
+   * shootable, but you walk through it -- so "pushing" is exactly that: walk
+   * into one and it is carried along in front of you. Making crates solid
+   * instead would put a moving obstacle into the collision the client predicts
+   * against, which is a far larger promise than "a crate can be shoved".
+   */
+  private stepCrates(now: number): void {
+    const config = this.context.config.getCrateConfig();
+    if (!config.physicsEnabled) return;
+
+    const halfWidth = config.width / 2;
+    const halfHeight = config.height / 2;
+
+    for (const runtime of Array.from(this.crates.values())) {
+      const { body } = runtime;
+
+      this.pushCrate(runtime, config.pushSpeed, halfWidth, halfHeight);
+
+      const wasAirborne = !body.onGround;
+      stepBox(body, halfWidth, halfHeight, FIXED_DELTA, this.context.world, config);
+
+      if (!body.onGround) {
+        // Airborne: remember the top of this fall, and only the top. Rising
+        // (a blast, a bounce) restarts the measurement from the new peak.
+        runtime.fellFrom = runtime.fellFrom === null ? body.y : Math.min(runtime.fellFrom, body.y);
+      } else {
+        if (wasAirborne && runtime.fellFrom !== null) {
+          this.applyFallDamage(runtime, body.y - runtime.fellFrom, config, now);
+        }
+        runtime.fellFrom = null;
+      }
+
+      // The wire carries where it ended up, never how it got there.
+      runtime.state.x = body.x;
+      runtime.state.y = body.y;
+    }
+  }
+
+  /**
+   * Carry a crate in front of anyone walking into it.
+   *
+   * A speed rather than a force, so a crate moves with you at a believable pace
+   * whatever weapon you happen to be carrying, and only when you are actually
+   * moving towards it -- standing inside one does not slowly drag it away.
+   */
+  private pushCrate(
+    runtime: CrateRuntime,
+    pushSpeed: number,
+    halfWidth: number,
+    halfHeight: number,
+  ): void {
+    if (pushSpeed <= 0) return;
+    const { body } = runtime;
+
+    for (const player of this.context.state.players.values()) {
+      if (!player.alive || !player.inMatch) continue;
+      if (Math.abs(player.x - body.x) > halfWidth + PLAYER_HALF_WIDTH) continue;
+      if (Math.abs(player.y - body.y) > halfHeight + PLAYER_HALF_HEIGHT) continue;
+
+      // Shoved away from the player, and only if they are heading that way.
+      const away = Math.sign(body.x - player.x) || (player.facing >= 0 ? 1 : -1);
+      if (Math.sign(player.velocityX) !== away) continue;
+
+      const wanted = away * Math.min(pushSpeed, Math.abs(player.velocityX));
+      if (Math.abs(wanted) > Math.abs(body.velocityX) || Math.sign(body.velocityX) !== away) {
+        body.velocityX = wanted;
+      }
+    }
+  }
+
+  /** A drop long enough to matter breaks a crate open by itself. */
+  private applyFallDamage(
+    runtime: CrateRuntime,
+    drop: number,
+    config: ReturnType<RoomContext["config"]["getCrateConfig"]>,
+    now: number,
+  ): void {
+    const beyond = drop - config.fallDamageMinDrop;
+    if (beyond <= 0 || config.fallDamagePer100px <= 0) return;
+
+    const damage = Math.round((beyond / 100) * config.fallDamagePer100px);
+    if (damage <= 0) return;
+
+    // No attacker: nobody gets credit for gravity, and the kill feed reads the
+    // same way it does for a trap.
+    this.damageCrate(runtime.state.id, damage, "", now);
+  }
+
+  /**
+   * A crate's physics body, for tests and debug tooling.
+   *
+   * Read-write on purpose: placing a crate mid-air is the only way to test a
+   * fall, and every spawn point is deliberately on the ground.
+   */
+  crateBody(crateId: string): BoxBody | null {
+    return this.crates.get(crateId)?.body ?? null;
+  }
+
+  damageCrate(crateId: string, amount: number, attackerId: string, now: number, impulseX = 0): void {
     const runtime = this.crates.get(crateId);
     if (!runtime) return;
+
+    /*
+     * A hit shoves as well as damages. Scaled by the shot's own direction and
+     * added rather than assigned, so sustained fire walks a crate along instead
+     * of pinning it at one speed -- and so a shotgun's nine pellets shove nine
+     * times, exactly as they damage nine times.
+     */
+    const config = this.context.config.getCrateConfig();
+    if (config.physicsEnabled && impulseX !== 0 && config.shotImpulse > 0) {
+      runtime.body.velocityX += Math.sign(impulseX) * config.shotImpulse;
+    }
 
     const damage = Math.max(0, Math.round(amount));
     runtime.state.health = Math.max(0, runtime.state.health - damage);

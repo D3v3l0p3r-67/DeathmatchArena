@@ -572,6 +572,25 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
     // Long enough that a crate in a quiet corner still gets found, short enough
     // that its spawn point eventually frees up again.
     lifetimeMs: 45000,
+
+    // A crate is a physical object: it falls, it can be shoved, and a long
+    // enough drop breaks it open by itself.
+    physicsEnabled: true,
+    // Heavier than a player (2200): a crate drops rather than floats.
+    gravity: 2000,
+    maxFallSpeed: 1400,
+    // Stops within roughly its own width once you stop pushing.
+    groundFriction: 900,
+    // Nearly nothing, so a crate shoved off a ledge keeps the arc it left with.
+    airFriction: 60,
+    // About half a player's run: shoving a crate is deliberate, not incidental.
+    pushSpeed: 170,
+    // A rifle round moves it a few pixels; sustained fire walks it along.
+    shotImpulse: 55,
+    // Two player-heights of free fall. Nudging one down a step costs nothing.
+    fallDamageMinDrop: 180,
+    // 60 health means a crate survives about 500px of drop beyond the threshold.
+    fallDamagePer100px: 12,
   },
 
   grenades: {

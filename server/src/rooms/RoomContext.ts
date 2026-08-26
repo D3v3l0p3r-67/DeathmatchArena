@@ -137,5 +137,12 @@ export interface RoomContext {
    * Like `applyDamage`, this is only ever called from a hit the server computed
    * itself -- a client never names a crate it claims to have hit.
    */
-  damageCrate(crateId: string, amount: number, attackerId: string, now: number): void;
+  damageCrate(
+    crateId: string,
+    amount: number,
+    attackerId: string,
+    now: number,
+    /** Direction of the hit along x, so a shot shoves as well as damages. */
+    impulseX?: number,
+  ): void;
 }

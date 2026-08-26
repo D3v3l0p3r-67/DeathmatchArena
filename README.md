@@ -1459,6 +1459,48 @@ tunable: starting and maximum count, minimum and maximum throw speed, maximum
 charge time, gravity, bounciness, friction, fuse, blast radius, maximum damage,
 damage at the edge, and how many a pickup grants.
 
+### A crate is a physical object
+
+Crates fall, slide, and are shoved by anyone who walks into one. Shots nudge
+them along the direction they were fired, so sustained fire walks a crate across
+a ledge; push one off something high enough and the landing breaks it open by
+itself. All of it is `crate.*` configuration, `physicsEnabled` included -- off
+gives back exactly the old behaviour, a crate hanging wherever it landed.
+
+**Pushing means pushing, not colliding.** A crate is shootable but not solid --
+you walk through one -- and that is deliberately unchanged. Making crates solid
+would put a *moving* obstacle into the collision the client predicts against,
+which is a far bigger promise than "a crate can be shoved" and a far bigger
+source of correction. So walking into one carries it along in front of you, at
+`pushSpeed` and only while you are actually heading that way: standing inside a
+crate does not slowly drag it across the arena.
+
+The body lives server-side beside the contents, for the same reason. A client
+that could shove a crate would be a client deciding where a power-up ends up.
+`state.x`/`state.y` carry the result of each tick and never the cause.
+
+**Fall damage is measured per airborne stretch, not per drop.** A crate knocked
+off a tower that clips a ledge half way down has survived that far, so each fall
+is judged on its own: `fellFrom` records the top of the current one and resets on
+every landing. Below `fallDamageMinDrop` a fall is free, so nudging a crate down
+a step never quietly destroys it.
+
+`stepBox` in `shared/src/game/boxPhysics.ts` is the shared half: integrate, then
+push back out of whatever you ended up inside, sized by the caller. The player's
+`stepPlayerMovement` stays its own, because it carries a platformer's worth of
+feel -- coyote time, corner correction, jump buffering -- that a crate has no
+business having.
+
+On the client a crate is eased towards the authoritative position every frame
+rather than written to it on each patch, or a sliding crate would step five
+times a second; a gap larger than `SNAP_DISTANCE` is taken in one step, because
+that is a crate that broke and respawned somewhere else rather than one that
+travelled.
+
+Verified in a live match with the shove and impulse turned up so the effect is
+unmistakable: one crate moved 218px sideways, fell 120px and lost 34 of its 60
+health, while the four nothing touched sat exactly still.
+
 ### Crates announce themselves
 
 A crate never simply appears. The spot it is about to land on is marked, the
@@ -2333,7 +2375,11 @@ npm test
   no catalogue, a hand-crafted command from an unauthorized session changes nothing,
   arguments are clamped, unknown config paths are refused, and a room override never
   reaches the server configuration.
-- **`tests/powerups.test.ts`** — the closing arena (timing, symmetry, minimum width,
+- **`tests/powerups.test.ts`** — crate physics (it falls and lands, is carried by a
+  player walking into it but not by one standing still inside it, is nudged along
+  a shot's direction with sustained fire compounding, is charged for the fall it
+  actually took and nothing for the free part, and hangs perfectly still when
+  `physicsEnabled` is off). Also the closing arena (timing, symmetry, minimum width,
   crush damage, disabling it) and the crate pipeline end to end: spawn points, weighted
   contents, crate damage and destruction, revealed pickups, collection, and every
   power-up effect including expiry. Also asserts a crate never exposes its contents —

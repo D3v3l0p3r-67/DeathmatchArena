@@ -726,6 +726,7 @@ export class GameScene extends Phaser.Scene {
     this.updateFinale(now, scaledSeconds, deltaSeconds);
     this.renderProjectiles(now);
     for (const view of this.warningViews.values()) view.render(deltaSeconds);
+    for (const view of this.crateViews.values()) view.render(deltaSeconds);
     this.renderGrenades(now, deltaSeconds);
     this.renderShrinkWalls(deltaSeconds);
     this.updateCamera(deltaSeconds);

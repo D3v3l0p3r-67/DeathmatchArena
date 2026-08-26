@@ -1,6 +1,11 @@
 import Phaser from "phaser";
-import type { SyncedCrate } from "@deathmatch/shared";
+import { damp, type SyncedCrate } from "@deathmatch/shared";
 import { TextureKeys } from "../TextureFactory.js";
+
+/** How quickly the drawn crate closes on the server's position, 0..1 per frame. */
+const SMOOTHING = 0.001;
+/** Past this the gap is a teleport, not travel, and is taken in one step. */
+const SNAP_DISTANCE = 140;
 
 const HEALTHY_TINT = 0xc9a227;
 const DAMAGED_TINT = 0xb4623a;
@@ -19,6 +24,9 @@ export class CrateView {
   private readonly healthBar: Phaser.GameObjects.Rectangle;
   private readonly healthBarBack: Phaser.GameObjects.Rectangle;
   private lastHealth: number;
+  /** Where the server says it is; the container eases towards this. */
+  private targetX = 0;
+  private targetY = 0;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -43,6 +51,8 @@ export class CrateView {
       .setDepth(6);
 
     this.lastHealth = crate.health;
+    this.targetX = crate.x;
+    this.targetY = crate.y;
     this.refresh(crate);
 
     // A slow bob makes crates readable against busy geometry.
@@ -56,9 +66,38 @@ export class CrateView {
     });
   }
 
+  /**
+   * Close the gap to the authoritative position.
+   *
+   * Called every frame. Snapped outright when the gap is large -- a crate that
+   * broke and respawned elsewhere, or a match starting -- because easing across
+   * the arena would draw a journey nothing made.
+   */
+  render(deltaSeconds: number): void {
+    const dx = this.targetX - this.container.x;
+    const dy = this.targetY - this.container.y;
+
+    if (Math.abs(dx) > SNAP_DISTANCE || Math.abs(dy) > SNAP_DISTANCE) {
+      this.container.setPosition(this.targetX, this.targetY);
+      return;
+    }
+
+    this.container.setPosition(
+      damp(this.container.x, this.targetX, SMOOTHING, deltaSeconds),
+      damp(this.container.y, this.targetY, SMOOTHING, deltaSeconds),
+    );
+  }
+
   /** Mirror the authoritative crate state. */
   refresh(crate: SyncedCrate): void {
-    this.container.setPosition(crate.x, crate.y);
+    /*
+     * Aimed at rather than snapped to. A crate is a physical object now -- it
+     * is shoved, it falls -- and patches arrive at 20Hz, so writing the
+     * position straight in would step a sliding crate five times a second.
+     * `render` closes the gap every frame instead.
+     */
+    this.targetX = crate.x;
+    this.targetY = crate.y;
 
     const ratio = crate.maxHealth > 0 ? crate.health / crate.maxHealth : 0;
     this.healthBar.width = crate.width * Math.max(0, Math.min(1, ratio));
