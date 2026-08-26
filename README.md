@@ -1675,11 +1675,28 @@ The gauge itself starts its sweep from wherever the ammunition actually sits --
 `ammoRatio`, the same number the ordinary ammo bar is drawn at -- rather than
 from empty. A bar that already read 97% full no longer has to fall to nothing
 and climb back up to say "resupplying"; it visibly tops off the last sliver
-instead. Measured in a live client with the built bundle instrumented to record
-every reload: missing 1 of 30 rounds swept from 96.7% to full in 60ms (exactly
-`1800ms * 1/30`), and missing 14 of 30 swept from 53.3% in an 840ms reload
-(`1800ms * 14/30`), the gauge's width tracking the elapsed fraction of that
-window throughout.
+instead.
+
+**One bar, one animation.** The sweep used to be a second element -- an amber
+overlay drawn on top of the ammo fill, growing on its own timer while the white
+bar underneath sat frozen at the ammo count the reload started with. The moment
+the reload actually finished, the overlay vanished and the *white* bar's own
+CSS width transition fired for the first time in the whole reload, animating
+from that frozen starting width up to 100% -- a second, redundant fill playing
+immediately after the first, because the bar reporting the real ammunition
+count had never been allowed to move. It is the one element now: reloading
+adds `.is-reloading`, which turns it amber, and starting a reload sets the
+bar's own `width` transition to the exact `getReloadDurationMs` for that
+reload and its target to 100% in the same tick -- the browser interpolates
+from whatever width the bar already had, and there is nothing left to fire a
+second time when the reload ends, only the class coming back off to fade the
+colour back to white. Confirmed in a live client with the built bundle
+instrumented to sample the bar every 80ms through a full reload: its rendered
+width climbed smoothly and monotonically for the whole 1800ms transition, then
+sat exactly flat for the three seconds sampled afterward -- one animation, not
+two. A partial reload is timed the same way: missing 1 of 30 rounds swept from
+96.7% to full in 60ms (exactly `1800ms * 1/30`), missing 14 of 30 swept from
+53.3% in an 840ms reload (`1800ms * 14/30`).
 
 ---
 

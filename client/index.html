@@ -150,10 +150,11 @@
 
             <div class="gauge gauge--ammo" id="hud-ammo-gauge">
               <div class="gauge__bar">
+                <!-- The one bar does both jobs: it reads the magazine at rest,
+                     and during a reload it turns amber and grows from wherever
+                     it started to full, timed to the server's own reload
+                     duration -- see HUD.updateReloadFill. -->
                 <div class="gauge__fill" id="hud-ammo-fill"></div>
-                <!-- Sweeps over the ammo fill while reloading, so the wait is
-                     shown where the ammunition is rather than somewhere else. -->
-                <div class="gauge__reload" id="hud-reload"></div>
               </div>
               <div class="gauge__value">
                 <span id="hud-ammo">30</span><small>/<span id="hud-magazine">30</span></small>
