@@ -10,13 +10,15 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
-import { MatchState, PLAYER, PLAYER_HALF_WIDTH, listWeapons } from "@deathmatch/shared";
+import { MatchState, PLAYER, PLAYER_HALF_WIDTH, getPlayerConfig, listWeapons } from "@deathmatch/shared";
 
 const { SOUNDS, SoundChannel, SoundId, getSound } = await import("../client/src/audio/sounds.js");
 const { BURSTS, SHAKES, DEFAULT_EFFECTS_SETTINGS } = await import("../client/src/game/fx/effects.js");
 const { SoundThrottle } = await import("../client/src/audio/SoundThrottle.js");
 const { shouldHideCursor } = await import("../client/src/ui/cursor.js");
 const { normalisePosition, withinRadius } = await import("../client/src/ui/minimapGeometry.js");
+const { TrailPath } = await import("../client/src/game/fx/trailPath.js");
+const { TRAILS } = await import("../client/src/game/fx/effects.js");
 
 describe("sound catalogue", () => {
   const channels = new Set<string>(Object.values(SoundChannel));
@@ -96,6 +98,156 @@ describe("hiding the OS cursor during play", () => {
     assert.equal(shouldHideCursor(MatchState.COUNTDOWN, false), false);
     assert.equal(shouldHideCursor(MatchState.FINISHED, false), false);
     assert.equal(shouldHideCursor(undefined, false), false);
+  });
+});
+
+describe("trail catalogue", () => {
+  it("ships trails the renderer can actually draw", () => {
+    // A malformed entry here fails quietly at runtime -- an invisible streak,
+    // or a pool of zero sprites -- so the shapes are checked rather than the
+    // look, exactly as the burst and sound catalogues are.
+    for (const [name, trail] of Object.entries(TRAILS)) {
+      assert.ok(trail.segments >= 1, `${name} has no segments to draw`);
+      assert.ok(trail.fadeMs > 0, `${name} would never fade`);
+      assert.ok(trail.alpha > 0 && trail.alpha <= 1, `${name} has an out-of-range alpha`);
+      assert.ok(trail.width > 0, `${name} has no width`);
+      assert.ok(trail.taper >= 0 && trail.taper <= 1, `${name} has an out-of-range taper`);
+      assert.ok(trail.minSpeed >= 0, `${name} has a negative speed gate`);
+      assert.ok(trail.minSampleDistance > 0, `${name} would record a point every frame`);
+    }
+  });
+
+  it("gates the player's trail just under a run, which is the only line there is", () => {
+    /*
+     * Movement is binary here -- standing still, or running at `moveSpeed` --
+     * so a gate above it would mean a player only ever trails while falling,
+     * and a gate at zero would mean a streak follows everyone permanently.
+     * Under the run speed and well clear of zero is the whole usable range.
+     *
+     * The grenade's is ungated on purpose: a lob nearly stops at the top of
+     * its arc, which is exactly where the trail is most worth seeing.
+     */
+    const run = getPlayerConfig().moveSpeed;
+    assert.ok(TRAILS.player.minSpeed < run, "a flat-out run should leave a streak");
+    assert.ok(TRAILS.player.minSpeed > run * 0.5, "standing and drifting should not");
+    assert.equal(TRAILS.grenade.minSpeed, 0);
+  });
+});
+
+describe("the path a trail is drawn along", () => {
+  /** Readable numbers rather than the shipped ones, so the arithmetic shows. */
+  const spec = {
+    segments: 4,
+    fadeMs: 1000,
+    alpha: 0.8,
+    width: 10,
+    taper: 0.5,
+    color: 0xffffff,
+    additive: true,
+    minSpeed: 100,
+    minSampleDistance: 5,
+  };
+
+  it("needs two points before it can draw anything", () => {
+    const path = new TrailPath(spec);
+
+    assert.equal(path.sample(0, 0, 0), true);
+    assert.equal(path.update(0), 0, "one point is a position, not a path");
+
+    assert.equal(path.sample(50, 0, 100), true);
+    assert.equal(path.update(100), 1);
+  });
+
+  it("ignores movement too slow to count as travelling", () => {
+    // 10px in 200ms is 50px/s, under the 100px/s gate: a crawl leaves nothing.
+    const path = new TrailPath(spec);
+    path.sample(0, 0, 0);
+
+    assert.equal(path.sample(10, 0, 200), false);
+    assert.equal(path.update(200), 0);
+
+    // The same 10px covered in 50ms is 200px/s, and does count.
+    assert.equal(path.sample(10, 0, 50), true);
+  });
+
+  it("ignores movement too small to be worth a point", () => {
+    // Fast enough (4px in 10ms is 400px/s) but under the 5px distance gate,
+    // which is what stops a jittering position grinding through the buffer.
+    const path = new TrailPath(spec);
+    path.sample(0, 0, 0);
+
+    assert.equal(path.sample(4, 0, 10), false);
+    assert.equal(path.sample(6, 0, 10), true);
+  });
+
+  it("fades and thins with age, on the same curve", () => {
+    const path = new TrailPath(spec);
+    path.sample(0, 0, 0);
+    path.sample(50, 0, 100);
+
+    // Read at the moment of the older end: nothing has faded yet.
+    path.update(0);
+    assert.equal(path.segmentAt(0).alpha, spec.alpha);
+    assert.equal(path.segmentAt(0).width, spec.width);
+
+    // Halfway through the fade window: half the alpha, and half way down to
+    // the taper floor rather than half the width.
+    path.update(500);
+    assert.equal(path.segmentAt(0).alpha, spec.alpha * 0.5);
+    assert.equal(path.segmentAt(0).width, spec.width * (0.5 + 0.5 * 0.5));
+  });
+
+  it("empties gradually as points age out, rather than all at once", () => {
+    const path = new TrailPath(spec);
+    for (let i = 0; i <= 4; i++) path.sample(i * 50, 0, i * 100);
+
+    assert.equal(path.update(400), 4, "four segments from five points");
+
+    // Each point falls out of the fade window in turn.
+    assert.equal(path.update(1050), 3);
+    assert.equal(path.update(1150), 2);
+    assert.equal(path.update(1450), 0, "everything is older than the window");
+  });
+
+  it("never grows past its configured length", () => {
+    // Twenty points through a four-segment trail: the oldest are overwritten
+    // in place rather than the buffer growing.
+    const path = new TrailPath(spec);
+    for (let i = 0; i < 20; i++) path.sample(i * 50, 0, i * 10);
+
+    assert.equal(path.update(190), spec.segments);
+
+    // And what is left is the newest stretch, not the oldest.
+    assert.equal(path.segmentAt(spec.segments - 1).x1, 19 * 50);
+  });
+
+  it("forgets everything on a teleport", () => {
+    const path = new TrailPath(spec);
+    path.sample(0, 0, 0);
+    path.sample(50, 0, 100);
+    assert.equal(path.update(100), 1);
+
+    path.clear();
+    assert.equal(path.update(100), 0, "a respawn is not a journey across the arena");
+  });
+
+  it("reuses its segment objects instead of allocating per frame", () => {
+    /*
+     * The point of the class. A trail updates every rendered frame for every
+     * player and grenade on screen, so handing back fresh objects -- or a
+     * fresh array -- is how a smooth game acquires a stutter.
+     */
+    const path = new TrailPath(spec);
+    path.sample(0, 0, 0);
+    path.sample(50, 0, 100);
+
+    path.update(100);
+    const first = path.segmentAt(0);
+
+    path.sample(100, 0, 200);
+    path.update(200);
+
+    assert.equal(path.segmentAt(0), first, "the same object, rewritten");
   });
 });
 

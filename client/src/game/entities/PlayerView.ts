@@ -2,6 +2,7 @@ import Phaser from "phaser";
 import { PLAYER, clamp, getPlayerConfig, getWeapon, lerpAngle } from "@deathmatch/shared";
 import { TextureKeys, getPlayerColor, weaponTextureKey } from "../TextureFactory.js";
 import { DEATH_ANIMATION } from "../fx/effects.js";
+import { TrailRenderer } from "../fx/TrailRenderer.js";
 
 /** Where the wind-up arrow starts, in front of the hand. */
 /** How far the weapon may be pushed out to clear the face, and in what steps. */
@@ -47,6 +48,8 @@ export class PlayerView {
   private readonly healthBar: Phaser.GameObjects.Graphics;
   /** The wind-up indicator: an arrow from the hand, growing with the charge. */
   private readonly throwArrow: Phaser.GameObjects.Graphics;
+  /** Drawn under everybody, so a trail never sits on top of a player. */
+  private readonly trail: TrailRenderer;
   private readonly color: number;
 
   /** Smoothed aim so remote weapons swing rather than snap between patches. */
@@ -77,6 +80,8 @@ export class PlayerView {
 
   /** Elapsed time in the death animation, in ms. Negative when not dying. */
   private dyingFor = -1;
+  /** Whether the trail is still fading out behind a body being thrown. */
+  private dyingTrailFade = false;
   private deathVelocityY = 0;
   private deathDrift = 0;
 
@@ -141,6 +146,8 @@ export class PlayerView {
         this.label,
       ])
       .setDepth(isLocal ? 20 : 10);
+
+    this.trail = new TrailRenderer(scene, "player", 8);
   }
 
   setName(name: string): void {
@@ -166,6 +173,15 @@ export class PlayerView {
     // A dying body is thrown by `tickDeath`, so its position is its own until
     // the animation ends.
     if (!state.alive) return;
+
+    /*
+     * Fed the position being drawn, so the streak follows the path actually
+     * taken -- prediction and interpolation included -- rather than a straight
+     * line between server patches. Offered every frame whatever the speed is;
+     * `TrailPath` decides what is worth recording, and a player who slows down
+     * leaves a trail that fades where it is rather than one that cuts out.
+     */
+    this.trail.update(state.x, state.y, this.scene.time.now);
 
     // The celebration is an offset on top of the server's position rather than a
     // position of its own: the winner is still a player standing where the
@@ -207,6 +223,10 @@ export class PlayerView {
    */
   private beginDying(): void {
     this.dyingFor = 0;
+    // A thrown body is moving but no longer travelling. `tickDeath` keeps
+    // fading whatever the trail already holds, so it thins out behind the
+    // corpse instead of disappearing with the last frame of running.
+    this.dyingTrailFade = true;
     this.deathVelocityY = -DEATH_ANIMATION.lift;
     // Thrown away from where the body was facing, which is roughly away from
     // whoever was in front of it.
@@ -225,6 +245,10 @@ export class PlayerView {
   /** Put everything back for a new life. */
   private reviveVisuals(): void {
     this.dyingFor = -1;
+    this.dyingTrailFade = false;
+    // A respawn is a teleport: the path from where they died to where they came
+    // back is not a path anything travelled.
+    this.trail.clear();
     this.drawnHealth = -1;
     this.container.setVisible(true);
     this.container.setAlpha(1);
@@ -289,6 +313,13 @@ export class PlayerView {
    * slow motion for the kill that ends a match.
    */
   tickDeath(deltaSeconds: number): void {
+    if (this.dyingTrailFade) {
+      // Not fed, only aged: whatever the trail held at the moment of death
+      // finishes fading instead of being cut off with the last living frame.
+      this.trail.fade(this.scene.time.now);
+      if (this.dyingFor < 0) this.dyingTrailFade = false;
+    }
+
     if (this.dyingFor < 0) return;
 
     this.dyingFor += deltaSeconds * 1000;
@@ -563,6 +594,7 @@ export class PlayerView {
   }
 
   destroy(): void {
+    this.trail.destroy();
     this.container.destroy(true);
     void this.scene;
   }

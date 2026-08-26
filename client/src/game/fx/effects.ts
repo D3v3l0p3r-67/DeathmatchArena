@@ -27,6 +27,45 @@ export interface BurstSpec {
   additive?: boolean;
 }
 
+/**
+ * A trail: the fading streak something leaves along the path it actually took.
+ *
+ * Deliberately one shape for everything that moves. A player sprinting, a
+ * grenade arcing, and anything added later -- a projectile, a power-up drifting
+ * to the ground -- differ only in these numbers, so giving something a trail is
+ * a row in `TRAILS` rather than a new class.
+ */
+export interface TrailSpec {
+  /** How long the trail is, in samples. Each pair of samples is one segment. */
+  segments: number;
+  /** How long a sample takes to fade from full to nothing, in ms. */
+  fadeMs: number;
+  /** Alpha of a brand-new segment, 0..1. The rest fade towards 0 from here. */
+  alpha: number;
+  /** Width of a brand-new segment, in px. */
+  width: number;
+  /**
+   * What fraction of `width` the oldest segment has shrunk to, 0..1.
+   *
+   * Tied to the same fade curve as the alpha, so a segment thins and dims
+   * together rather than staying full-width until it vanishes.
+   */
+  taper: number;
+  color: number;
+  additive: boolean;
+  /**
+   * Below this speed nothing is recorded, in px/s.
+   *
+   * Measured from the path itself rather than taken from anyone's velocity, so
+   * it means the same thing for a player, a grenade and anything added later.
+   * A trail that is not being fed simply ages out where it is, which is what
+   * makes stopping fade rather than cut.
+   */
+  minSpeed: number;
+  /** Nor below this distance from the last sample, in px. */
+  minSampleDistance: number;
+}
+
 /** A camera shake. */
 export interface ShakeSpec {
   durationMs: number;
@@ -274,6 +313,54 @@ export const BURSTS = Object.freeze({
 } satisfies Record<string, BurstSpec>);
 
 export type BurstName = keyof typeof BURSTS;
+
+/**
+ * Trails, keyed by what leaves them.
+ *
+ * The player's is short and cool-toned -- a hint of speed rather than a comet.
+ * Its `minSpeed` sits just under a flat-out run (`player.moveSpeed`, 330px/s by
+ * default), because movement here is binary: you are either standing still or
+ * running at full speed, so that is the only line that separates "travelling"
+ * from "not". Standing, turning and being nudged leave nothing; running leaves
+ * a streak, and a fall, a boosted run or a shove from a rocket leaves a longer
+ * one on its own -- covering more ground inside the same fade window is what
+ * makes a trail longer, so speed scales it without a second setting.
+ *
+ * The grenade's is longer, brighter and always on, because it is answering a
+ * different question -- not "how fast" but "where is that going to land".
+ */
+export const TRAILS = Object.freeze({
+  player: {
+    segments: 10,
+    fadeMs: 280,
+    // Matched to the grenade's, which reads clearly against the arena's very
+    // dark palette. Lower was legible in a still frame and close to invisible
+    // in motion, which is the only way anybody actually sees it.
+    alpha: 0.6,
+    width: 11,
+    taper: 0.25,
+    color: 0x9fe8ff,
+    additive: true,
+    minSpeed: 300,
+    minSampleDistance: 6,
+  },
+  grenade: {
+    segments: 16,
+    fadeMs: 620,
+    alpha: 0.6,
+    width: 5,
+    taper: 0.2,
+    color: 0xd7e35f,
+    additive: true,
+    // Always on in flight: the arc is the point, and a lobbed grenade slows
+    // almost to a stop at the top of it, which is exactly where the trail is
+    // most worth seeing.
+    minSpeed: 0,
+    minSampleDistance: 4,
+  },
+} satisfies Record<string, TrailSpec>);
+
+export type TrailName = keyof typeof TRAILS;
 
 /** Camera shakes, keyed by what caused them. */
 export const SHAKES = Object.freeze({

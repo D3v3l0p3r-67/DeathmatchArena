@@ -1794,6 +1794,54 @@ under the mid-air jump, sparks where a grenade bounces, debris when a crate
 breaks, a burst tinted with a power-up's own colour when it is collected, and a
 blast drawn at the radius the server actually used.
 
+### Trails, and why they are one mechanism
+
+A running player leaves a short streak; a grenade leaves its whole arc, so a
+throw can be read while it is still in the air rather than guessed at. Both are
+the same class over the same `TrailSpec` -- length in segments, fade time,
+alpha, width, taper, colour, and the speed and distance gates below which
+nothing is recorded -- so giving something a trail is a row in `TRAILS` beside
+the bursts, not a new class. A projectile or a drifting power-up would need
+nothing else.
+
+The two differ only in those numbers, and the numbers say what each is *for*.
+The player's is short, cool and gated just under a flat-out run: movement here
+is binary -- standing still, or running at `moveSpeed` -- so that is the only
+line that separates travelling from not. A gate above it and you would only
+ever trail while falling; a gate at zero and a streak would follow everyone
+permanently. Speed then lengthens the trail on its own, because a fall or a
+boosted run covers more ground inside the same fade window. The grenade's is
+longer, brighter and ungated, because a lob nearly stops at the top of its arc
+-- exactly where the trail is most worth seeing.
+
+**It follows the path actually drawn, not the path the server sent.** Both
+emitters feed it the position on screen, extrapolation and prediction included,
+so a grenade's arc is a curve rather than a 20Hz dotted line through one.
+
+**Nothing is created per frame.** `TrailPath` keeps its points in preallocated
+typed arrays used as a ring buffer, and hands back segments by index out of
+objects it rewrites in place -- returning a `slice` would be the nicer shape and
+would allocate an array per trail per frame, which for every player and grenade
+on screen is how a smooth game acquires a stutter. `TrailRenderer` maps those
+onto a sprite pool allocated once at construction, each one either repositioned
+or hidden. Phaser's `Graphics` was the obvious alternative and the wrong one: it
+re-tessellates on `clear()`, and a trail changes every frame by definition --
+the mirror image of `drawHealthBar`, where geometry is cheaper precisely because
+a health bar rarely changes.
+
+A trail that stops being fed is not cut off; it ages out where it is. That is
+what makes stopping, dying and exploding all fade rather than blink -- a body
+being thrown by the death animation is moving but no longer *travelling*, so
+`tickDeath` keeps ageing the trail without adding to it. A respawn clears it
+outright, because the line from where somebody died to where they came back is
+not a path anything travelled.
+
+Measured in a live client with the built bundle instrumented to record every
+segment handed to a sprite: mean alpha rose from 0.22 at the tail to 0.46 at the
+head, ran down to 0.029 before disappearing rather than cutting off, and width
+tapered from 9.5px to 3.1px against a 2.75px floor -- the fade and the taper on
+one curve, as the spec says they are.
+
 ### The countdown shows you the arena
 
 While 3-2-1 runs, the camera pulls back to the whole arena -- the level is the
@@ -2146,7 +2194,12 @@ npm test
   separately from other people's, so a distant exchange cannot silence yours,
   and the minimap's own geometry: a world position normalises to the right 0..1
   fraction of the arena (clamped when something sits outside its bounds), and a
-  reveal radius of 0 or anything nonsensical is treated as no limit at all.
+  reveal radius of 0 or anything nonsensical is treated as no limit at all. And
+  the trail catalogue and the path behind it: movement too slow or too small is
+  not recorded, the fade and taper follow one curve, points age out one at a
+  time rather than all at once, the ring buffer never grows past its configured
+  length, a teleport clears it — and it rewrites its segment objects instead of
+  allocating a fresh one per frame, which is the whole reason the class exists.
 - **`tests/protocol.test.ts`** — input codec round-trips, malformed payload rejection,
   name validation, rate limiting.
 - **`tests/match.test.ts`** — end-to-end against a real Colyseus server over a real
