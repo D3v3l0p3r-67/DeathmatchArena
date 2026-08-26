@@ -1794,6 +1794,56 @@ under the mid-air jump, sparks where a grenade bounces, debris when a crate
 breaks, a burst tinted with a power-up's own colour when it is collected, and a
 blast drawn at the radius the server actually used.
 
+### Standing still once it is over
+
+A decided match used to leave the arena twitching. Two separate faults, both
+visible as a player who "stops" and then flickers between two poses:
+
+- **`FINALE.celebrateMs` was written down and never consulted.** The winner's
+  hop was started and then ticked for as long as anybody was watching, so it
+  bounced 34px up and down through the entire twelve-second results screen with
+  no resting frame.
+- **The walk cycle ran off the last velocity the server sent.** Whatever a
+  player happened to be doing when the match ended, they kept doing on the
+  spot -- a match decided mid-sprint left everyone jogging in place.
+
+Both are fixed by the same rule: **when the match is decided, animations
+conclude and then stop.** `PlayerViewState` carries `matchLive`, and a view that
+is not live settles its pose to neutral (`settleStep`) rather than animating it.
+The settle is eased rather than snapped, because the requirement is that an
+animation in progress *finishes* -- a runner settles out of their stride instead
+of jumping to attention -- and it latches: once neutral, nothing writes to the
+body again until play resumes.
+
+The celebration ends itself rather than waiting to be told. It keeps two clocks,
+and they are not interchangeable: the hop *animates* on the scene's slowed
+clock, so it stays in slow motion with the rest of the finale, while the
+*deadline* runs on real time. An attempt at measuring the deadline in scaled
+time too made `celebrateMs` mean whatever the time scale happened to be --
+measured at 8.07s of wall time for a 2200ms constant, most of it spent bouncing
+behind the results screen.
+
+Two further things only came out of measuring, and neither would have been
+guessed:
+
+- **The finale stops ticking on its own schedule.** Handing it the job of ending
+  the celebration left the winner frozen 4.5px off the ground at a 0.009rad
+  tilt, held for the rest of the results screen -- stable, but not a resting
+  pose. A celebration that has gone untouched for `CELEBRATION_STALE_MS` is now
+  finished by the view itself, so the pose never depends on somebody else
+  remembering.
+- **Prediction kept running with nothing left to predict.** No input is
+  accepted after the match and the authoritative position has stopped moving,
+  but re-simulating it every frame still produced 3.47px of permanent wobble
+  under the winner. The local view reads the server's position directly once
+  the match is over, and the prediction is not stepped at all.
+
+Measured over two full matches after the fix: the hop runs for a second or two
+and then the drawn position holds an exact 0.000px spread for the six to seven
+seconds sampled afterwards, with the winner's view ending on
+`celebratingFor=-1, lift=0, bodyY=0, rotation=0` -- one stable frame, and
+nothing still running behind it.
+
 ### Where the health and ammo bars live
 
 Both bars are drawn over every player's head by default, and the corner panel's
@@ -2236,7 +2286,10 @@ npm test
   and the minimap's own geometry: a world position normalises to the right 0..1
   fraction of the arena (clamped when something sits outside its bounds), and a
   reveal radius of 0 or anything nonsensical is treated as no limit at all. And
-  the trail catalogue and the path behind it: movement too slow or too small is
+  that a pose eases to exactly neutral and latches there rather than approaching
+  it forever, that a long frame cannot fling it past upright, and that the
+  finale hands the celebration a duration it actually ends on. Also the trail
+  catalogue and the path behind it: movement too slow or too small is
   not recorded, the fade and taper follow one curve, points age out one at a
   time rather than all at once, the ring buffer never grows past its configured
   length, a teleport clears it — and it rewrites its segment objects instead of

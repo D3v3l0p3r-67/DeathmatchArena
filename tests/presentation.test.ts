@@ -18,7 +18,8 @@ const { SoundThrottle } = await import("../client/src/audio/SoundThrottle.js");
 const { shouldHideCursor } = await import("../client/src/ui/cursor.js");
 const { normalisePosition, withinRadius } = await import("../client/src/ui/minimapGeometry.js");
 const { TrailPath } = await import("../client/src/game/fx/trailPath.js");
-const { TRAILS } = await import("../client/src/game/fx/effects.js");
+const { TRAILS, FINALE } = await import("../client/src/game/fx/effects.js");
+const { settleStep } = await import("../client/src/game/fx/poseSettle.js");
 
 describe("sound catalogue", () => {
   const channels = new Set<string>(Object.values(SoundChannel));
@@ -98,6 +99,112 @@ describe("hiding the OS cursor during play", () => {
     assert.equal(shouldHideCursor(MatchState.COUNTDOWN, false), false);
     assert.equal(shouldHideCursor(MatchState.FINISHED, false), false);
     assert.equal(shouldHideCursor(undefined, false), false);
+  });
+});
+
+describe("coming to rest when a match is over", () => {
+  const frame = 1 / 60;
+
+  it("relaxes towards neutral rather than snapping there", () => {
+    const step = settleStep(1.6, 0.03, frame);
+    assert.ok(step.y > 0 && step.y < 1.6, `y should ease down, got ${step.y}`);
+    assert.ok(step.rotation > 0 && step.rotation < 0.03);
+    assert.equal(step.settled, false, "one frame is not a finished animation");
+  });
+
+  it("arrives at exactly neutral and says so, rather than approaching forever", () => {
+    /*
+     * The flag is the point: a pose that only ever halves its distance to zero
+     * is a body that never quite stops moving, and the caller needs a definite
+     * moment to stop writing to it at all.
+     */
+    let y = 1.6;
+    let rotation = 0.14;
+    let settled = false;
+    let frames = 0;
+
+    while (!settled && frames < 600) {
+      const step = settleStep(y, rotation, frame);
+      y = step.y;
+      rotation = step.rotation;
+      settled = step.settled;
+      frames++;
+    }
+
+    assert.equal(settled, true, "never reached a resting frame");
+    assert.equal(y, 0, "a resting pose is exactly neutral, not nearly");
+    assert.equal(rotation, 0);
+    assert.ok(frames < 60, `should settle within a second, took ${frames} frames`);
+  });
+
+  it("never crosses neutral on a long frame", () => {
+    // A tab that was backgrounded hands over a huge delta. Easing by more than
+    // the whole distance would fling the body past upright and back, which is a
+    // bounce -- the opposite of settling.
+    const step = settleStep(1.6, 0.14, 5);
+    assert.equal(step.settled, true);
+    assert.equal(step.y, 0);
+    assert.equal(step.rotation, 0);
+  });
+
+  it("settles from either direction", () => {
+    const step = settleStep(-1.6, -0.14, frame);
+    assert.ok(step.y < 0 && step.y > -1.6, "a negative offset eases up, not further down");
+    assert.ok(step.rotation < 0 && step.rotation > -0.14);
+  });
+});
+
+describe("the winner's celebration", () => {
+  it("has a duration the finale actually uses", () => {
+    /*
+     * `celebrateMs` was written down when the finale was built and never
+     * consulted, so the winner hopped for as long as anybody was watching --
+     * bouncing between two positions with no resting frame, for the whole
+     * results screen. Read from the source because the fault was precisely
+     * that a value existed and nothing asked for it.
+     */
+    assert.ok(FINALE.celebrateMs > 0, "a celebration with no length cannot end");
+
+    const scene = readFileSync(
+      new URL("../client/src/game/scenes/GameScene.ts", import.meta.url),
+      "utf8",
+    );
+    assert.match(
+      scene,
+      /tickCelebration\([^)]*FINALE\.celebrateMs/s,
+      "the finale must hand the celebration its duration",
+    );
+
+    const view = readFileSync(
+      new URL("../client/src/game/entities/PlayerView.ts", import.meta.url),
+      "utf8",
+    );
+    assert.match(
+      view,
+      /celebratingRealMs >= durationMs/,
+      "the view must end its own celebration on real time",
+    );
+    assert.match(
+      view,
+      /endCelebration\(deltaSeconds: number\)[^]*setCelebrating\(false\)/,
+      "and ease the hop down before stopping it",
+    );
+  });
+
+  it("stops the walk cycle once the match is no longer being played", () => {
+    // The other half of a still arena: the walk cycle runs off the last
+    // velocity the server sent, so a match decided mid-sprint would otherwise
+    // leave everyone jogging on the spot.
+    const view = readFileSync(
+      new URL("../client/src/game/entities/PlayerView.ts", import.meta.url),
+      "utf8",
+    );
+    assert.match(view, /matchLive/, "the view has to be told whether play is live");
+    assert.match(
+      view,
+      /if \(!state\.matchLive\) \{\s*this\.settlePose/,
+      "a finished match must settle the pose instead of animating it",
+    );
   });
 });
 

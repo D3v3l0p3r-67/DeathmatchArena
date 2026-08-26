@@ -10,13 +10,22 @@ import {
   usesAmmo,
 } from "@deathmatch/shared";
 import { TextureKeys, getPlayerColor, weaponTextureKey } from "../TextureFactory.js";
-import { DEATH_ANIMATION } from "../fx/effects.js";
+import { DEATH_ANIMATION, POSE_SETTLE_RATE } from "../fx/effects.js";
+import { settleStep } from "../fx/poseSettle.js";
 import { TrailRenderer } from "../fx/TrailRenderer.js";
 
 /** Where the wind-up arrow starts, in front of the hand. */
 /** How far the weapon may be pushed out to clear the face, and in what steps. */
 const HOLD_PUSH_STEPS = 10;
 const HOLD_PUSH_PX = 3;
+
+/**
+ * How long a celebration may go untouched before the view finishes it itself.
+ *
+ * Long enough not to fight the finale over a slow frame, short enough that
+ * nobody sees the winner hold a half-eased pose.
+ */
+const CELEBRATION_STALE_MS = 200;
 
 const THROW_ARROW_START = 16;
 /** How long it is at no charge, and at full charge. */
@@ -39,6 +48,13 @@ export interface PlayerViewState {
   weaponId: string;
   /** Grenades on the belt. Server state, like everything else here. */
   grenades: number;
+  /**
+   * Whether the match is still being played.
+   *
+   * False the moment it is decided, and the reason a finished arena is still
+   * rather than full of players walking on the spot -- see `settlePose`.
+   */
+  matchLive: boolean;
 }
 
 /**
@@ -93,10 +109,29 @@ export class PlayerView {
   /** Whether the throw arrow drew anything last frame; a clear is only owed if so. */
   private throwArrowDrawn = false;
 
-  /** Elapsed time in the celebration, in ms. Negative when not celebrating. */
+  /** Phase clock for the hop, on the scene's (slowed) time. -1 when not celebrating. */
   private celebratingFor = -1;
+  /**
+   * The same celebration measured on real time, which is what ends it.
+   *
+   * Two clocks because they answer different questions. The hop *animates* on
+   * the scene's clock so it slows with the finale; the *deadline* cannot, or
+   * `celebrateMs` would mean whatever the time scale happened to be -- measured
+   * at 8.07s of wall time for a 2200ms constant, most of it spent bouncing
+   * behind the results screen.
+   */
+  private celebratingRealMs = 0;
+  /** Scene time of the last celebration tick, to notice when one stops being driven. */
+  private celebrationTickedAt = 0;
   /** How far off the ground the celebration currently has them, in px. */
   private celebrationLift = 0;
+  /**
+   * True once the pose has reached neutral and stopped being written.
+   *
+   * The whole point of the flag: after a match ends there is one stable frame
+   * and then *nothing touches the body again* until play resumes.
+   */
+  private settled = false;
 
   /** Elapsed time in the death animation, in ms. Negative when not dying. */
   private dyingFor = -1;
@@ -302,7 +337,10 @@ export class PlayerView {
    */
   setCelebrating(celebrating: boolean): void {
     if (celebrating) {
-      if (this.celebratingFor < 0) this.celebratingFor = 0;
+      if (this.celebratingFor < 0) {
+        this.celebratingFor = 0;
+        this.celebratingRealMs = 0;
+      }
       return;
     }
 
@@ -317,10 +355,32 @@ export class PlayerView {
    * Driven by the scene's clock like the death animation, so it slows down with
    * the finale rather than running at full speed underneath it.
    */
-  tickCelebration(deltaSeconds: number, hop: number, hz: number): void {
+  tickCelebration(
+    scaledSeconds: number,
+    realSeconds: number,
+    hop: number,
+    hz: number,
+    durationMs: number,
+  ): void {
     if (this.celebratingFor < 0) return;
 
-    this.celebratingFor += deltaSeconds * 1000;
+    this.celebrationTickedAt = this.scene.time.now;
+    this.celebratingFor += scaledSeconds * 1000;
+    this.celebratingRealMs += realSeconds * 1000;
+
+    /*
+     * The view ends its own celebration rather than waiting to be told. An
+     * earlier attempt had the scene decide, from the finale's elapsed time --
+     * and the call never fired even once, because that clock is not the one
+     * this animation actually runs on. A hop that only stops when somebody
+     * else remembers to stop it is how the winner ended up bouncing with no
+     * resting frame in the first place.
+     */
+    if (this.celebratingRealMs >= durationMs) {
+      this.endCelebration(scaledSeconds);
+      return;
+    }
+
     const phase = (this.celebratingFor / 1000) * hz * Math.PI * 2;
 
     // Absolute sine: the arc of a bounce rather than the sway of a float, and it
@@ -329,6 +389,32 @@ export class PlayerView {
     // A little tilt with each hop, so it reads as jumping for joy rather than as
     // being lifted.
     this.body.setRotation(Math.sin(phase * 0.5) * 0.14);
+  }
+
+  /**
+   * Bring the celebration to a close and stop it.
+   *
+   * Eased rather than cut: the hop comes down to the floor and the tilt
+   * straightens before anything stops, so the animation concludes instead of
+   * being switched off mid-air. Once it is close enough to standing,
+   * `setCelebrating(false)` clears both and every later call is a no-op --
+   * which is what leaves the winner on one stable frame rather than bouncing
+   * for as long as anybody is watching.
+   *
+   * Called by `tickCelebration` once the celebration has had its time, and
+   * safe to call directly to cut one short.
+   */
+  endCelebration(deltaSeconds: number): void {
+    if (this.celebratingFor < 0) return;
+
+    this.celebrationTickedAt = this.scene.time.now;
+    const ease = clamp(deltaSeconds * POSE_SETTLE_RATE, 0, 1);
+    this.celebrationLift *= 1 - ease;
+    this.body.setRotation(this.body.rotation * (1 - ease));
+
+    if (this.celebrationLift < 0.4 && Math.abs(this.body.rotation) < 0.004) {
+      this.setCelebrating(false);
+    }
   }
 
   /**
@@ -497,6 +583,19 @@ export class PlayerView {
 
   /** Cheap procedural "animation": a subtle bob while running, a lean while airborne. */
   private updateWalkCycle(state: PlayerViewState, deltaSeconds: number): void {
+    /*
+     * A decided match freezes everybody. Without this the walk cycle keeps
+     * running off the last velocity the server sent -- which is whatever the
+     * player happened to be doing when it ended -- so a match that finishes
+     * mid-sprint leaves everyone jogging on the spot for the whole results
+     * screen, bobbing between two poses and going nowhere.
+     */
+    if (!state.matchLive) {
+      this.settlePose(deltaSeconds);
+      return;
+    }
+
+    this.settled = false;
     const speed = Math.abs(state.speedX);
 
     if (state.onGround && speed > 20) {
@@ -512,6 +611,45 @@ export class PlayerView {
       this.body.setRotation(0);
     }
     this.visor.setY(-PLAYER.HEIGHT / 2 + 12 + this.body.y);
+  }
+
+  /**
+   * Bring the pose to rest, once, and then leave it alone.
+   *
+   * Eased rather than snapped, because the requirement is that an animation in
+   * progress *concludes*: a running player settles out of their stride instead
+   * of jumping to attention. Once it is close enough the values are set exactly
+   * and `settled` latches, after which this writes nothing at all -- which is
+   * what stops a finished arena from spending twelve seconds of results screen
+   * re-rendering poses that are not changing.
+   *
+   * A celebrating winner is skipped entirely: the hop owns the pose while it
+   * runs, and settling picks up where it leaves off.
+   */
+  private settlePose(deltaSeconds: number): void {
+    if (this.celebratingFor >= 0) {
+      /*
+       * A celebration still being driven owns the pose; settling picks up
+       * after it. But one that has *stopped* being driven has to be finished
+       * here, or the winner is left frozen wherever the last tick happened to
+       * leave them -- measured at 4.5px off the ground with a 0.009rad tilt,
+       * held for the rest of the results screen. The finale stops ticking on
+       * its own schedule; the pose cannot depend on that.
+       */
+      if (this.scene.time.now - this.celebrationTickedAt < CELEBRATION_STALE_MS) return;
+      this.endCelebration(deltaSeconds);
+      return;
+    }
+
+    if (this.settled) return;
+
+    const step = settleStep(this.body.y, this.body.rotation, deltaSeconds);
+    if (step.settled) this.walkCycle = 0;
+    this.settled = step.settled;
+
+    this.body.setY(step.y);
+    this.body.setRotation(step.rotation);
+    this.visor.setY(-PLAYER.HEIGHT / 2 + 12 + step.y);
   }
 
   private updateShadow(state: PlayerViewState): void {

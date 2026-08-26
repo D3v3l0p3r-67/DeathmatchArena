@@ -168,6 +168,16 @@ export const FINALE = {
 } as const;
 
 /**
+ * How quickly a pose relaxes to neutral once there is nothing left to animate.
+ *
+ * Higher settles faster. It exists so the end of a match *concludes* an
+ * animation rather than cutting it: a running player's bob and a winner's hop
+ * both ease back to standing rather than snapping to it, and then stop being
+ * written at all.
+ */
+export const POSE_SETTLE_RATE = 9;
+
+/**
  * Confetti colours.
  *
  * Bright and unmistakably celebratory -- nothing in the arena's own palette is

@@ -715,11 +715,15 @@ export class GameScene extends Phaser.Scene {
     this.runFixedSteps(deltaMs, now);
     this.network.flushInput(now);
 
-    this.prediction.update(deltaSeconds);
+    // Nothing to predict once the match is decided: input is refused, the
+    // authoritative position has stopped moving, and the view reads it directly.
+    if (this.network.state?.matchState === MatchState.PLAYING) {
+      this.prediction.update(deltaSeconds);
+    }
     this.renderLocalPlayer(deltaSeconds);
     this.renderRemotePlayers(now, deltaSeconds);
     for (const view of this.playerViews.values()) view.tickDeath(scaledSeconds);
-    this.updateFinale(now, scaledSeconds);
+    this.updateFinale(now, scaledSeconds, deltaSeconds);
     this.renderProjectiles(now);
     for (const view of this.warningViews.values()) view.render(deltaSeconds);
     this.renderGrenades(now, deltaSeconds);
@@ -808,7 +812,7 @@ export class GameScene extends Phaser.Scene {
    * real time so the sequence keeps its own pace while the world it is watching
    * runs slowly.
    */
-  private updateFinale(now: number, scaledSeconds: number): void {
+  private updateFinale(now: number, scaledSeconds: number, realSeconds: number): void {
     if (this.finaleStartedAt === 0) return;
 
     const elapsed = now - this.finaleStartedAt;
@@ -822,7 +826,15 @@ export class GameScene extends Phaser.Scene {
 
     if (this.finaleFoundWinner) {
       const winner = this.playerViews.get(this.finaleWinnerId);
-      winner?.tickCelebration(scaledSeconds, FINALE.celebrateHop, FINALE.celebrateHz);
+      // Both clocks: the hop animates on the scene's slowed one, the deadline
+      // runs on real time. See `tickCelebration`.
+      winner?.tickCelebration(
+        scaledSeconds,
+        realSeconds,
+        FINALE.celebrateHop,
+        FINALE.celebrateHz,
+        FINALE.celebrateMs,
+      );
 
       // A wave of confetti every so often, so the screen keeps filling rather
       // than emptying while the winner is still bouncing.
@@ -975,21 +987,32 @@ export class GameScene extends Phaser.Scene {
   }
 
   private renderLocalPlayer(deltaSeconds: number): void {
+    const state = this.network.state;
     const view = this.playerViews.get(this.network.sessionId);
-    const player = this.network.state?.players.get(this.network.sessionId);
-    if (!view || !player) return;
+    const player = state?.players.get(this.network.sessionId);
+    if (!view || !player || !state) return;
+
+    /*
+     * Prediction drives the position while there is something to predict. Once
+     * the match is decided there is not: no input is accepted, the server's
+     * copy stops changing, and re-simulating it every frame only produces a
+     * few pixels of flutter against the authoritative position -- measured at
+     * 3.47px of permanent wobble under the winner, which is a player who never
+     * quite stands still.
+     */
+    const live = state.matchState === MatchState.PLAYING;
 
     view.apply(
       {
-        // Prediction drives the position; the server's copy only corrects it.
-        x: this.prediction.renderX,
-        y: this.prediction.renderY,
+        x: live ? this.prediction.renderX : player.x,
+        y: live ? this.prediction.renderY : player.y,
         aimAngle: this.inputController.currentAimAngle,
         facing: this.prediction.movement.facing,
         alive: player.alive && player.inMatch,
         onGround: this.prediction.movement.onGround,
         health: player.health,
         speedX: this.prediction.movement.velocityX,
+        matchLive: live,
         ammo: player.ammo,
         reloading: player.reloading,
         weaponId: player.weaponId,
@@ -1026,6 +1049,7 @@ export class GameScene extends Phaser.Scene {
           onGround: sample.onGround,
           health: player.health,
           speedX: sample.speedX,
+          matchLive: state.matchState === MatchState.PLAYING,
           ammo: player.ammo,
           reloading: player.reloading,
           weaponId: player.weaponId,
