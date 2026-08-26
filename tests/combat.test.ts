@@ -8,7 +8,10 @@ import { beforeEach, describe, it } from "node:test";
 import {
   ASSAULT_RIFLE_ID,
   CHAINSAW_ID,
+  FLAMETHROWER_ID,
   LASER_ID,
+  SNIPER_ID,
+  SMG_ID,
   ROCKET_LAUNCHER_ID,
   FIXED_DELTA,
   KNOCKBACK_IMPULSE,
@@ -179,19 +182,63 @@ describe("the laser", () => {
 });
 
 describe("a weapon's weight", () => {
-  it("ships neutral on every weapon, so nothing plays differently yet", () => {
+  it("puts the weapons in the intended order, fastest to heaviest", () => {
     /*
-     * The request was for the mechanism, explicitly behaving as before for now.
-     * This is the line that keeps that promise: the moment somebody tunes a
-     * weapon away from 1 it is deliberate, not an accident that shipped.
+     * The ladder is the balance, so it is the ladder that is pinned rather than
+     * eight separate numbers. Reach and lethality buy weight: the chainsaw and
+     * the SMG close and kite, the rifle is the yardstick at exactly 1, and the
+     * long-range weapons pay for their reach in legs.
      */
-    for (const weapon of listWeapons()) {
-      assert.equal(
-        weapon.moveSpeedMultiplier,
-        1,
-        `${weapon.id} would change how fast its carrier runs`,
+    const speed = (id: string) => getWeapon(id).moveSpeedMultiplier;
+
+    assert.equal(speed(ASSAULT_RIFLE_ID), 1, "the rifle is what every other weight is read against");
+
+    const heaviestFirst = [ROCKET_LAUNCHER_ID, SNIPER_ID, LASER_ID, FLAMETHROWER_ID, SHOTGUN_ID, ASSAULT_RIFLE_ID, SMG_ID, CHAINSAW_ID];
+    for (let i = 1; i < heaviestFirst.length; i++) {
+      assert.ok(
+        speed(heaviestFirst[i]!) > speed(heaviestFirst[i - 1]!),
+        `${heaviestFirst[i]} should be lighter than ${heaviestFirst[i - 1]}`,
       );
     }
+  });
+
+  it("keeps the chainsaw able to close on the heavy weapons but not on the SMG", () => {
+    /*
+     * The number that decides whether an instant-kill melee is fair. Measured
+     * over 400px: at 1.05x it never reaches anybody, and at 1.25x a sniper gets
+     * one shot where they need two. The gap to the SMG is the escape hatch --
+     * the most mobile weapon must out-run the deadliest one.
+     */
+    const run = getPlayerConfig().moveSpeed;
+    const saw = run * getWeapon(CHAINSAW_ID).moveSpeedMultiplier;
+
+    const sniper = getWeapon(SNIPER_ID);
+    const closing = saw - run * sniper.moveSpeedMultiplier;
+    assert.ok(closing > 0, "the chainsaw must be able to reach a sniper at all");
+
+    const secondsToClose = 400 / closing;
+    const shotsAllowed = Math.floor((secondsToClose * 1000) / getFireIntervalMs(sniper));
+    const shotsNeeded = Math.ceil(getPlayerConfig().maxHealth / sniper.damage);
+    assert.ok(
+      shotsAllowed >= shotsNeeded,
+      `a sniper gets ${shotsAllowed} shots crossing 400px but needs ${shotsNeeded}`,
+    );
+
+    assert.ok(
+      getWeapon(SMG_ID).moveSpeedMultiplier < getWeapon(CHAINSAW_ID).moveSpeedMultiplier,
+      "the SMG is the counter, and a counter that cannot run away is not one",
+    );
+  });
+
+  it("leaves the chainsaw as the only weapon that kills in one hit", () => {
+    // The shotgun used to do it too, at 117 against 100 health, with no window
+    // to react. Two weapons in that role means neither is special.
+    const hp = getPlayerConfig().maxHealth;
+    const oneHit = listWeapons().filter(
+      (weapon) => weapon.damage * (weapon.ranged?.pellets ?? 1) >= hp,
+    );
+
+    assert.deepEqual(oneHit.map((weapon) => weapon.id), [CHAINSAW_ID]);
   });
 
   it("is handed to the movement state the moment a weapon changes hands", () => {
@@ -761,7 +808,11 @@ describe("chainsaw", () => {
 
   it("honours its configured attack interval", () => {
     harness.addPlayer("attacker", 400, 1700);
-    harness.addPlayer("victim", 440, 1700);
+    const victim = harness.addPlayer("victim", 440, 1700);
+    // The chainsaw kills in one contact, and a corpse cannot be swung at
+    // twice. This test is about the interval gate, so the victim is given
+    // enough health to still be there for the second swing.
+    victim.health = 400;
 
     const interval = getFireIntervalMs(getWeapon(CHAINSAW_ID));
     assert.ok(interval > 0, "the chainsaw must have a configured attack interval");
@@ -1046,8 +1097,13 @@ describe("knockback and recoil", () => {
 
   it("throws whoever a melee weapon catches, along the swing", () => {
     const attacker = harness.addPlayer("attacker", 200, 1700);
-    harness.addPlayer("victim", 240, 1700);
+    const victim = harness.addPlayer("victim", 240, 1700);
     harness.weapons.equip(attacker, harness.runtimes.get("attacker")!, "chainsaw");
+    // Knockback is skipped for the dead, and the chainsaw now kills in one
+    // contact -- so a victim who survives it is what makes the shove visible.
+    // (A lethal chainsaw hit throws the body through the death animation
+    // instead, which is `tickDeath`'s job rather than knockback's.)
+    victim.health = 400;
 
     fireAt(harness, "attacker", 0, 0);
 

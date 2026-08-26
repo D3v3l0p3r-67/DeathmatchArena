@@ -1628,16 +1628,42 @@ made of rectangles. Nothing about the list below required a line of code that
 knows which weapon it is.
 
 ```
-                  damage   range   rpm   mag   what it is for
-Assault Rifle         18    1400   520    30   the baseline, no falloff
-SMG                   11     900   900    40   close work; three times the rifle's cone
-Shotgun            13 x9     620    75     6   contact range, brutal, useless beyond it
-Sniper Rifle          62    2600    40     5   two hits, across the whole arena
-Flamethrower        7 x2     300   720   100   the highest close dps in the game
-Rocket Launcher     0(!)    1800    48     2   the round does nothing; the blast is the weapon
-Laser                 34    2000   150     3   three shots, then a wait; each one has to count
-Chainsaw              34      62     -     -   if you can reach them
+                  damage   mag   →kill   speed   what it is for
+Chainsaw             120     -       1   1.15x   one contact, one kill -- if you can reach them
+SMG                   12    35       9   1.10x   close work, and the one thing that outruns a chainsaw
+Assault Rifle         18    30       6   1.00x   the baseline, no falloff, the yardstick
+Shotgun            10 x9     5       2   0.97x   contact range, brutal, useless beyond it
+Flamethrower        7 x2    80       8   0.88x   by far the best sustain; area denial, not a chase
+Laser                 34     3       3   0.85x   three shots, three needed; every one has to land
+Sniper Rifle          55     4       2   0.78x   two hits, across the whole arena
+Rocket Launcher     0(!)     2       2   0.75x   the round does nothing; the blast is the weapon
 ```
+
+`→kill` is shots to kill at `player.maxHealth` of 100. Damage is absolute, not a
+fraction of health, so raising max health moves every number in that column --
+at 150 the chainsaw stops killing in one, and the laser's three rounds stop
+being enough for one kill at all.
+
+**The ladder is the balance.** Reach and lethality buy weight: the chainsaw and
+the SMG close and kite, the rifle sits at exactly 1 as the yardstick everything
+else is read against, and the long-range weapons pay for their reach in legs.
+That gives each weapon a natural counter rather than a flat power ranking -- a
+sniper is rushed, a rusher is kited, a kiter is out-damaged.
+
+**1.15x on the chainsaw is measured, not guessed.** At 1.05x it never closes on
+anybody -- 30 seconds to cross 400px against a rifle. At 1.25x a sniper gets one
+shot where they need two, and simply loses. At 1.15x the heavy weapons get
+exactly the shots they need while the rifle and SMG out-range it, so an instant
+kill stays fair: its openings are corners, ledges, somebody's reload and the
+closing walls, not a footrace. The 700ms swing interval is the other half --
+an instant kill has to be dodgeable, and a whiffed swing is the only counterplay
+there is. At the old 260ms a miss cost nothing.
+
+**The shotgun gave up its own instant kill for this.** Nine pellets at 13 was
+117 against 100 health: a kill with no window to react. Two weapons in that role
+means neither is special, and the chainsaw is the one that pays for it by having
+to arrive. At 10 a full contact blast leaves the target on 10hp, and the faster
+pump keeps two blasts about as quick as the rifle's six.
 
 **The laser is three decisions.** Pinpoint (no spread at all), near-instant
 (3600px/s, so it cannot be dodged after it is fired) and hard-hitting -- with a
@@ -1645,11 +1671,10 @@ magazine of three as the entire cost. Reloading it takes 2400ms from empty,
 which `getReloadDurationMs` still prorates: one shot taken is a third of that,
 not the whole wait.
 
-**A weapon can change how fast you run.** `moveSpeedMultiplier` is a factor on
-the player's top running speed, and every weapon ships at exactly 1 -- the
-mechanism is in place and nothing plays differently until somebody tunes it,
-which is what the request asked for. Below 1 is a weapon you lug; above 1 is one
-you can run with.
+**A weapon changes how fast you run.** `moveSpeedMultiplier` is a factor on the
+player's top running speed. Below 1 is a weapon you lug; above 1 is one you can
+run with. See the ladder in the table above -- it is the axis that gives each
+weapon a counter.
 
 It is kept apart from the speed power-up rather than folded into it, because
 they are different things that happen to multiply: a boost is temporary and
@@ -2295,8 +2320,11 @@ npm test
   its own, much shorter deadline rather than the full one. And the laser: three
   rounds, emptied in three shots, reloading itself afterwards, and reachable from
   a crate — plus that every shipped weapon leaves running speed alone, so the new
-  `moveSpeedMultiplier` cannot have quietly changed the balance, and that
-  equipping a weapon is what hands its weight to the movement state.
+  weapon-weight ladder runs in the intended order with the rifle pinned at 1,
+  that the chainsaw can close on a sniper but not on the SMG (measured the way
+  the value was chosen — how many shots a defender gets crossing 400px), that it
+  is the *only* weapon killing in one hit, and that equipping a weapon is what
+  hands its weight to the movement state.
 - **`tests/wire.test.ts`** — every configurable maximum survives the wire. The
   schema's field widths are checked against the admin's own declared maxima by
   encoding real state and decoding it again, so a setting the game would silently
