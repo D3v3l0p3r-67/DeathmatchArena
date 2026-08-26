@@ -2,6 +2,7 @@ import {
   MatchState,
   getPlayerConfig,
   clamp,
+  getGaugesConfig,
   getReloadDurationMs,
   getWeapon,
   isMelee,
@@ -48,6 +49,7 @@ export class HUD {
   private readonly root = query('[data-layer="hud"]');
   private readonly health = requireElement("hud-health");
   private readonly healthFill = requireElement("hud-health-fill");
+  private readonly gauges = query(".gauges");
   private readonly ammo = requireElement("hud-ammo");
   private readonly ammoGauge = requireElement("hud-ammo-gauge");
   private readonly ammoFill = requireElement("hud-ammo-fill");
@@ -85,6 +87,33 @@ export class HUD {
 
     if (!player) return;
 
+    // Everything below is read from the weapon definition, so a weapon added
+    // through configuration presents itself correctly with no change here.
+    const weapon = getWeapon(player.weaponId);
+    setText(this.weaponName, weapon.name);
+    toggleClass(this.meleeBadge, "is-active", isMelee(weapon));
+
+    this.updateGauges(player, weapon);
+    this.updateEffects(player, snapshot);
+
+    const inFight = snapshot.matchState === MatchState.PLAYING && player.alive;
+    toggleClass(this.crosshair, "is-active", inFight);
+  }
+
+  /**
+   * The corner gauge stack: health and ammunition, for the local player.
+   *
+   * One switch for the pair, because with the bars drawn over every player's
+   * head this panel is a second copy of the same two numbers in the corner
+   * nobody is looking at. Skipping only this leaves the rest of the HUD -- the
+   * weapon name, the arena notice, the crosshair -- untouched, which is the
+   * whole point of it being a stack rather than the HUD itself.
+   */
+  private updateGauges(player: SyncedPlayer, weapon: ReturnType<typeof getWeapon>): void {
+    const inHud = getGaugesConfig().inHud;
+    toggleClass(this.gauges, "is-hidden", !inHud);
+    if (!inHud) return;
+
     const maxHealth = getPlayerConfig().maxHealth;
     const health = clamp(player.health, 0, maxHealth);
     setText(this.health, String(Math.round(health)));
@@ -93,18 +122,7 @@ export class HUD {
     toggleClass(this.healthFill, "is-hurt", ratio <= 0.6 && ratio > 0.3);
     toggleClass(this.healthFill, "is-critical", ratio <= 0.3);
 
-    // Everything below is read from the weapon definition, so a weapon added
-    // through configuration presents itself correctly with no change here.
-    const weapon = getWeapon(player.weaponId);
-    setText(this.weaponName, weapon.name);
-
     this.updateAmmo(player, weapon);
-    toggleClass(this.meleeBadge, "is-active", isMelee(weapon));
-
-    this.updateEffects(player, snapshot);
-
-    const inFight = snapshot.matchState === MatchState.PLAYING && player.alive;
-    toggleClass(this.crosshair, "is-active", inFight);
   }
 
   /**

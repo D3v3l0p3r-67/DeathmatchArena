@@ -22,6 +22,7 @@ import type {
   BotDifficultyLevel,
   CrateConfig,
   GameConfig,
+  GaugesConfig,
   GrenadeConfig,
   BrainProfile,
   MatchConfig,
@@ -145,6 +146,10 @@ export class GameConfigView {
 
   getMinimapConfig(): MinimapConfig {
     return this.config.minimap;
+  }
+
+  getGaugesConfig(): GaugesConfig {
+    return this.config.gauges;
   }
 
   getGrenadeConfig(): GrenadeConfig {
@@ -287,6 +292,10 @@ export function getArenaShrinkConfig(): ArenaShrinkConfig {
 
 export function getMinimapConfig(): MinimapConfig {
   return current.getMinimapConfig();
+}
+
+export function getGaugesConfig(): GaugesConfig {
+  return current.getGaugesConfig();
 }
 
 export function getGrenadeConfig(): GrenadeConfig {

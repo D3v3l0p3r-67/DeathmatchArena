@@ -924,6 +924,13 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
     triggerRadius: 90,
   },
 
+  // Over the player by default, and out of the corner: the bars follow the
+  // fight rather than the fight being read out of a panel nobody looks at.
+  gauges: {
+    overPlayer: true,
+    inHud: false,
+  },
+
   minimap: {
     enabled: true,
     showPlayers: true,

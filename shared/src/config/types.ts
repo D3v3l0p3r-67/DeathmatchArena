@@ -369,6 +369,26 @@ export interface ArenaShrinkConfig {
 }
 
 /**
+ * Where the health and ammunition bars are drawn.
+ *
+ * The same two numbers, in one of two places. Over the player they sit where
+ * you are already looking -- at your own character, in the fight -- and they
+ * are legible for *everybody*, which is the point: a bar over somebody's head
+ * says whether they are hurt and whether they are out, and both are things a
+ * shooter owes you. In the HUD they are precise and always in the same corner,
+ * but only ever about you, and only where you are not looking.
+ *
+ * Both may be on at once; both off leaves the numbers nowhere, which is a
+ * legitimate thing to configure and nothing here prevents.
+ */
+export interface GaugesConfig {
+  /** Health and ammunition bars above every player's head. */
+  overPlayer: boolean;
+  /** The same two gauges in the corner panel, for the local player only. */
+  inHud: boolean;
+}
+
+/**
  * The corner minimap.
  *
  * Purely a presentation convenience: every position it can show is already in
@@ -689,4 +709,5 @@ export interface GameConfig {
   traps: TrapConfig;
   npc: NpcConfig;
   minimap: MinimapConfig;
+  gauges: GaugesConfig;
 }
