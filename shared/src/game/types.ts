@@ -44,6 +44,19 @@ export interface MovementState {
    */
   speedMultiplier: number;
   /**
+   * What the weapon in hand does to the top running speed. 1 is no effect.
+   *
+   * Separate from `speedMultiplier` because the two are different things that
+   * happen to multiply: a power-up is temporary and belongs to the player, a
+   * weapon's weight belongs to the weapon and changes the moment it is swapped.
+   * Folding one into the other would make the HUD's boost timer lie, and would
+   * leave the value wrong for anybody who picked a weapon up while boosted.
+   *
+   * On the movement state rather than looked up mid-step so the integrator
+   * stays pure and the client can replay a swap exactly as the server ran it.
+   */
+  weaponSpeedMultiplier: number;
+  /**
    * Jumps left before touching the ground again.
    *
    * Refilled on landing and spent by each jump, so the mid-air jump is simply
@@ -81,6 +94,7 @@ export function createMovementState(
     facing: 1,
     jumpHeld: false,
     speedMultiplier: 1,
+    weaponSpeedMultiplier: 1,
     knockbackTimer: 0,
     jumpsRemaining: Math.max(1, Math.round(maxJumps)),
   };
@@ -98,6 +112,7 @@ export function copyMovementState(source: MovementState, target: MovementState):
   target.jumpHeld = source.jumpHeld;
   target.knockbackTimer = source.knockbackTimer;
   target.speedMultiplier = source.speedMultiplier;
+  target.weaponSpeedMultiplier = source.weaponSpeedMultiplier;
   target.jumpsRemaining = source.jumpsRemaining;
   return target;
 }

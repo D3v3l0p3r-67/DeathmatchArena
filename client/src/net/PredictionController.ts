@@ -5,6 +5,7 @@ import {
   createMovementState,
   distance,
   getPlayerConfig,
+  getWeapon,
   stepPlayerMovement,
   type CollisionWorld,
   type InputCommand,
@@ -13,6 +14,17 @@ import {
   type WorldBounds,
 } from "@deathmatch/shared";
 import { LocalFireModel, type PredictedShot } from "./LocalFireModel.js";
+
+/**
+ * What the weapon in hand does to top running speed.
+ *
+ * Derived from the synchronised weapon id rather than sent: the catalogue is
+ * shared, so this reads the very row the server's `equip` read. An unknown id
+ * falls back to no effect, which is what `getWeapon` already guarantees.
+ */
+function weaponSpeedFactor(weaponId: string): number {
+  return getWeapon(weaponId).moveSpeedMultiplier || 1;
+}
 
 export interface PredictionDebugInfo {
   /** Distance between the last prediction and the server-corrected result. */
@@ -124,6 +136,7 @@ export class PredictionController {
     this.movement.jumpBufferTimer = 0;
     this.movement.jumpHeld = false;
     this.movement.speedMultiplier = player.speedMultiplier || 1;
+    this.movement.weaponSpeedMultiplier = weaponSpeedFactor(player.weaponId);
     this.movement.knockbackTimer = player.knockbackTimer || 0;
     this.previousX = this.movement.x;
     this.previousY = this.movement.y;
@@ -198,6 +211,10 @@ export class PredictionController {
     // The speed cap is part of server truth too: replaying a boosted player with
     // the default cap would manufacture an error the server never had.
     this.movement.speedMultiplier = player.speedMultiplier || 1;
+    // The weapon's own factor is derived rather than sent: the weapon id is
+    // already synchronised and the catalogue is shared, so both sides read the
+    // same number out of the same row without a byte crossing the wire.
+    this.movement.weaponSpeedMultiplier = weaponSpeedFactor(player.weaponId);
     // Likewise the shove window: replaying it under ordinary friction would
     // scrub off a knockback the server is still carrying.
     this.movement.knockbackTimer = player.knockbackTimer || 0;

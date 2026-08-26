@@ -17,6 +17,7 @@ export const SMG_ID = "smg";
 export const SNIPER_ID = "sniper";
 export const FLAMETHROWER_ID = "flamethrower";
 export const ROCKET_LAUNCHER_ID = "rocket-launcher";
+export const LASER_ID = "laser";
 
 export const DEFAULT_GAME_CONFIG: GameConfig = {
   defaultWeaponId: ASSAULT_RIFLE_ID,
@@ -74,6 +75,8 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
       // Held down, this walks the shooter steadily backwards -- an automatic
       // weapon should cost you your footing, not just your magazine.
       recoilForce: 0.3,
+      // Neutral for now: the mechanism exists, the balance is unchanged.
+      moveSpeedMultiplier: 1,
       ranged: {
         bulletSpeed: 1500,
         spread: 0.035,
@@ -120,6 +123,8 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
       knockbackForce: 0.3,
       // One shot, one heavy kick: the shotgun is the weapon you can jump with.
       recoilForce: 1.1,
+      // Neutral for now: the mechanism exists, the balance is unchanged.
+      moveSpeedMultiplier: 1,
       ranged: {
         bulletSpeed: 1150,
         spread: 0.17,
@@ -168,6 +173,8 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
       automatic: true,
       knockbackForce: 0.35,
       recoilForce: 0.16,
+      // Neutral for now: the mechanism exists, the balance is unchanged.
+      moveSpeedMultiplier: 1,
       ranged: {
         bulletSpeed: 1350,
         // Three times the rifle's cone. Fine across a room, hopeless across the
@@ -216,6 +223,8 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
       // It hits like a truck in both directions.
       knockbackForce: 1.4,
       recoilForce: 0.9,
+      // Neutral for now: the mechanism exists, the balance is unchanged.
+      moveSpeedMultiplier: 1,
       ranged: {
         // Fast enough that leading a target barely matters, which is what makes
         // it the weapon for the far side of the arena.
@@ -265,6 +274,8 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
       // A push you can feel but not be thrown by -- being herded is the point.
       knockbackForce: 0.12,
       recoilForce: 0.05,
+      // Neutral for now: the mechanism exists, the balance is unchanged.
+      moveSpeedMultiplier: 1,
       ranged: {
         // Slow and wide: the flame visibly travels, so both sides can see
         // exactly how far it reaches.
@@ -315,6 +326,8 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
       // Firing it downwards while jumping is a rocket jump, and that is not an
       // accident: the recoil and the blast are both tuned to allow it.
       recoilForce: 1.1,
+      // Neutral for now: the mechanism exists, the balance is unchanged.
+      moveSpeedMultiplier: 1,
       ranged: {
         // Slow enough to see coming and to dodge, which is what stops it being
         // simply the best weapon in the game.
@@ -363,6 +376,8 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
       // Throws whoever it catches; a chainsaw has nothing to recoil against.
       knockbackForce: 1.3,
       recoilForce: 0,
+      // Neutral for now: the mechanism exists, the balance is unchanged.
+      moveSpeedMultiplier: 1,
       ranged: null,
       melee: {
         arcDegrees: 70,
@@ -386,6 +401,54 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
           { x: 21, y: 5, width: 2, height: 2, color: 0xeef3fb },
           { x: 26, y: 5, width: 2, height: 2, color: 0xeef3fb },
           { x: 31, y: 5, width: 2, height: 2, color: 0xeef3fb },
+        ],
+      },
+    },
+    {
+      id: LASER_ID,
+      name: "Laser",
+      type: WeaponType.RANGED,
+      enabled: true,
+      // Three shots and then a wait, so every one of them has to be worth
+      // taking: hard-hitting and pinpoint, with the magazine as the whole cost.
+      damage: 34,
+      range: 2000,
+      fireRate: 150,
+      magazineSize: 3,
+      // Long for three rounds, which is the point -- the weapon is the three
+      // shots, not the rate. `getReloadDurationMs` still prorates a partial
+      // reload, so topping up after one shot costs a third of this.
+      reloadTime: 2400,
+      automatic: false,
+      knockbackForce: 0.5,
+      recoilForce: 0.35,
+      // Neutral for now: the mechanism exists, the balance is unchanged.
+      moveSpeedMultiplier: 1,
+      ranged: {
+        // Near-instant and dead straight: a laser that could be dodged after it
+        // was fired would not read as a laser.
+        bulletSpeed: 3600,
+        spread: 0,
+        pellets: 1,
+        falloff: null,
+        explosion: null,
+        projectileStyle: { color: 0x8b5cf6, radius: 2.6, trailLength: 120 },
+      },
+      melee: null,
+      // A slim emitter with a bright lens at the muzzle, so the silhouette
+      // reads as "laser" from across the arena rather than as another rifle.
+      silhouette: {
+        length: 32,
+        height: 14,
+        gripX: 9,
+        gripY: 7,
+        color: 0x64748b,
+        parts: [
+          { x: 0, y: 4, width: 8, height: 6, color: 0x475569 },
+          { x: 6, y: 3, width: 12, height: 8 },
+          { x: 17, y: 5, width: 12, height: 4, color: 0x8b5cf6 },
+          { x: 28, y: 3, width: 4, height: 8, color: 0xc4b5fd },
+          { x: 9, y: 10, width: 5, height: 4, color: 0x475569 },
         ],
       },
     },
@@ -419,6 +482,15 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
       spawnWeight: 25,
       color: 0xff9f4a,
       weaponId: SHOTGUN_ID,
+    },
+    {
+      id: "weapon-laser",
+      name: "Laser",
+      type: PowerUpType.WEAPON,
+      enabled: true,
+      spawnWeight: 20,
+      color: 0x8b5cf6,
+      weaponId: LASER_ID,
     },
     {
       id: "grenade-pack",

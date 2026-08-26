@@ -44,6 +44,10 @@ export class WeaponSystem {
     player.ammo = weapon.magazineSize;
     player.reloading = false;
     runtime.reloadEndsAt = 0;
+    // What the weapon does to how fast its carrier runs. Set here because this
+    // is the one place a weapon changes hands; the client reads the same figure
+    // out of the same catalogue when it reconciles, so prediction matches.
+    runtime.movement.weaponSpeedMultiplier = weapon.moveSpeedMultiplier;
     // Ready to fire immediately -- the cooldown is measured from the previous shot,
     // and there has not been one.
     runtime.lastShotAt = Number.NEGATIVE_INFINITY;

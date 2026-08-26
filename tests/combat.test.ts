@@ -8,10 +8,12 @@ import { beforeEach, describe, it } from "node:test";
 import {
   ASSAULT_RIFLE_ID,
   CHAINSAW_ID,
+  LASER_ID,
   ROCKET_LAUNCHER_ID,
   FIXED_DELTA,
   KNOCKBACK_IMPULSE,
   MatchState,
+  PowerUpType,
   SHOTGUN_ID,
   ServerMessage,
   createInputCommand,
@@ -26,6 +28,8 @@ import {
   getPlayerConfig,
   getReloadDurationMs,
   getWeapon,
+  listPowerUps,
+  listWeapons,
   stepPlayerMovement,
   type DamagePayload,
   type KillPayload,
@@ -128,6 +132,84 @@ describe("projectile collision", () => {
 
     harness.step(120);
     assert.equal(harness.state.projectiles.size, 0, "projectile should expire at max range");
+  });
+});
+
+describe("the laser", () => {
+  it("carries three rounds and then has to reload", () => {
+    const laser = getWeapon(LASER_ID);
+    assert.equal(laser.magazineSize, 3);
+    assert.ok(laser.enabled, "a weapon nobody can be given is not in the game");
+    assert.ok(laser.reloadTime > 0, "three rounds and no reload is not a magazine");
+  });
+
+  it("empties in three shots and starts its own reload", () => {
+    const harness = createHarness();
+    const player = harness.addPlayer("shooter", 200, 1700);
+    const runtime = harness.runtimes.get("shooter")!;
+    harness.weapons.equip(player, runtime, LASER_ID);
+
+    const laser = getWeapon(LASER_ID);
+    const interval = getFireIntervalMs(laser) + 1;
+
+    assert.equal(player.ammo, 3, "picking it up fills the magazine");
+
+    let now = 0;
+    for (let shot = 0; shot < 3; shot++) {
+      fireAt(harness, "shooter", 0, now);
+      now += interval;
+    }
+
+    assert.equal(player.ammo, 0, "three shots is the whole magazine");
+    assert.equal(player.reloading, true, "an empty magazine reloads itself");
+
+    // And a fourth trigger pull does nothing while it does.
+    fireAt(harness, "shooter", 0, now);
+    assert.equal(player.ammo, 0);
+  });
+
+  it("can be found in a crate", () => {
+    // A weapon with no power-up exists only for whoever starts with it.
+    const laserDrop = listPowerUps().find(
+      (powerUp) => powerUp.type === PowerUpType.WEAPON && powerUp.weaponId === LASER_ID,
+    );
+    assert.ok(laserDrop, "the laser has no crate power-up");
+    assert.ok(laserDrop.enabled && laserDrop.spawnWeight > 0, "it could never actually spawn");
+  });
+});
+
+describe("a weapon's weight", () => {
+  it("ships neutral on every weapon, so nothing plays differently yet", () => {
+    /*
+     * The request was for the mechanism, explicitly behaving as before for now.
+     * This is the line that keeps that promise: the moment somebody tunes a
+     * weapon away from 1 it is deliberate, not an accident that shipped.
+     */
+    for (const weapon of listWeapons()) {
+      assert.equal(
+        weapon.moveSpeedMultiplier,
+        1,
+        `${weapon.id} would change how fast its carrier runs`,
+      );
+    }
+  });
+
+  it("is handed to the movement state the moment a weapon changes hands", () => {
+    // Equipping is the one place a weapon is given, so it is the one place the
+    // factor has to be set -- otherwise a pickup would leave the old weight on.
+    const harness = createHarness();
+    const player = harness.addPlayer("carrier", 200, 1700);
+    const runtime = harness.runtimes.get("carrier")!;
+
+    const retuned = cloneConfig(getGameConfig());
+    retuned.weapons.find((weapon) => weapon.id === SHOTGUN_ID)!.moveSpeedMultiplier = 0.6;
+    harness.replaceConfig(retuned);
+
+    harness.weapons.equip(player, runtime, SHOTGUN_ID);
+    assert.equal(runtime.movement.weaponSpeedMultiplier, 0.6);
+
+    harness.weapons.equip(player, runtime, ASSAULT_RIFLE_ID);
+    assert.equal(runtime.movement.weaponSpeedMultiplier, 1, "swapping must drop the old weight");
   });
 });
 

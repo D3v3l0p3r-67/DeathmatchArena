@@ -1622,7 +1622,7 @@ the server.
 
 ## The weapon catalogue
 
-Seven weapons, and every one of them is data. A weapon is a row in
+Eight weapons, and every one of them is data. A weapon is a row in
 `config.weapons`: numbers, a falloff curve, an optional blast, and a silhouette
 made of rectangles. Nothing about the list below required a line of code that
 knows which weapon it is.
@@ -1635,8 +1635,39 @@ Shotgun            13 x9     620    75     6   contact range, brutal, useless be
 Sniper Rifle          62    2600    40     5   two hits, across the whole arena
 Flamethrower        7 x2     300   720   100   the highest close dps in the game
 Rocket Launcher     0(!)    1800    48     2   the round does nothing; the blast is the weapon
+Laser                 34    2000   150     3   three shots, then a wait; each one has to count
 Chainsaw              34      62     -     -   if you can reach them
 ```
+
+**The laser is three decisions.** Pinpoint (no spread at all), near-instant
+(3600px/s, so it cannot be dodged after it is fired) and hard-hitting -- with a
+magazine of three as the entire cost. Reloading it takes 2400ms from empty,
+which `getReloadDurationMs` still prorates: one shot taken is a third of that,
+not the whole wait.
+
+**A weapon can change how fast you run.** `moveSpeedMultiplier` is a factor on
+the player's top running speed, and every weapon ships at exactly 1 -- the
+mechanism is in place and nothing plays differently until somebody tunes it,
+which is what the request asked for. Below 1 is a weapon you lug; above 1 is one
+you can run with.
+
+It is kept apart from the speed power-up rather than folded into it, because
+they are different things that happen to multiply: a boost is temporary and
+belongs to the player, a weapon's weight belongs to the weapon and changes the
+moment it is swapped. Folding one into the other would make the HUD's boost
+timer lie, and would leave the value wrong for anyone who picked a weapon up
+while boosted.
+
+Nothing new crosses the wire for it. The weapon id is already synchronised and
+the catalogue is shared, so the server's `equip` and the client's reconcile read
+the same figure out of the same row -- measured over a live match with a
+deliberately halved weapon, the reconciliation error stayed at 0.000px mean and
+0.000px maximum across 46 patches, which is what agreement looks like.
+
+Reload time was *already* weapon-driven and did not need a second knob:
+`reloadTime` is per weapon, and `getReloadDurationMs` scales it by how much of
+the magazine is actually missing. The laser demonstrates it -- 2400ms is a long
+wait for three rounds, and that is the weapon's whole personality.
 
 **Explosions are one mechanism, not two.** A grenade and a rocket differ in how
 they arrive and in their numbers, never in what happens when they go off — the
@@ -2237,7 +2268,8 @@ npm test
 ```
 
 - **`tests/physics.test.ts`** — arena integrity (spawns are free, grounded and enclosed),
-  movement, jump height, the double jump (two jumps and no more, refilled on landing,
+  movement, jump height, that the weapon in hand raises or lowers the run speed cap
+  and multiplies with a speed power-up rather than replacing it, the double jump (two jumps and no more, refilled on landing,
   only one after walking off a ledge), the closing walls' clamp, wall collision, and
   determinism of the shared step.
 - **`tests/combat.test.ts`** — projectile collision, tunnelling at high bullet speeds,
@@ -2260,7 +2292,11 @@ npm test
   between — `getReloadDurationMs` pinned against the exact numbers in the spec
   it was built to satisfy (5, 6 and 9 of 10 rounds), plus a live server case that
   starts a manual reload with a single round missing and checks it finishes on
-  its own, much shorter deadline rather than the full one.
+  its own, much shorter deadline rather than the full one. And the laser: three
+  rounds, emptied in three shots, reloading itself afterwards, and reachable from
+  a crate — plus that every shipped weapon leaves running speed alone, so the new
+  `moveSpeedMultiplier` cannot have quietly changed the balance, and that
+  equipping a weapon is what hands its weight to the movement state.
 - **`tests/wire.test.ts`** — every configurable maximum survives the wire. The
   schema's field widths are checked against the admin's own declared maxima by
   encoding real state and decoding it again, so a setting the game would silently

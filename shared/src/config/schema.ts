@@ -344,6 +344,7 @@ function weaponFields(weapon: WeaponDefinition): FieldDescriptor[] {
 
     number(`${prefix}.knockbackForce`, WEAPONS, group, "Knockback", weapon.ranged && weapon.ranged.pellets > 1 ? "How hard each *pellet* shoves whoever it hits. Nine of them land at contact range." : "How hard a hit shoves whoever it lands on. 1 is a firm push, 2 launches.", { min: 0, max: 5, step: 0.05 }),
     number(`${prefix}.recoilForce`, WEAPONS, group, "Recoil", "How hard firing shoves the shooter backwards. Separate from knockback: a weapon that throws people need not throw its owner. Applied once per shot, so an automatic applies it several times a second.", { min: 0, max: 5, step: 0.05 }),
+    number(`${prefix}.moveSpeedMultiplier`, WEAPONS, group, "Move speed x", "What carrying this weapon does to the player's top running speed. 1 leaves it alone; below 1 is a weapon you lug. Multiplies with a speed power-up rather than replacing it.", { min: 0.1, max: 3, step: 0.05 }),
   ];
 
   if (weapon.type === WeaponType.RANGED) {

@@ -182,6 +182,19 @@ export interface WeaponDefinition {
    * applies its recoil several times a second.
    */
   recoilForce: number;
+  /**
+   * What carrying this weapon does to the player's top running speed.
+   *
+   * 1 is no effect, and every weapon ships at 1 so the mechanism is in place
+   * without changing how anything currently plays. Below 1 is a weapon you
+   * lug; above 1 is one you can run with. It multiplies with a speed power-up
+   * rather than replacing it -- see `MovementState.weaponSpeedMultiplier`.
+   *
+   * Reload time is *also* weapon-driven, and always has been: `reloadTime`
+   * above is per weapon, and `getReloadDurationMs` scales it by how much of the
+   * magazine is actually missing.
+   */
+  moveSpeedMultiplier: number;
   ranged: RangedWeaponConfig | null;
   melee: MeleeWeaponConfig | null;
   /**
