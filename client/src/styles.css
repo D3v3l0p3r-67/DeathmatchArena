@@ -899,20 +899,15 @@ kbd {
 }
 
 /*
- * The reload sweep, drawn over the ammo fill rather than beside it: the bar is
- * already the thing that says "how much ammunition", so it is also the honest
- * place to say "and how long until there is more".
+ * The reload state, on the same fill rather than a second bar drawn over it:
+ * one element can only run one width transition at a time, which is what
+ * guarantees there is only ever one fill animation on screen -- see
+ * HUD.updateReloadFill for the half that sets the transition's duration and
+ * target width to match. Ordered after `.is-low` so a reload started on a
+ * near-empty magazine still reads as "reloading", not "low".
  */
-.gauge__reload {
-  position: absolute;
-  inset: 0;
-  width: 0;
-  background: linear-gradient(90deg, rgba(255, 200, 87, 0.85), rgba(255, 224, 163, 0.95));
-  opacity: 0;
-}
-
-.gauge__reload.is-active {
-  opacity: 1;
+.gauge--ammo .gauge__fill.is-reloading {
+  background: linear-gradient(90deg, #ffc857, #ffe0a3);
 }
 
 .weapon {

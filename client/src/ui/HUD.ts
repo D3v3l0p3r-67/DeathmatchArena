@@ -59,7 +59,6 @@ export class HUD {
   private readonly shrinkEffect = requireElement("hud-shrink");
   private readonly shrinkLabel = requireElement("hud-shrink-label");
   private readonly shrinkTimer = requireElement("hud-shrink-timer");
-  private readonly reload = requireElement("hud-reload");
   private readonly alive = requireElement("hud-alive");
   private readonly kills = requireElement("hud-kills");
   private readonly matchStateLabel = requireElement("hud-match-state");
@@ -67,11 +66,8 @@ export class HUD {
   private readonly hitmarker = requireElement("hitmarker");
   private readonly damageFlash = requireElement("damage-flash");
 
-  /** Local reload clock: the server only tells us that a reload is in progress. */
-  private reloadStartedAt = 0;
-  private reloadDurationMs = 0;
-  /** The bar's width, 0..1, at the moment the current reload began. */
-  private reloadStartedRatio = 0;
+  /** Whether the last `update` saw a reload in progress, to catch the edges. */
+  private wasReloading = false;
   private hitmarkerTimer = 0;
   private damageFlashTimer = 0;
 
@@ -103,7 +99,6 @@ export class HUD {
     setText(this.weaponName, weapon.name);
 
     this.updateAmmo(player, weapon);
-    this.updateReload(player, weapon);
     toggleClass(this.meleeBadge, "is-active", isMelee(weapon));
 
     this.updateEffects(player, snapshot);
@@ -130,16 +125,11 @@ export class HUD {
     setText(this.ammo, String(player.ammo));
     setText(this.magazine, String(weapon.magazineSize));
 
-    /*
-     * Left showing whatever is actually left, reload or not: a reload starting
-     * at 9 of 10 rounds has almost nothing to fill, and a bar that dropped to
-     * empty regardless said otherwise. The sweep in `updateReload` starts from
-     * this same width and grows to full, so the two always agree.
-     */
     const ratio = ammoRatio(player, weapon);
-    this.ammoFill.style.width = `${ratio * 100}%`;
     toggleClass(this.ammoGauge, "is-empty", player.ammo === 0 && !player.reloading);
     toggleClass(this.ammoFill, "is-low", ratio > 0 && ratio <= 0.25);
+
+    this.updateReloadFill(player, weapon, ratio);
   }
 
   /**
@@ -171,37 +161,46 @@ export class HUD {
   }
 
   /**
-   * Track reload progress locally so the server does not have to stream a timer.
+   * The ammo bar *is* the reload indicator -- one element, one width, so there
+   * is exactly one fill animation on screen rather than an amber overlay
+   * sweeping over a white bar that then plays its own catch-up fill once the
+   * overlay disappears.
    *
-   * Starts the sweep at the ammunition already in the magazine and finishes it
-   * at 100%, over `getReloadDurationMs` for however much is actually missing --
-   * the same duration the server is enforcing. A gun topped up to 9 of 10 sweeps
-   * a tenth of the bar in a tenth of the time; one reloaded from empty sweeps
-   * all of it, exactly as before.
+   * Starting a reload hands the bar's `width` transition an explicit duration
+   * matching `getReloadDurationMs` and sets the target to 100% in the same
+   * tick: the browser interpolates from whatever width the bar already had
+   * (the ammunition still in the magazine) to full, over exactly the time the
+   * server is enforcing. No per-frame progress bookkeeping is needed here --
+   * the transition *is* the animation. Only the edges do anything: the first
+   * tick of a reload starts the sweep and turns the bar amber; the first tick
+   * after it ends restores the bar's ordinary fast transition for whatever
+   * ammo does next. Every tick in between leaves the bar alone so the running
+   * transition is never interrupted or restarted.
    */
-  private updateReload(player: SyncedPlayer, weapon: ReturnType<typeof getWeapon>): void {
+  private updateReloadFill(player: SyncedPlayer, weapon: ReturnType<typeof getWeapon>, ratio: number): void {
     const reloading = player.reloading;
+    toggleClass(this.ammoFill, "is-reloading", reloading);
 
-    if (reloading && this.reloadStartedAt === 0) {
-      this.reloadStartedAt = performance.now();
-      this.reloadStartedRatio = ammoRatio(player, weapon);
-      this.reloadDurationMs = getReloadDurationMs(weapon, player.ammo);
-    } else if (!reloading && this.reloadStartedAt !== 0) {
-      this.reloadStartedAt = 0;
+    if (reloading) {
+      if (!this.wasReloading) {
+        const durationMs = getReloadDurationMs(weapon, player.ammo);
+        this.ammoFill.style.transition =
+          durationMs > 0 ? `width ${durationMs}ms linear, background 200ms ease` : "background 200ms ease";
+        // Force the browser to commit the current width before the next line
+        // changes it, so the sweep actually starts from here rather than the
+        // width-and-transition change being batched into one silent jump.
+        void this.ammoFill.offsetWidth;
+        this.ammoFill.style.width = "100%";
+      }
+    } else {
+      if (this.wasReloading) {
+        // Back to the CSS-defined transition (140ms) for ordinary ammo changes.
+        this.ammoFill.style.transition = "";
+      }
+      this.ammoFill.style.width = `${ratio * 100}%`;
     }
 
-    toggleClass(this.reload, "is-active", reloading);
-    if (!reloading) {
-      this.reload.style.width = "0%";
-      return;
-    }
-
-    const elapsed = performance.now() - this.reloadStartedAt;
-    // A configured reloadTime of 0 (or nothing left missing) means it finished
-    // the instant it started, rather than dividing by zero.
-    const progress = this.reloadDurationMs > 0 ? clamp(elapsed / this.reloadDurationMs, 0, 1) : 1;
-    const width = this.reloadStartedRatio + (1 - this.reloadStartedRatio) * progress;
-    this.reload.style.width = `${width * 100}%`;
+    this.wasReloading = reloading;
   }
 
   /** Position the DOM crosshair over the pointer. */
