@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import type { SyncedGrenade } from "@deathmatch/shared";
 import { TextureKeys } from "../TextureFactory.js";
+import { TrailRenderer } from "../fx/TrailRenderer.js";
 
 /**
  * A grenade in flight.
@@ -14,6 +15,8 @@ export class GrenadeView {
 
   private readonly body: Phaser.GameObjects.Image;
   private readonly glow: Phaser.GameObjects.Image;
+  /** Behind the grenade itself, so the head of the trail never covers it. */
+  private readonly trail: TrailRenderer;
 
   private serverX: number;
   private serverY: number;
@@ -41,6 +44,7 @@ export class GrenadeView {
     this.body = scene.add.image(0, 0, TextureKeys.Grenade);
 
     this.container = scene.add.container(grenade.x, grenade.y, [this.glow, this.body]).setDepth(9);
+    this.trail = new TrailRenderer(scene, "grenade", 8);
   }
 
   /**
@@ -79,6 +83,11 @@ export class GrenadeView {
       this.serverY + this.velocityY * elapsed,
     );
 
+    // Fed the drawn position rather than the server's, so the trail is the arc
+    // that was actually on screen -- extrapolation included -- rather than a
+    // 20Hz dotted line through it.
+    this.trail.update(this.container.x, this.container.y, now);
+
     // Tumble in the direction of travel, so a thrown grenade reads as thrown.
     this.spin += deltaSeconds * (this.velocityX >= 0 ? 9 : -9);
     this.body.setRotation(this.spin);
@@ -89,6 +98,7 @@ export class GrenadeView {
   }
 
   destroy(): void {
+    this.trail.destroy();
     this.container.destroy(true);
     void this.scene;
   }
