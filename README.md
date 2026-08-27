@@ -234,6 +234,50 @@ can disagree by one tick — a couple of pixels, inside the smoothing threshold.
 WAITING -> COUNTDOWN -> PLAYING -> FINISHED -> WAITING
 ```
 
+### Game modes
+
+What "PLAYING" means is a pluggable rule set. Each match gets a fresh instance
+of a `GameMode` (`server/src/modes/`) that owns exactly the decisions modes
+disagree about: what starting a match spawns, whether a kill ends it, whether
+death places you or respawns you, how the standings are ranked, and who wins a
+timeout. Everything else — movement, weapons, damage, power-ups, traps, the
+closing walls, networking — is shared and identical across modes, which is what
+makes the next mode (CTF, King of the Hill, Team Deathmatch) an added file
+rather than surgery. The host picks the mode in the lobby, next to the map.
+
+**Deathmatch** is the classic: last one standing wins, deaths place you from
+the bottom up.
+
+**Flag Hunt** is won by holding the most flags when the clock runs out; kills
+never decide it and never end it. Flags spawn on the arena's power-up points on
+an interval, up to a cap, and expire if nobody bothers; walking over one
+collects it. Dying drops a configurable share of what you carry (the floor of
+it — 3 flags at 50% drops 1), scattered on the ground around the death, free
+for anyone and gone in seconds if unclaimed; the victim respawns after a short
+delay with the rest of their score intact. The current leader — every leader,
+on a tie — wears a crown, the HUD shows your count, a live leaderboard and the
+match clock, and a tie at full time goes to sudden death: the clock stops, one
+extra flag appears, and the first of the tied players to gain any flag takes
+the match. (The tie-break is deliberately two small methods, so a different
+policy is a local edit.)
+
+All of it is server-authoritative: flag spawning, pickup, the drop, the score,
+the clock and the winner resolve on the server's own positions in a single pass
+per tick — two players racing one flag through whatever latency can both reach
+the spot, but the flag is deleted the moment the first is found, so it is never
+counted twice. The client only draws what the state says.
+
+Bots play the mode, not just the brawl: they run errands for nearby flags
+(dropped ones — somebody's lost score on a short fuse — first), value shooting
+carriers and the leader for what a kill spills, and grow more careful the more
+they carry. How well they read the scoreboard scales with difficulty, so a
+rookie bot mostly just fights whoever is near.
+
+Every number is configurable under `flagHunt.*` (match duration, spawn
+interval, cap, initial flags, both lifetimes, the drop percentage and scatter,
+pickup radius, respawn delay, the crown, sudden death) and `match.gameMode`
+picks the default mode — see [Administration](#administration).
+
 ### The arena closes
 
 A match cannot run forever. After a configured time the arena's left and right

@@ -1,4 +1,5 @@
 import {
+  GAME_MODES,
   MAX_BOT_DIFFICULTY,
   type PlayerCareer,
   MIN_BOT_DIFFICULTY,
@@ -18,6 +19,7 @@ export interface UICallbacks {
   /** The host asked for another bot at this difficulty. */
   onAddBot(difficulty: number): void;
   onSelectArena(arenaId: string): void;
+  onSelectMode(modeId: string): void;
   /** The host asked for this bot to go. */
   onRemoveBot(sessionId: string): void;
   onPlay(name: string): void;
@@ -49,6 +51,10 @@ export class UIManager {
   private readonly changeMapButton = requireElement("change-map") as HTMLButtonElement;
   private readonly mapPicker = requireElement("map-picker");
   private readonly mapPickerOptions = requireElement("map-picker-options");
+  private readonly modeName = requireElement("lobby-mode-name");
+  private readonly changeModeButton = requireElement("change-mode") as HTMLButtonElement;
+  private readonly modePicker = requireElement("mode-picker");
+  private readonly modePickerOptions = requireElement("mode-picker-options");
   private readonly lobbyPlayers = requireElement<HTMLUListElement>("lobby-players");
 
   private readonly roomName = requireElement("lobby-room-name");
@@ -66,6 +72,9 @@ export class UIManager {
 
   private readonly resultsWinner = requireElement("results-winner");
   private readonly resultsBody = requireElement<HTMLTableSectionElement>("results-body");
+  private readonly standingsFlagsHeader = requireElement("standings-flags-header");
+  private readonly spectateTitle = requireElement("spectate-title");
+  private readonly spectatePlacementWrap = requireElement("spectate-placement-wrap");
   private readonly resultsNext = requireElement("results-next");
 
   private readonly spectateSubtitle = requireElement("spectate-subtitle");
@@ -108,6 +117,9 @@ export class UIManager {
     this.buildBotPicker();
     this.changeMapButton.addEventListener("click", () => this.toggleMapPicker(true));
     requireElement("map-picker-cancel").addEventListener("click", () => this.toggleMapPicker(false));
+    this.buildModePicker();
+    this.changeModeButton.addEventListener("click", () => this.toggleModePicker(true));
+    requireElement("mode-picker-cancel").addEventListener("click", () => this.toggleModePicker(false));
   }
 
   // --------------------------------------------------------------- adding bots
@@ -174,6 +186,36 @@ export class UIManager {
 
   private toggleMapPicker(open: boolean): void {
     toggleClass(this.mapPicker, "is-active", open);
+  }
+
+  /**
+   * Build the mode picker once.
+   *
+   * From the shared catalogue rather than the server's welcome, because a mode
+   * is code: a client can only play the modes it was built with, so its own
+   * list is exactly the truth. The server still validates the choice.
+   */
+  private buildModePicker(): void {
+    this.modePickerOptions.replaceChildren();
+    for (const mode of GAME_MODES) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "difficulty-option";
+      button.dataset.mode = mode.id;
+
+      const label = document.createElement("span");
+      label.textContent = mode.name;
+      button.append(label);
+      button.addEventListener("click", () => {
+        this.toggleModePicker(false);
+        this.callbacks.onSelectMode(mode.id);
+      });
+      this.modePickerOptions.appendChild(button);
+    }
+  }
+
+  private toggleModePicker(open: boolean): void {
+    toggleClass(this.modePicker, "is-active", open);
   }
 
   private toggleBotPicker(open: boolean): void {
@@ -259,6 +301,11 @@ export class UIManager {
     setText(this.mapName, this.arenaNames.get(state.arenaId) ?? state.arenaId ?? "-");
     this.changeMapButton.hidden = !this.isHost || this.arenaNames.size < 2;
 
+    // The rules being played, by name. Same contract as the map row.
+    const mode = GAME_MODES.find((candidate) => candidate.id === state.gameModeId);
+    setText(this.modeName, mode?.name ?? state.gameModeId ?? "-");
+    this.changeModeButton.hidden = !this.isHost || GAME_MODES.length < 2;
+
     this.addBotButton.disabled = !this.isHost || state.playerCount >= state.maxPlayers;
     this.addBotButton.hidden = !this.isHost;
     this.startButton.disabled = !this.isHost || !state.canStart;
@@ -266,6 +313,7 @@ export class UIManager {
     if (!this.isHost) {
       this.toggleBotPicker(false);
       this.toggleMapPicker(false);
+      this.toggleModePicker(false);
     }
 
     this.renderRoster(state, localSessionId);
@@ -401,9 +449,14 @@ export class UIManager {
 
   // -------------------------------------------------------------- spectator
 
-  setSpectating(active: boolean, targetName: string, placement: number): void {
+  setSpectating(active: boolean, targetName: string, placement: number, respawning = false): void {
     toggleClass(this.spectatorLayer, "is-active", active);
     if (!active) return;
+
+    // A Flag Hunt death is a pause, not an exit: the banner says so, and the
+    // placement fragment stays out of it because nobody has placed yet.
+    setText(this.spectateTitle, respawning ? "Respawning…" : "You were eliminated.");
+    this.spectatePlacementWrap.hidden = respawning;
 
     // With nobody left to watch there is nothing to say about who, and the
     // key hint would be offering a choice between no players. The elimination
@@ -422,6 +475,12 @@ export class UIManager {
   showResults(result: MatchResultMessage, localSessionId: string): void {
     setText(this.resultsWinner, result.winnerName || "No winner");
 
+    // Modes that score in flags send a count on every standing; the column
+    // exists exactly when the standings carry it, so a Deathmatch table stays
+    // the three columns it always was.
+    const showFlags = result.standings.some((standing) => standing.flags !== undefined);
+    this.standingsFlagsHeader.hidden = !showFlags;
+
     this.resultsBody.replaceChildren();
     for (const standing of result.standings) {
       const row = document.createElement("tr");
@@ -436,6 +495,11 @@ export class UIManager {
       kills.textContent = String(standing.kills);
 
       row.append(placement, name, kills);
+      if (showFlags) {
+        const flags = document.createElement("td");
+        flags.textContent = String(standing.flags ?? 0);
+        row.appendChild(flags);
+      }
       this.resultsBody.appendChild(row);
     }
 

@@ -1007,6 +1007,90 @@ kbd {
   animation: shrink-pulse 1s ease-in-out infinite;
 }
 
+/* Flag Hunt's clock, in the same top-centre stack as the arena deadline. */
+.effect--clock {
+  padding: 5px 14px;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  background: rgba(5, 7, 12, 0.72);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.5);
+}
+
+.effect--clock .effect__timer {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The clock in its last stretch, and in sudden death: a deadline, not a buff. */
+.effect--clock.is-urgent {
+  border-color: rgba(255, 198, 92, 0.6);
+}
+
+.effect--clock.is-urgent .effect__label {
+  color: #ffc65c;
+}
+
+.effect--clock.is-sudden {
+  border-color: rgba(255, 77, 94, 0.6);
+  animation: shrink-pulse 1s ease-in-out infinite;
+}
+
+.effect--clock.is-sudden .effect__label {
+  color: var(--danger);
+}
+
+/* ------------------------------- flagboard ------------------------------- */
+
+/* Flag Hunt's live standings, under the minimap so score and map share the
+   corner the eye already checks. */
+.flagboard {
+  position: absolute;
+  top: 200px;
+  right: 20px;
+  width: 168px;
+  margin: 0;
+  padding: 8px 12px;
+  list-style: none;
+  background: rgba(10, 13, 20, 0.55);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  backdrop-filter: blur(2px);
+  font-size: 13px;
+}
+
+.flagboard__row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 0;
+  color: var(--text-dim);
+}
+
+.flagboard__row.is-you {
+  color: #37d0ff;
+}
+
+.flagboard__row.is-leader {
+  color: #ffd75e;
+}
+
+.flagboard__rank {
+  min-width: 16px;
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.flagboard__name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flagboard__flags {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
 @keyframes shrink-pulse {
   0%,
   100% {

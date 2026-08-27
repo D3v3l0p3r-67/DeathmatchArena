@@ -44,6 +44,24 @@ export interface PerceivedEnemy {
   ageMs: number;
   /** 0..1 — how nearly they are pointing at us. Only meaningful while visible. */
   facingUs: number;
+  /**
+   * How many flags they hold. Always current, never remembered: the score is
+   * on the leaderboard for everyone to read, so even a bot that last *saw*
+   * this enemy ten seconds ago knows exactly what they are worth now.
+   */
+  flagCount: number;
+  /** True when nobody in the match holds more flags than they do. */
+  isLeader: boolean;
+}
+
+/** A flag on the ground, spawned or dropped. */
+export interface PerceivedFlag {
+  id: string;
+  x: number;
+  y: number;
+  distance: number;
+  /** True for one shaken loose by a death — those expire fast. */
+  dropped: boolean;
 }
 
 /** Something worth walking to. */
@@ -107,6 +125,8 @@ export interface SelfContext {
   reloading: boolean;
   grenades: number;
   weapon: WeaponDefinition;
+  /** Flags we are carrying. 0 outside Flag Hunt. */
+  flagCount: number;
 }
 
 export interface BrainContext {
@@ -147,6 +167,24 @@ export interface BrainContext {
   enemyVulnerability: number;
   /** True while a match is actually being played. */
   playing: boolean;
+
+  /** True when the current match is Flag Hunt. */
+  flagHunt: boolean;
+  /** True during a Flag Hunt sudden-death tie-break. */
+  suddenDeath: boolean;
+  /** Flags on the ground within sight, nearest first. Empty outside Flag Hunt. */
+  flags: PerceivedFlag[];
+  nearestFlag: PerceivedFlag | null;
+  /** The best flag count anyone in the match holds, ours included. 0 when none. */
+  leaderFlagCount: number;
+  /**
+   * 0..1 — how well this bot reads the scoreboard.
+   *
+   * Difficulty's target-selection skill, resurfaced under the name of what it
+   * does for mode play: a rookie bot barely notices who is winning or that a
+   * flag matters more than a fight; a master plays the mode, not the brawl.
+   */
+  gameSense: number;
 
   /**
    * Middle of what is still playable, in px.

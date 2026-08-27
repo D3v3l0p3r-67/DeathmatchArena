@@ -170,12 +170,41 @@ export interface KillEvent {
   endsMatch: boolean;
 }
 
+/**
+ * Which rule set a match is played under.
+ *
+ * A mode decides what starting, dying, scoring and winning mean; everything
+ * else -- movement, weapons, damage, power-ups, networking -- is shared. New
+ * modes (capture the flag, king of the hill, teams) are new entries here plus
+ * a `GameMode` implementation, never edits to an existing one.
+ */
+export const GameMode = {
+  /** Last player standing. No respawns; the kill is the scoreboard. */
+  DEATHMATCH: "deathmatch",
+  /** Hold the most flags when the clock runs out. Kills are a means, not a score. */
+  FLAG_HUNT: "flagHunt",
+} as const;
+
+export type GameModeValue = (typeof GameMode)[keyof typeof GameMode];
+
+/**
+ * Every mode a room may be switched to, in the order pickers should offer
+ * them. Shared so the lobby's picker and the server's validation read the same
+ * catalogue -- a mode added here appears in both or in neither.
+ */
+export const GAME_MODES: readonly { id: GameModeValue; name: string }[] = [
+  { id: GameMode.DEATHMATCH, name: "Deathmatch" },
+  { id: GameMode.FLAG_HUNT, name: "Flag Hunt" },
+];
+
 export interface MatchStanding {
   sessionId: string;
   name: string;
   kills: number;
   /** 1 = winner. */
   placement: number;
+  /** Flags held at the end. Only present in modes where flags are the score. */
+  flags?: number;
 }
 
 export interface MatchResultPayload {

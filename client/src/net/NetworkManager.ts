@@ -32,7 +32,9 @@ import {
   type AddBotRequest,
   type RemoveBotRequest,
   type SelectArenaRequest,
+  type SelectModeRequest,
   type SyncedCrate,
+  type SyncedFlag,
   type SyncedGameState,
   type SyncedGrenade,
   type SyncedPlayer,
@@ -57,10 +59,17 @@ export interface NetworkEvents {
   crateRemoved: { crate: SyncedCrate };
   powerUpAdded: { powerUp: SyncedPowerUp };
   powerUpRemoved: { powerUp: SyncedPowerUp };
+  flagAdded: { flag: SyncedFlag };
+  flagRemoved: { flag: SyncedFlag };
   grenadeAdded: { grenade: SyncedGrenade };
   grenadeRemoved: { grenade: SyncedGrenade };
   matchStateChanged: { matchState: MatchStateValue };
   countdownChanged: { seconds: number };
+  /** Which game mode the next match will run. */
+  gameModeChanged: { modeId: string };
+  /** Whole seconds left on a timed mode's clock; 0 when no clock is running. */
+  matchClockChanged: { seconds: number };
+  suddenDeathChanged: { active: boolean };
   kill: KillPayload;
   damage: DamagePayload;
   matchResult: MatchResultMessage;
@@ -233,6 +242,12 @@ export class NetworkManager {
   selectArena(arenaId: string): void {
     const payload: SelectArenaRequest = { arenaId };
     this.room?.send(ClientMessage.SELECT_ARENA, payload);
+  }
+
+  /** Ask for a different game mode for the next match. Host only, like the arena. */
+  selectMode(modeId: string): void {
+    const payload: SelectModeRequest = { modeId };
+    this.room?.send(ClientMessage.SELECT_MODE, payload);
   }
 
   /** What can be played, as the server listed it at join. For the map picker. */
@@ -475,6 +490,13 @@ export class NetworkManager {
       this.events.emit("powerUpRemoved", { powerUp });
     });
 
+    $(room.state).flags.onAdd((flag: SyncedFlag) => {
+      this.events.emit("flagAdded", { flag });
+    });
+    $(room.state).flags.onRemove((flag: SyncedFlag) => {
+      this.events.emit("flagRemoved", { flag });
+    });
+
     $(room.state).grenades.onAdd((grenade: SyncedGrenade) => {
       this.events.emit("grenadeAdded", { grenade });
     });
@@ -487,6 +509,15 @@ export class NetworkManager {
     });
     $(room.state).listen("countdownSeconds", (seconds: number) => {
       this.events.emit("countdownChanged", { seconds });
+    });
+    $(room.state).listen("gameModeId", (modeId: string) => {
+      this.events.emit("gameModeChanged", { modeId });
+    });
+    $(room.state).listen("matchTimeRemainingSeconds", (seconds: number) => {
+      this.events.emit("matchClockChanged", { seconds });
+    });
+    $(room.state).listen("suddenDeath", (active: boolean) => {
+      this.events.emit("suddenDeathChanged", { active });
     });
 
     // One event per patch. Everything time-sensitive (interpolation buffers,
@@ -634,6 +665,10 @@ type StateCallbackProxy = (state: SyncedGameState) => {
   powerUps: {
     onAdd(callback: (powerUp: SyncedPowerUp, id: string) => void): void;
     onRemove(callback: (powerUp: SyncedPowerUp, id: string) => void): void;
+  };
+  flags: {
+    onAdd(callback: (flag: SyncedFlag, id: string) => void): void;
+    onRemove(callback: (flag: SyncedFlag, id: string) => void): void;
   };
   grenades: {
     onAdd(callback: (grenade: SyncedGrenade, id: string) => void): void;

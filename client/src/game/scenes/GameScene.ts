@@ -14,7 +14,10 @@ import {
   type DamagePayload,
   type MeleeSwingPayload,
   type PowerUpCollectedPayload,
+  GameMode,
+  getFlagHuntConfig,
   type SyncedCrate,
+  type SyncedFlag,
   type SyncedPendingCrate,
   type ExplosionPayload,
   type SyncedGameState,
@@ -42,6 +45,7 @@ import { CrateView } from "../entities/CrateView.js";
 import { CrateWarningView } from "../entities/CrateWarningView.js";
 import { GrenadeView } from "../entities/GrenadeView.js";
 import { PlayerView } from "../entities/PlayerView.js";
+import { FlagView } from "../entities/FlagView.js";
 import { PowerUpView } from "../entities/PowerUpView.js";
 import { ProjectileView } from "../entities/ProjectileView.js";
 import { TrapView } from "../entities/TrapView.js";
@@ -115,6 +119,7 @@ export class GameScene extends Phaser.Scene {
   /** Last seen phase per trap, so the moment one goes off can be recognised. */
   private readonly trapPhases = new Map<string, string>();
   private readonly powerUpViews = new Map<string, PowerUpView>();
+  private readonly flagViews = new Map<string, FlagView>();
   private readonly grenadeViews = new Map<string, GrenadeView>();
 
   private accumulatorMs = 0;
@@ -220,6 +225,8 @@ export class GameScene extends Phaser.Scene {
     events.on("crateRemoved", ({ crate }) => this.removeCrateView(crate));
     events.on("powerUpAdded", ({ powerUp }) => this.addPowerUpView(powerUp));
     events.on("powerUpRemoved", ({ powerUp }) => this.removePowerUpView(powerUp));
+    events.on("flagAdded", ({ flag }) => this.addFlagView(flag));
+    events.on("flagRemoved", ({ flag }) => this.removeFlagView(flag));
     events.on("crateDestroyed", (payload) => this.onCrateDestroyed(payload));
     events.on("powerUpCollected", (payload) => this.onPowerUpCollected(payload));
     events.on("meleeSwing", (payload) => this.onMeleeSwing(payload));
@@ -284,6 +291,7 @@ export class GameScene extends Phaser.Scene {
     for (const crate of state.crates.values()) this.addCrateView(crate);
     this.syncWarnings(state);
     for (const powerUp of state.powerUps.values()) this.addPowerUpView(powerUp);
+    for (const flag of state.flags.values()) this.addFlagView(flag);
     for (const grenade of state.grenades.values()) this.addGrenadeView(grenade);
     this.syncTraps(state);
   }
@@ -422,6 +430,26 @@ export class GameScene extends Phaser.Scene {
     this.powerUpViews.delete(powerUp.id);
   }
 
+  private addFlagView(flag: SyncedFlag): void {
+    if (this.flagViews.has(flag.id)) return;
+    this.flagViews.set(flag.id, new FlagView(this, flag));
+  }
+
+  /**
+   * A flag left the state — taken or expired, the server does not say which.
+   * Any removal mid-match gets the pickup sparkle; an expiry earns it too,
+   * as a "that was collectable and now is not" cue.
+   */
+  private removeFlagView(flag: SyncedFlag): void {
+    const view = this.flagViews.get(flag.id);
+    if (!view) return;
+    view.destroy();
+    this.flagViews.delete(flag.id);
+    if (this.network.state?.matchState === MatchState.PLAYING) {
+      this.effects.tintedBurst("pickup", flag.x, flag.y, 0xff5f6d);
+    }
+  }
+
   /** The crate broke open -- splinters, and a nudge of screen shake if it was ours. */
   private onCrateDestroyed(payload: CrateDestroyedPayload): void {
     this.effects.burst("crateBreak", payload.x, payload.y);
@@ -515,12 +543,37 @@ export class GameScene extends Phaser.Scene {
   }
 
   /** One authoritative snapshot: reconcile the local player, buffer the rest. */
+  /**
+   * Crown whoever leads Flag Hunt.
+   *
+   * Recomputed from the patch rather than from events, because the crown is a
+   * function of everybody's count at once. On a tie, every leader wears one.
+   */
+  private crownLeaders(state: SyncedGameState): void {
+    const enabled =
+      state.gameModeId === GameMode.FLAG_HUNT && getFlagHuntConfig().leaderMarkerEnabled;
+
+    let best = 0;
+    if (enabled) {
+      for (const player of state.players.values()) {
+        if (player.inMatch && player.flagCount > best) best = player.flagCount;
+      }
+    }
+
+    for (const [sessionId, view] of this.playerViews) {
+      const player = state.players.get(sessionId);
+      view.setLeader(enabled && best > 0 && player?.inMatch === true && player.flagCount === best);
+    }
+  }
+
   private onPatch(state: SyncedGameState, receivedAt: number): void {
     const localId = this.network.sessionId;
 
     // Prediction has to clamp where the server clamps, or a player pressed
     // against a closing wall would fight a correction on every patch.
     this.prediction.setBounds({ left: state.shrinkLeft, right: state.shrinkRight });
+
+    this.crownLeaders(state);
 
     for (const [sessionId, player] of state.players) {
       const view = this.playerViews.get(sessionId);
@@ -692,6 +745,8 @@ export class GameScene extends Phaser.Scene {
       this.crateViews.clear();
       for (const view of this.powerUpViews.values()) view.destroy();
       this.powerUpViews.clear();
+      for (const view of this.flagViews.values()) view.destroy();
+      this.flagViews.clear();
       for (const view of this.grenadeViews.values()) view.destroy();
       this.grenadeViews.clear();
     }

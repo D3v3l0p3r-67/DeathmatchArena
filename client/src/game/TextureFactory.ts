@@ -23,6 +23,8 @@ export const TextureKeys = {
   PowerUpOrb: "power-up-orb",
   MeleeArc: "melee-arc",
   Grenade: "grenade",
+  Flag: "flag",
+  Crown: "crown",
 } as const;
 
 export function generatePlaceholderTextures(scene: Phaser.Scene): void {
@@ -39,6 +41,8 @@ export function generatePlaceholderTextures(scene: Phaser.Scene): void {
   createPowerUpOrb(scene);
   createMeleeArc(scene);
   createGrenade(scene);
+  createFlag(scene);
+  createCrown(scene);
 }
 
 /** White so it can be tinted per player; the silhouette carries the identity. */
@@ -228,6 +232,42 @@ function createGrenade(scene: Phaser.Scene): void {
   graphics.fillRect(13, 0, 4, 6);
 
   graphics.generateTexture(TextureKeys.Grenade, size, size);
+  graphics.destroy();
+}
+
+/** A pole and pennant, white so Flag Hunt can tint spawned and dropped apart. */
+function createFlag(scene: Phaser.Scene): void {
+  const width = 22;
+  const height = 30;
+  const graphics = scene.make.graphics({ x: 0, y: 0 }, false);
+
+  // The pole.
+  graphics.fillStyle(0xd8dde6, 1);
+  graphics.fillRect(2, 0, 3, height);
+  graphics.fillStyle(0xffffff, 1);
+  graphics.fillCircle(3.5, 2, 2.5);
+  // The pennant, a triangle off the top of the pole.
+  graphics.fillTriangle(5, 2, width, 8, 5, 15);
+
+  graphics.generateTexture(TextureKeys.Flag, width, height);
+  graphics.destroy();
+}
+
+/** Three points and a band — the leader's crown, tinted gold where it is drawn. */
+function createCrown(scene: Phaser.Scene): void {
+  const width = 22;
+  const height = 14;
+  const graphics = scene.make.graphics({ x: 0, y: 0 }, false);
+
+  graphics.fillStyle(0xffffff, 1);
+  // The band.
+  graphics.fillRect(1, height - 5, width - 2, 5);
+  // Three spikes, the middle one tallest.
+  graphics.fillTriangle(1, height - 5, 5.5, height - 5, 3, 4);
+  graphics.fillTriangle(8, height - 5, 14, height - 5, 11, 0);
+  graphics.fillTriangle(16.5, height - 5, 21, height - 5, 19, 4);
+
+  graphics.generateTexture(TextureKeys.Crown, width, height);
   graphics.destroy();
 }
 

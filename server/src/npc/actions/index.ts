@@ -2,6 +2,7 @@ import type { Brain } from "../Brain.js";
 import { attackAction } from "./attack.js";
 import { chaseAction } from "./chase.js";
 import { dodgeAction } from "./dodge.js";
+import { getFlagAction } from "./getFlag.js";
 import { getPowerUpAction } from "./getPowerUp.js";
 import { getWeaponAction } from "./getWeapon.js";
 import { retreatAction } from "./retreat.js";
@@ -21,6 +22,7 @@ export function registerDefaultActions(brain: Brain): void {
   brain.registerAction(chaseAction);
   brain.registerAction(retreatAction);
   brain.registerAction(dodgeAction);
+  brain.registerAction(getFlagAction);
   brain.registerAction(getPowerUpAction);
   brain.registerAction(getWeaponAction);
   brain.registerAction(throwGrenadeAction);
@@ -32,6 +34,7 @@ export {
   attackAction,
   chaseAction,
   dodgeAction,
+  getFlagAction,
   getPowerUpAction,
   getWeaponAction,
   retreatAction,

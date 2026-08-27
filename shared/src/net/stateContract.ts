@@ -28,6 +28,8 @@ export interface SyncedPlayer {
   /** Where this player will spawn, published during the countdown. 0 = not decided. */
   readonly spawnX: number;
   readonly spawnY: number;
+  /** Flags currently held. The score in Flag Hunt; 0 elsewhere. */
+  readonly flagCount: number;
   readonly velocityX: number;
   readonly velocityY: number;
   readonly aimAngle: number;
@@ -148,9 +150,25 @@ export interface SyncedTrap {
   readonly phase: TrapPhaseValue;
 }
 
+/**
+ * A flag on the ground, waiting to be taken.
+ *
+ * There is nothing hidden about a flag -- unlike a crate it has no secret
+ * contents, so the whole entity is synchronised.
+ */
+export interface SyncedFlag {
+  readonly id: string;
+  readonly x: number;
+  readonly y: number;
+  /** True when this fell out of somebody rather than spawning fresh. */
+  readonly dropped: boolean;
+}
+
 export interface SyncedGameState {
   readonly matchState: MatchStateValue;
   readonly arenaId: string;
+  /** The rule set this room plays under. See `GameMode`. */
+  readonly gameModeId: string;
   readonly players: ReadonlyMap<string, SyncedPlayer>;
   readonly projectiles: ReadonlyMap<string, SyncedProjectile>;
   readonly crates: ReadonlyMap<string, SyncedCrate>;
@@ -159,7 +177,12 @@ export interface SyncedGameState {
   readonly powerUps: ReadonlyMap<string, SyncedPowerUp>;
   readonly grenades: ReadonlyMap<string, SyncedGrenade>;
   readonly traps: ReadonlyMap<string, SyncedTrap>;
+  readonly flags: ReadonlyMap<string, SyncedFlag>;
   readonly countdownSeconds: number;
+  /** Whole seconds left on a timed mode's clock; 0 outside one. */
+  readonly matchTimeRemainingSeconds: number;
+  /** True while a tie-break is deciding a timed match. */
+  readonly suddenDeath: boolean;
   readonly playerCount: number;
   readonly aliveCount: number;
   readonly startingPlayerCount: number;

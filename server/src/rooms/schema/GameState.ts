@@ -13,6 +13,7 @@ import { PendingCrateState } from "./PendingCrateState.js";
 import { PowerUpState } from "./PowerUpState.js";
 import { ProjectileState } from "./ProjectileState.js";
 import { TrapState } from "./TrapState.js";
+import { FlagState } from "./FlagState.js";
 
 /**
  * The synchronised room state.
@@ -55,8 +56,23 @@ export class GameState extends Schema implements SyncedGameState {
    */
   @type({ map: TrapState }) traps = new MapSchema<TrapState>();
 
+  /** Flags on the ground, in modes that have them. Empty otherwise. */
+  @type({ map: FlagState }) flags = new MapSchema<FlagState>();
+
   /** Whole seconds left in the countdown; only changes once per second. */
   @type("uint8") countdownSeconds = 0;
+
+  /**
+   * The rule set this room plays under. Set from configuration when the room
+   * opens; the host may switch it in the lobby. Matches start under whatever
+   * this holds at the countdown.
+   */
+  @type("string") gameModeId = "";
+
+  /** Whole seconds left on a timed mode's clock; 0 outside one. */
+  @type("uint16") matchTimeRemainingSeconds = 0;
+  /** True while a tie-break is deciding a timed match. */
+  @type("boolean") suddenDeath = false;
 
   @type("uint8") playerCount = 0;
   @type("uint8") aliveCount = 0;

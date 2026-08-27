@@ -57,6 +57,27 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
     countdownMs: 3000,
     resultsMs: 12000,
     maxDurationMs: 10 * 60 * 1000,
+    // The rule set new rooms start under. The host can switch it in the lobby.
+    gameMode: "deathmatch",
+  },
+
+  flagHunt: {
+    // Five minutes: long enough for the lead to change hands, short enough
+    // that holding it is a sprint rather than a siege.
+    matchDurationMs: 5 * 60 * 1000,
+    flagSpawnIntervalMs: 8000,
+    maxFlagsOnMap: 8,
+    initialFlags: 3,
+    // An untouched flag eventually moves on, so a forgotten corner of the
+    // arena does not hoard the score.
+    flagLifetimeMs: 45000,
+    deathDropPercent: 50,
+    droppedFlagLifetimeMs: 20000,
+    dropScatterPx: 60,
+    pickupRadius: 40,
+    respawnDelayMs: 3000,
+    leaderMarkerEnabled: true,
+    suddenDeathEnabled: true,
   },
 
   weapons: [

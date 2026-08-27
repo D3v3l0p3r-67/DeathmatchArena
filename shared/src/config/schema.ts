@@ -180,6 +180,7 @@ const CATEGORY = {
   NPC: "NPCs",
   MINIMAP: "Minimap",
   GAUGES: "Gauges",
+  MODES: "Game modes",
 } as const;
 
 interface NumberOptions {
@@ -531,6 +532,38 @@ function gaugeFields(): FieldDescriptor[] {
   ];
 }
 
+function gameModeFields(): FieldDescriptor[] {
+  const { MODES } = CATEGORY;
+  return [
+    {
+      key: "match.gameMode",
+      category: MODES,
+      subcategory: "Mode",
+      label: "Default mode",
+      type: ConfigFieldType.SELECT,
+      description: "The rule set new rooms start under. The host can still switch the room's mode in the lobby, exactly as they pick the map.",
+      editable: true,
+      required: true,
+      options: [
+        { value: "deathmatch", label: "Deathmatch" },
+        { value: "flagHunt", label: "Flag Hunt" },
+      ],
+    },
+    number("flagHunt.matchDurationMs", MODES, "Flag Hunt", "Match duration (ms)", "How long a Flag Hunt match runs. The clock is the mode: when it reaches zero, most flags wins.", { min: 30000, max: 1800000, step: 15000 }),
+    number("flagHunt.flagSpawnIntervalMs", MODES, "Flag Hunt", "Flag spawn interval (ms)", "How often a fresh flag appears at a free power-up spawn point.", { min: 1000, max: 120000, step: 500 }),
+    number("flagHunt.maxFlagsOnMap", MODES, "Flag Hunt", "Max flags on the map", "Cap on flags lying in the arena at once, spawned and dropped together.", { min: 1, max: 32, step: 1, integer: true }),
+    number("flagHunt.initialFlags", MODES, "Flag Hunt", "Initial flags", "Flags placed the moment the match starts.", { min: 0, max: 32, step: 1, integer: true, mustNotExceed: "flagHunt.maxFlagsOnMap" }),
+    number("flagHunt.flagLifetimeMs", MODES, "Flag Hunt", "Flag lifetime (ms)", "How long an untouched spawned flag lasts before vanishing. 0 means forever.", { min: 0, max: 300000, step: 1000 }),
+    number("flagHunt.deathDropPercent", MODES, "Flag Hunt", "Death drop (%)", "Share of a player's flags dropped when they die, 0 to 100. The floor of the share: 10 flags at 50% drops 5; 3 at 50% drops 1.", { min: 0, max: 100, step: 5, integer: true }),
+    number("flagHunt.droppedFlagLifetimeMs", MODES, "Flag Hunt", "Dropped flag lifetime (ms)", "How long a dropped flag lies where it fell before vanishing. 0 means forever.", { min: 0, max: 300000, step: 1000 }),
+    number("flagHunt.dropScatterPx", MODES, "Flag Hunt", "Drop scatter (px)", "How far apart dropped flags spread around the death, so they are not all on one pixel.", { min: 0, max: 400, step: 5 }),
+    number("flagHunt.pickupRadius", MODES, "Flag Hunt", "Pickup radius (px)", "How close a player must come to take a flag.", { min: 5, max: 300, step: 5 }),
+    number("flagHunt.respawnDelayMs", MODES, "Flag Hunt", "Respawn delay (ms)", "How long a death keeps a player out before they respawn. Deaths cost flags, not the match.", { min: 0, max: 30000, step: 500 }),
+    boolean("flagHunt.leaderMarkerEnabled", MODES, "Flag Hunt", "Crown the leader", "Mark the player(s) with the most flags, so the leader is a visible target. Ties crown everybody tied."),
+    boolean("flagHunt.suddenDeathEnabled", MODES, "Flag Hunt", "Sudden death on a tie", "A tie at full time stops the clock and spawns a flag; the first tied player to gain one wins."),
+  ];
+}
+
 function minimapFields(): FieldDescriptor[] {
   const { MINIMAP } = CATEGORY;
   return [
@@ -668,6 +701,7 @@ export function buildConfigFields(config: GameConfig, baseline: GameConfig = con
     ...arenaFields(),
     ...minimapFields(),
     ...gaugeFields(),
+    ...gameModeFields(),
     ...trapFields(),
     ...npcFields(),
     ...config.npc.difficulties.flatMap(botDifficultyFields),

@@ -93,17 +93,27 @@ export class TargetSelector {
     // Reachability: something we can actually bring our weapon to bear on.
     const inWeaponRange = clamp01(1 - enemy.distance / Math.max(1, context.self.weapon.range));
 
+    // In Flag Hunt a target is also a purse: killing a carrier spills half
+    // their flags at your feet, and killing the leader is how you stop losing.
+    // Game sense scales it, so a rookie bot still just fights whoever is near.
+    const bounty = context.flagHunt
+      ? (clamp01(enemy.flagCount / 5) + (enemy.isLeader ? 0.5 : 0)) * context.gameSense
+      : 0;
+
     const terms = {
       closeness: closeness * 30,
       wounded: wounded * 35,
       engaged: engaged * 20,
       weaponReach: inWeaponRange * 15,
+      bounty: bounty * 30,
       // Sticking with the current target is worth a little, so a bot does not
       // swap victims every time two enemies trade places.
       commitment: 0,
     };
 
-    const score = (terms.closeness + terms.wounded + terms.engaged + terms.weaponReach) * freshness;
+    const score =
+      (terms.closeness + terms.wounded + terms.engaged + terms.weaponReach + terms.bounty) *
+      freshness;
 
     return { enemy, score, terms: { ...terms, freshness } };
   }

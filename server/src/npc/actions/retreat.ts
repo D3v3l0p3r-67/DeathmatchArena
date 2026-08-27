@@ -1,4 +1,4 @@
-import type { BrainProfile } from "@deathmatch/shared";
+import { clamp01, type BrainProfile } from "@deathmatch/shared";
 import type { BrainAction } from "../Brain.js";
 import type { BrainContext } from "../context.js";
 import type { NpcAgent } from "../NpcAgent.js";
@@ -32,6 +32,18 @@ export const retreatAction: BrainAction = {
     // Being out of ammunition in front of somebody is its own reason to leave.
     if (context.visibleEnemies.length > 0 && context.self.ammo <= 0) {
       score += profile.survival * 30;
+    }
+
+    // A pocketful of flags is a reason to live: half of them hit the floor
+    // the moment we do not. The more we carry, the more danger costs -- and
+    // only a bot with the game sense to know what it is carrying feels it.
+    if (context.flagHunt && context.self.flagCount > 0) {
+      score +=
+        clamp01(context.self.flagCount / 6) *
+        context.danger *
+        context.gameSense *
+        profile.survival *
+        30;
     }
 
     // Nothing to run from.

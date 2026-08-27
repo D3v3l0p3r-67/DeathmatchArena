@@ -32,6 +32,7 @@ import {
   type PongPayload,
   type AddBotRequest,
   type SelectArenaRequest,
+  type SelectModeRequest,
   type RemoveBotRequest,
   type WelcomePayload,
 } from "@deathmatch/shared";
@@ -46,6 +47,7 @@ import { createLogger, type Logger } from "../utils/logger.js";
 import { ArenaShrinkSystem } from "../systems/ArenaShrinkSystem.js";
 import { TrapSystem } from "../systems/TrapSystem.js";
 import { NpcSystem } from "../npc/NpcSystem.js";
+import { GAME_MODES } from "../modes/index.js";
 import { CollisionSystem } from "../systems/CollisionSystem.js";
 import { GrenadeSystem } from "../systems/GrenadeSystem.js";
 import { MatchManager } from "../systems/MatchManager.js";
@@ -133,6 +135,8 @@ export class BattleRoom extends Room<{ state: GameState }> {
     this.configView = createGameConfigView(this.baselineConfig);
 
     this.state.arenaId = this.arena.id;
+    // The configured default; the host can switch it in the lobby.
+    this.state.gameModeId = this.configView.getMatchConfig().gameMode;
     this.state.minPlayersToStart = this.configView.getMatchConfig().minPlayers;
     this.state.maxPlayers = this.configView.getMatchConfig().maxPlayers;
 
@@ -546,6 +550,27 @@ export class BattleRoom extends Room<{ state: GameState }> {
       if (!arena) return;
 
       this.switchArena(arena);
+    });
+
+    /**
+     * "Play these rules."
+     *
+     * The same contract as picking the map: host only, lobby only, and only a
+     * mode the server itself lists -- the id in the payload is a claim. The
+     * match that eventually starts reads `state.gameModeId`, so a switch here
+     * is complete the moment it lands.
+     */
+    this.onMessage(ClientMessage.SELECT_MODE, (client, payload: Partial<SelectModeRequest>) => {
+      if (!this.allowLobbyAction(client.sessionId)) return;
+      if (!this.isHost(client.sessionId)) return;
+      if (this.state.matchState !== MatchState.WAITING) return;
+
+      const wanted = String(payload?.modeId ?? "");
+      if (wanted === this.state.gameModeId) return;
+      if (!GAME_MODES.some((mode) => mode.id === wanted)) return;
+
+      this.state.gameModeId = wanted;
+      this.logger.info("Game mode switched", { mode: wanted });
     });
 
     this.onMessage(ClientMessage.ADD_BOT, (client, payload: Partial<AddBotRequest>) => {

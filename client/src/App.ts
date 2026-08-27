@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import {
   CAMERA,
+  GameMode,
   getMatchConfig,
   MatchState,
   validatePlayerName,
@@ -208,6 +209,7 @@ export class App {
       // Asking only, like every lobby action: the server checks that this
       // session is the host and that the map is one it lists as playable.
       onSelectArena: (arenaId) => this.network.selectArena(arenaId),
+      onSelectMode: (modeId) => this.network.selectMode(modeId),
       onPlayAgain: () => this.handlePlayAgain(),
       onBackToMenu: () => void this.returnToMenu(),
     });
@@ -529,13 +531,18 @@ export class App {
     if (!isSpectating(this.network.state?.matchState, local?.alive)) return;
 
     const scene = this.getGameScene();
-    this.ui.setSpectating(true, scene?.spectatedName ?? "", local?.placement ?? 0);
+    this.ui.setSpectating(true, scene?.spectatedName ?? "", local?.placement ?? 0, this.deathRespawns());
   }
 
   private updateSpectatorBanner(targetName: string): void {
     const local = this.network.state?.players.get(this.network.sessionId);
     if (!local || !isSpectating(this.network.state?.matchState, local.alive)) return;
-    this.ui.setSpectating(true, targetName, local.placement);
+    this.ui.setSpectating(true, targetName, local.placement, this.deathRespawns());
+  }
+
+  /** Whether the current mode brings the dead back, which changes what a death banner should say. */
+  private deathRespawns(): boolean {
+    return this.network.state?.gameModeId === GameMode.FLAG_HUNT;
   }
 
   // ---------------------------------------------------------------------------
@@ -606,6 +613,11 @@ export class App {
       totalPlayers: state.startingPlayerCount || state.playerCount,
       shrinkCountdownSeconds: state.shrinkCountdownSeconds,
       shrinking: state.shrinking,
+      gameModeId: state.gameModeId,
+      matchClockSeconds: state.matchTimeRemainingSeconds,
+      suddenDeath: state.suddenDeath,
+      players: state.players,
+      localSessionId: this.network.sessionId,
     });
 
     // Same cadence as the rest of the HUD: a minimap dot does not need
