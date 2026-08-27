@@ -19,7 +19,21 @@ export class ArenaShrinkSystem {
   /** Fractional damage carried between ticks, so slow rates are not lost to rounding. */
   private readonly pendingCrushDamage = new Map<string, number>();
 
+  /**
+   * Whether the current game mode wants closing walls at all.
+   *
+   * A supplier rather than a flag because the answer belongs to the match's
+   * mode instance (and, behind it, to configuration an admin can retune
+   * mid-match). `MatchManager` wires it; until then everything is allowed,
+   * which is exactly the pre-modes behaviour.
+   */
+  private modeAllows: () => boolean = () => true;
+
   constructor(private readonly context: RoomContext) {}
+
+  setModeGate(allows: () => boolean): void {
+    this.modeAllows = allows;
+  }
 
   /** Reset the walls to the arena's own edges and show the initial countdown. */
   onMatchStarted(): void {
@@ -29,9 +43,10 @@ export class ArenaShrinkSystem {
     state.shrinkLeft = 0;
     state.shrinkRight = this.context.arena.width;
     state.shrinking = false;
-    state.shrinkCountdownSeconds = config.enabled
-      ? Math.ceil(Math.max(0, config.startAfterMs) / 1000)
-      : 0;
+    state.shrinkCountdownSeconds =
+      config.enabled && this.modeAllows()
+        ? Math.ceil(Math.max(0, config.startAfterMs) / 1000)
+        : 0;
 
     this.pendingCrushDamage.clear();
   }
@@ -56,6 +71,17 @@ export class ArenaShrinkSystem {
 
     const config = this.context.config.getArenaShrinkConfig();
     if (!config.enabled) return;
+
+    // A mode that forbids the walls (Flag Hunt runs on its own clock) keeps
+    // the arena at full size for the whole match. Checked every tick so an
+    // admin flipping the setting mid-match takes effect at once -- including
+    // putting the walls back if they had already started.
+    if (!this.modeAllows()) {
+      if (this.context.state.shrinking || this.context.state.shrinkCountdownSeconds !== 0) {
+        this.reset();
+      }
+      return;
+    }
 
     const startedAt = this.context.state.matchStartedAt;
     if (startedAt <= 0) return;

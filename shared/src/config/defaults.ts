@@ -62,6 +62,9 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   },
 
   flagHunt: {
+    timedMatch: true,
+    // The mode is already time-limited, so the walls stay put.
+    arenaShrinking: false,
     // Five minutes: long enough for the lead to change hands, short enough
     // that holding it is a sprint rather than a siege.
     matchDurationMs: 5 * 60 * 1000,

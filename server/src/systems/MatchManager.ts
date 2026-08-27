@@ -75,7 +75,11 @@ export class MatchManager {
     private readonly arenaShrink: ArenaShrinkSystem,
     private readonly grenades: GrenadeSystem,
     private readonly traps: TrapSystem,
-  ) {}
+  ) {
+    // The walls ask the current mode, not a mode id: Flag Hunt (or any future
+    // mode) turns them off by declaring so in its traits.
+    arenaShrink.setModeGate(() => this.mode.traits().arenaShrinking);
+  }
 
   /**
    * Told about the bots after construction.
@@ -260,6 +264,13 @@ export class MatchManager {
     state.winnerName = "";
     this.matchDeadline = now + this.rules.maxDurationMs;
 
+    // A fresh mode instance per match: whatever rules the room is set to when
+    // the countdown ends are the rules for the whole match, and nothing a mode
+    // accumulated last match survives into this one. Built before the shared
+    // systems start, because some of them (the closing walls) ask the mode
+    // what to do the moment they begin.
+    this.mode = createGameMode(state.gameModeId, this.modeServices());
+
     this.powerUps.onMatchStarted(now);
     this.arenaShrink.onMatchStarted();
     // Traps start every match from rest, so a crusher left extended by the last
@@ -267,10 +278,6 @@ export class MatchManager {
     this.traps.reset();
     this.npcs?.onMatchStarted(now);
 
-    // A fresh mode instance per match: whatever rules the room is set to when
-    // the countdown ends are the rules for the whole match, and nothing a mode
-    // accumulated last match survives into this one.
-    this.mode = createGameMode(state.gameModeId, this.modeServices());
     this.mode.onMatchStarted(now);
 
     this.refreshCounters();

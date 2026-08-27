@@ -15,6 +15,16 @@ export class DeathmatchMode implements GameMode {
 
   constructor(private readonly services: GameModeServices) {}
 
+  /**
+   * No clock, and the walls may close: deathmatch has no end of its own, so
+   * the shrink is exactly the mechanic that stops it stalling. Whether the
+   * walls actually run is still `arenaShrink.enabled` -- the trait only says
+   * the mode does not forbid them.
+   */
+  traits() {
+    return { timedMatch: false, arenaShrinking: true };
+  }
+
   onMatchStarted(): void {}
 
   update(now: number): void {

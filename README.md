@@ -273,10 +273,19 @@ carriers and the leader for what a kill spills, and grow more careful the more
 they carry. How well they read the scoreboard scales with difficulty, so a
 rookie bot mostly just fights whoever is near.
 
-Every number is configurable under `flagHunt.*` (match duration, spawn
-interval, cap, initial flags, both lifetimes, the drop percentage and scatter,
-pickup radius, respawn delay, the crown, sudden death) and `match.gameMode`
-picks the default mode — see [Administration](#administration).
+A mode also declares *traits* — facts the shared systems consult instead of
+knowing mode ids. Flag Hunt declares `timedMatch: true, arenaShrinking: false`
+(both are `flagHunt.*` configuration): the mode is already time-limited, so the
+closing walls never run — no countdown, no shrinking, no crush damage — and
+because the server simply never publishes any shrink state, the client shows
+only `TIME` without a single mode check in the UI. Deathmatch keeps the walls;
+they are its clock.
+
+Every number is configurable under `flagHunt.*` (timed match, arena shrinking,
+match duration, spawn interval, cap, initial flags, both lifetimes, the drop
+percentage and scatter, pickup radius, respawn delay, the crown, sudden death)
+and `match.gameMode` picks the default mode — see
+[Administration](#administration).
 
 ### The arena closes
 

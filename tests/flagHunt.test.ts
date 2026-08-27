@@ -418,6 +418,109 @@ describe("flag hunt: full time and sudden death", () => {
   });
 });
 
+describe("flag hunt: the arena stays whole", () => {
+  it("never starts the closing walls: no countdown, no shrink, full bounds", () => {
+    const harness = createHarness();
+    startFlagHunt(harness, ["a", "b"]);
+
+    // Not even the initial countdown is published.
+    assert.equal(harness.state.shrinkCountdownSeconds, 0);
+
+    // Ride well past the point deathmatch's walls would have started moving.
+    const startAfterMs = harness.context.config.getArenaShrinkConfig().startAfterMs;
+    const until = clock.now + startAfterMs + 30_000;
+    while (clock.now < until) {
+      clock.now += 1000;
+      harness.matchManager.update(clock.now);
+      harness.stepArenaShrink(1, clock.now);
+    }
+
+    assert.equal(harness.state.shrinking, false);
+    assert.equal(harness.state.shrinkCountdownSeconds, 0);
+    assert.equal(harness.state.shrinkLeft, 0);
+    assert.equal(harness.state.shrinkRight, harness.arena.width);
+  });
+
+  it("runs the walls again when flagHunt.arenaShrinking is switched on", () => {
+    const harness = createHarness();
+    startFlagHunt(harness, ["a", "b"]);
+
+    const retuned = cloneConfig(harness.context.baselineConfig);
+    retuned.flagHunt.arenaShrinking = true;
+    harness.replaceConfig(retuned);
+
+    const startAfterMs = harness.context.config.getArenaShrinkConfig().startAfterMs;
+    clock.now += 1000;
+    harness.stepArenaShrink(1, clock.now);
+    assert.ok(harness.state.shrinkCountdownSeconds > 0, "the countdown should be running");
+
+    clock.now += startAfterMs + 5000;
+    harness.matchManager.update(clock.now);
+    harness.stepArenaShrink(1, clock.now);
+    assert.equal(harness.state.shrinking, true);
+  });
+
+  it("puts already-moving walls back if shrinking is switched off mid-match", () => {
+    const harness = createHarness();
+    startFlagHunt(harness, ["a", "b"]);
+
+    const shrinkOn = cloneConfig(harness.context.baselineConfig);
+    shrinkOn.flagHunt.arenaShrinking = true;
+    harness.replaceConfig(shrinkOn);
+
+    clock.now += harness.context.config.getArenaShrinkConfig().startAfterMs + 5000;
+    harness.matchManager.update(clock.now);
+    harness.stepArenaShrink(5, clock.now);
+    assert.equal(harness.state.shrinking, true);
+    assert.ok(harness.state.shrinkLeft > 0);
+
+    const shrinkOff = cloneConfig(harness.context.baselineConfig);
+    shrinkOff.flagHunt.arenaShrinking = false;
+    harness.replaceConfig(shrinkOff);
+    clock.now += 1000;
+    harness.stepArenaShrink(1, clock.now);
+
+    assert.equal(harness.state.shrinking, false);
+    assert.equal(harness.state.shrinkLeft, 0);
+    assert.equal(harness.state.shrinkRight, harness.arena.width);
+  });
+
+  it("deathmatch still gets its walls after a real match start", () => {
+    const harness = createHarness();
+    clock.now = 0;
+    harness.state.matchState = MatchState.WAITING;
+    for (const id of ["a", "b"]) {
+      const player = harness.addPlayer(id, PARKING.x, PARKING.y);
+      player.connected = true;
+    }
+    harness.state.hostId = "a";
+    harness.matchManager.requestStart();
+    harness.matchManager.update(clock.now);
+    clock.now += 4000;
+    harness.matchManager.update(clock.now);
+
+    assert.equal(harness.state.matchState, MatchState.PLAYING);
+    assert.ok(harness.state.shrinkCountdownSeconds > 0, "deathmatch keeps the countdown");
+  });
+
+  it("an untimed Flag Hunt publishes no clock and never ends at full time", () => {
+    const harness = createHarness();
+    startFlagHunt(harness, ["a", "b"]);
+
+    const retuned = cloneConfig(harness.context.baselineConfig);
+    retuned.flagHunt.timedMatch = false;
+    harness.replaceConfig(retuned);
+
+    clock.now += 1000;
+    harness.matchManager.update(clock.now);
+    assert.equal(harness.state.matchTimeRemainingSeconds, 0, "no clock to show");
+
+    clock.now += harness.context.config.getFlagHuntConfig().matchDurationMs + 60_000;
+    harness.matchManager.update(clock.now);
+    assert.equal(harness.state.matchState, MatchState.PLAYING, "full time never arrives");
+  });
+});
+
 describe("flag hunt: mode boundaries", () => {
   it("a deathmatch room carries no flags and no clock", () => {
     const harness = createHarness();
