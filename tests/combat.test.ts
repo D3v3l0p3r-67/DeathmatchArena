@@ -8,10 +8,15 @@ import { beforeEach, describe, it } from "node:test";
 import {
   ASSAULT_RIFLE_ID,
   CHAINSAW_ID,
+  FLAMETHROWER_ID,
+  LASER_ID,
+  SNIPER_ID,
+  SMG_ID,
   ROCKET_LAUNCHER_ID,
   FIXED_DELTA,
   KNOCKBACK_IMPULSE,
   MatchState,
+  PowerUpType,
   SHOTGUN_ID,
   ServerMessage,
   createInputCommand,
@@ -26,6 +31,8 @@ import {
   getPlayerConfig,
   getReloadDurationMs,
   getWeapon,
+  listPowerUps,
+  listWeapons,
   stepPlayerMovement,
   type DamagePayload,
   type KillPayload,
@@ -128,6 +135,128 @@ describe("projectile collision", () => {
 
     harness.step(120);
     assert.equal(harness.state.projectiles.size, 0, "projectile should expire at max range");
+  });
+});
+
+describe("the laser", () => {
+  it("carries three rounds and then has to reload", () => {
+    const laser = getWeapon(LASER_ID);
+    assert.equal(laser.magazineSize, 3);
+    assert.ok(laser.enabled, "a weapon nobody can be given is not in the game");
+    assert.ok(laser.reloadTime > 0, "three rounds and no reload is not a magazine");
+  });
+
+  it("empties in three shots and starts its own reload", () => {
+    const harness = createHarness();
+    const player = harness.addPlayer("shooter", 200, 1700);
+    const runtime = harness.runtimes.get("shooter")!;
+    harness.weapons.equip(player, runtime, LASER_ID);
+
+    const laser = getWeapon(LASER_ID);
+    const interval = getFireIntervalMs(laser) + 1;
+
+    assert.equal(player.ammo, 3, "picking it up fills the magazine");
+
+    let now = 0;
+    for (let shot = 0; shot < 3; shot++) {
+      fireAt(harness, "shooter", 0, now);
+      now += interval;
+    }
+
+    assert.equal(player.ammo, 0, "three shots is the whole magazine");
+    assert.equal(player.reloading, true, "an empty magazine reloads itself");
+
+    // And a fourth trigger pull does nothing while it does.
+    fireAt(harness, "shooter", 0, now);
+    assert.equal(player.ammo, 0);
+  });
+
+  it("can be found in a crate", () => {
+    // A weapon with no power-up exists only for whoever starts with it.
+    const laserDrop = listPowerUps().find(
+      (powerUp) => powerUp.type === PowerUpType.WEAPON && powerUp.weaponId === LASER_ID,
+    );
+    assert.ok(laserDrop, "the laser has no crate power-up");
+    assert.ok(laserDrop.enabled && laserDrop.spawnWeight > 0, "it could never actually spawn");
+  });
+});
+
+describe("a weapon's weight", () => {
+  it("puts the weapons in the intended order, fastest to heaviest", () => {
+    /*
+     * The ladder is the balance, so it is the ladder that is pinned rather than
+     * eight separate numbers. Reach and lethality buy weight: the chainsaw and
+     * the SMG close and kite, the rifle is the yardstick at exactly 1, and the
+     * long-range weapons pay for their reach in legs.
+     */
+    const speed = (id: string) => getWeapon(id).moveSpeedMultiplier;
+
+    assert.equal(speed(ASSAULT_RIFLE_ID), 1, "the rifle is what every other weight is read against");
+
+    const heaviestFirst = [ROCKET_LAUNCHER_ID, SNIPER_ID, LASER_ID, FLAMETHROWER_ID, SHOTGUN_ID, ASSAULT_RIFLE_ID, SMG_ID, CHAINSAW_ID];
+    for (let i = 1; i < heaviestFirst.length; i++) {
+      assert.ok(
+        speed(heaviestFirst[i]!) > speed(heaviestFirst[i - 1]!),
+        `${heaviestFirst[i]} should be lighter than ${heaviestFirst[i - 1]}`,
+      );
+    }
+  });
+
+  it("keeps the chainsaw able to close on the heavy weapons but not on the SMG", () => {
+    /*
+     * The number that decides whether an instant-kill melee is fair. Measured
+     * over 400px: at 1.05x it never reaches anybody, and at 1.25x a sniper gets
+     * one shot where they need two. The gap to the SMG is the escape hatch --
+     * the most mobile weapon must out-run the deadliest one.
+     */
+    const run = getPlayerConfig().moveSpeed;
+    const saw = run * getWeapon(CHAINSAW_ID).moveSpeedMultiplier;
+
+    const sniper = getWeapon(SNIPER_ID);
+    const closing = saw - run * sniper.moveSpeedMultiplier;
+    assert.ok(closing > 0, "the chainsaw must be able to reach a sniper at all");
+
+    const secondsToClose = 400 / closing;
+    const shotsAllowed = Math.floor((secondsToClose * 1000) / getFireIntervalMs(sniper));
+    const shotsNeeded = Math.ceil(getPlayerConfig().maxHealth / sniper.damage);
+    assert.ok(
+      shotsAllowed >= shotsNeeded,
+      `a sniper gets ${shotsAllowed} shots crossing 400px but needs ${shotsNeeded}`,
+    );
+
+    assert.ok(
+      getWeapon(SMG_ID).moveSpeedMultiplier < getWeapon(CHAINSAW_ID).moveSpeedMultiplier,
+      "the SMG is the counter, and a counter that cannot run away is not one",
+    );
+  });
+
+  it("leaves the chainsaw as the only weapon that kills in one hit", () => {
+    // The shotgun used to do it too, at 117 against 100 health, with no window
+    // to react. Two weapons in that role means neither is special.
+    const hp = getPlayerConfig().maxHealth;
+    const oneHit = listWeapons().filter(
+      (weapon) => weapon.damage * (weapon.ranged?.pellets ?? 1) >= hp,
+    );
+
+    assert.deepEqual(oneHit.map((weapon) => weapon.id), [CHAINSAW_ID]);
+  });
+
+  it("is handed to the movement state the moment a weapon changes hands", () => {
+    // Equipping is the one place a weapon is given, so it is the one place the
+    // factor has to be set -- otherwise a pickup would leave the old weight on.
+    const harness = createHarness();
+    const player = harness.addPlayer("carrier", 200, 1700);
+    const runtime = harness.runtimes.get("carrier")!;
+
+    const retuned = cloneConfig(getGameConfig());
+    retuned.weapons.find((weapon) => weapon.id === SHOTGUN_ID)!.moveSpeedMultiplier = 0.6;
+    harness.replaceConfig(retuned);
+
+    harness.weapons.equip(player, runtime, SHOTGUN_ID);
+    assert.equal(runtime.movement.weaponSpeedMultiplier, 0.6);
+
+    harness.weapons.equip(player, runtime, ASSAULT_RIFLE_ID);
+    assert.equal(runtime.movement.weaponSpeedMultiplier, 1, "swapping must drop the old weight");
   });
 });
 
@@ -679,7 +808,11 @@ describe("chainsaw", () => {
 
   it("honours its configured attack interval", () => {
     harness.addPlayer("attacker", 400, 1700);
-    harness.addPlayer("victim", 440, 1700);
+    const victim = harness.addPlayer("victim", 440, 1700);
+    // The chainsaw kills in one contact, and a corpse cannot be swung at
+    // twice. This test is about the interval gate, so the victim is given
+    // enough health to still be there for the second swing.
+    victim.health = 400;
 
     const interval = getFireIntervalMs(getWeapon(CHAINSAW_ID));
     assert.ok(interval > 0, "the chainsaw must have a configured attack interval");
@@ -964,8 +1097,13 @@ describe("knockback and recoil", () => {
 
   it("throws whoever a melee weapon catches, along the swing", () => {
     const attacker = harness.addPlayer("attacker", 200, 1700);
-    harness.addPlayer("victim", 240, 1700);
+    const victim = harness.addPlayer("victim", 240, 1700);
     harness.weapons.equip(attacker, harness.runtimes.get("attacker")!, "chainsaw");
+    // Knockback is skipped for the dead, and the chainsaw now kills in one
+    // contact -- so a victim who survives it is what makes the shove visible.
+    // (A lethal chainsaw hit throws the body through the death animation
+    // instead, which is `tickDeath`'s job rather than knockback's.)
+    victim.health = 400;
 
     fireAt(harness, "attacker", 0, 0);
 

@@ -110,6 +110,59 @@ describe("player movement", () => {
     assert.equal(state.facing, 1);
   });
 
+  /** Top speed reached over a run, so a wall at the end cannot skew the result. */
+  function peakRunSpeed(configure: (state: ReturnType<typeof createMovementState>) => void): number {
+    const spawn = arena.playerSpawns[1]!;
+    const state = createMovementState(spawn.x, spawn.y);
+    // Let them land first: a player still falling has not started running.
+    simulate(state, createInputCommand(), 30);
+    configure(state);
+
+    const input = createInputCommand();
+    input.moveRight = true;
+
+    let peak = 0;
+    for (let i = 0; i < 90; i++) {
+      input.seq = i + 1;
+      stepPlayerMovement(state, input, FIXED_DELTA, world);
+      peak = Math.max(peak, Math.abs(state.velocityX));
+    }
+    return peak;
+  }
+
+  it("lets the weapon in hand raise or lower the run speed cap", () => {
+    /*
+     * The mechanism, tested at a value nothing ships with: every weapon is at 1
+     * so the game plays exactly as it did, and this is what proves the knob is
+     * wired rather than decorative.
+     */
+    const heavy = peakRunSpeed((state) => {
+      state.weaponSpeedMultiplier = 0.5;
+    });
+    const plain = peakRunSpeed(() => {});
+
+    assert.ok(heavy > 0, "a heavy weapon still lets you move");
+    assert.ok(
+      heavy <= player.moveSpeed * 0.5 + 1e-6,
+      `a 0.5x weapon should cap at half the run speed, reached ${heavy}`,
+    );
+    assert.ok(plain > heavy, "and carrying nothing heavy should be faster");
+  });
+
+  it("multiplies the weapon's factor with a speed power-up rather than replacing it", () => {
+    // Two different things that happen to compose: a boost belongs to the
+    // player and is temporary, a weapon's weight belongs to the weapon.
+    const both = peakRunSpeed((state) => {
+      state.speedMultiplier = 2;
+      state.weaponSpeedMultiplier = 0.5;
+    });
+
+    assert.ok(
+      Math.abs(both - player.moveSpeed) < 2,
+      `2x boost with a 0.5x weapon should land back at the plain run speed, got ${both}`,
+    );
+  });
+
   it("is blocked by walls instead of passing through them", () => {
     // Run hard into the left wall for two seconds.
     const state = createMovementState(200, 1700);

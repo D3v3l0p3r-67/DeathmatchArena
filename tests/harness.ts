@@ -181,8 +181,8 @@ export function createHarness(arenaOverride?: ArenaDefinition, seed = 12345): Ha
       player.onGround = runtime.movement.onGround;
       player.knockbackTimer = runtime.movement.knockbackTimer;
     },
-    damageCrate(crateId: string, amount: number, attackerId: string, now: number) {
-      powerUps.damageCrate(crateId, amount, attackerId, now);
+    damageCrate(crateId: string, amount: number, attackerId: string, now: number, impulseX?: number) {
+      powerUps.damageCrate(crateId, amount, attackerId, now, impulseX);
     },
     /** The harness plays one arena; rotation belongs to the room, not here. */
     rotateArena() {},

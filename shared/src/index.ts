@@ -36,6 +36,7 @@ export * from "./game/weapons.js";
 export * from "./game/powerups.js";
 export * from "./game/CollisionWorld.js";
 export * from "./game/physics.js";
+export * from "./game/boxPhysics.js";
 
 // Debug protocol (authorization is enforced server-side)
 export * from "./debug/types.js";

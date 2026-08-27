@@ -17,6 +17,7 @@ export const SMG_ID = "smg";
 export const SNIPER_ID = "sniper";
 export const FLAMETHROWER_ID = "flamethrower";
 export const ROCKET_LAUNCHER_ID = "rocket-launcher";
+export const LASER_ID = "laser";
 
 export const DEFAULT_GAME_CONFIG: GameConfig = {
   defaultWeaponId: ASSAULT_RIFLE_ID,
@@ -74,6 +75,9 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
       // Held down, this walks the shooter steadily backwards -- an automatic
       // weapon should cost you your footing, not just your magazine.
       recoilForce: 0.3,
+      // The yardstick. Every other weapon's weight is read against this 1, so
+      // it is the one number in the ladder that should stay put.
+      moveSpeedMultiplier: 1,
       ranged: {
         bulletSpeed: 1500,
         spread: 0.035,
@@ -107,12 +111,16 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
       name: "Shotgun",
       type: WeaponType.RANGED,
       enabled: true,
-      // Per pellet. Nine pellets landing at point-blank range is 117 damage --
-      // lethal -- while the falloff below makes a full hit at range almost harmless.
-      damage: 13,
+      // Per pellet, and the falloff below makes a full hit at range almost
+      // harmless. Nine pellets is 90 at contact: lethal-looking, and the target lives on
+      // 10hp. It used to be 117 against 100 health -- an instant kill with no
+      // window to react, which is a role the chainsaw now holds and pays for.
+      damage: 10,
       range: 620,
-      fireRate: 75,
-      magazineSize: 6,
+      // Faster pump, so two blasts still kill about as quickly as the rifle
+      // does -- the shotgun stays the fastest thing in contact range.
+      fireRate: 105,
+      magazineSize: 5,
       reloadTime: 2600,
       automatic: false,
       // Per pellet. Nine landing at contact range is a shove of about 700px/s,
@@ -120,6 +128,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
       knockbackForce: 0.3,
       // One shot, one heavy kick: the shotgun is the weapon you can jump with.
       recoilForce: 1.1,
+      moveSpeedMultiplier: 0.97,
       ranged: {
         bulletSpeed: 1150,
         spread: 0.17,
@@ -160,14 +169,16 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
       enabled: true,
       // The spray weapon: half the rifle's damage at nearly twice the rate, so
       // the damage per second is similar and the *accuracy* is what differs.
-      damage: 11,
+      damage: 12,
       range: 900,
       fireRate: 900,
-      magazineSize: 40,
+      magazineSize: 35,
       reloadTime: 1500,
       automatic: true,
       knockbackForce: 0.35,
       recoilForce: 0.16,
+      // The kite weapon, and the one thing the chainsaw cannot run down.
+      moveSpeedMultiplier: 1.1,
       ranged: {
         bulletSpeed: 1350,
         // Three times the rifle's cone. Fine across a room, hopeless across the
@@ -207,15 +218,18 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
       enabled: true,
       // Two hits, or one on somebody already hurt. The cost is the rate: at 40
       // rounds a minute a miss is a second and a half of standing there.
-      damage: 62,
+      // Still two shots, but no longer nearly one -- at 62 any chip damage
+      // made the second shot optional.
+      damage: 55,
       range: 2600,
       fireRate: 40,
-      magazineSize: 5,
+      magazineSize: 4,
       reloadTime: 2600,
       automatic: false,
       // It hits like a truck in both directions.
       knockbackForce: 1.4,
       recoilForce: 0.9,
+      moveSpeedMultiplier: 0.78,
       ranged: {
         // Fast enough that leading a target barely matters, which is what makes
         // it the weapon for the far side of the arena.
@@ -259,12 +273,15 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
       damage: 7,
       range: 300,
       fireRate: 720,
-      magazineSize: 100,
+      magazineSize: 80,
       reloadTime: 2400,
       automatic: true,
       // A push you can feel but not be thrown by -- being herded is the point.
       knockbackForce: 0.12,
       recoilForce: 0.05,
+      // Keeps by far the best sustain in the game, and pays for it in legs:
+      // area denial rather than a weapon you chase anybody with.
+      moveSpeedMultiplier: 0.88,
       ranged: {
         // Slow and wide: the flame visibly travels, so both sides can see
         // exactly how far it reaches.
@@ -315,6 +332,9 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
       // Firing it downwards while jumping is a rocket jump, and that is not an
       // accident: the recoil and the blast are both tuned to allow it.
       recoilForce: 1.1,
+      // The heaviest thing to carry. Rocket-jumping is how you get your
+      // mobility back, which the recoil and the blast were already tuned for.
+      moveSpeedMultiplier: 0.75,
       ranged: {
         // Slow enough to see coming and to dodge, which is what stops it being
         // simply the best weapon in the game.
@@ -354,7 +374,10 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
       enabled: true,
       // Brutal, but only if you can close the distance: `range` is barely more
       // than two player widths, and it cannot shoot back at anyone.
-      damage: 34,
+      // One contact, one kill. 120 rather than exactly 100 so the promise
+      // survives chip damage arithmetic and a bot's dealt-damage multiplier
+      // at the middle rungs -- see the note on difficulty below.
+      damage: 120,
       range: 62,
       fireRate: 0,
       magazineSize: 0,
@@ -363,10 +386,18 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
       // Throws whoever it catches; a chainsaw has nothing to recoil against.
       knockbackForce: 1.3,
       recoilForce: 0,
+      // Measured, not guessed: at 1.05x it never closes on anybody (30s to
+      // cross 400px against a rifle), and at 1.25x a sniper gets one shot
+      // where they need two. At 1.15x the heavy long-range weapons get
+      // exactly the shots they need, and the rifle and SMG out-range it.
+      moveSpeedMultiplier: 1.15,
       ranged: null,
       melee: {
-        arcDegrees: 70,
-        attackIntervalMs: 260,
+        arcDegrees: 50,
+        // The other half of the balance. An instant kill has to be dodgeable,
+        // and the only counterplay to one is a whiffed swing that leaves the
+        // attacker helpless -- 260ms was no punishment at all.
+        attackIntervalMs: 700,
       },
       // An orange body and a long toothed bar. Nothing else in the game is
       // orange and bar-shaped, which is the entire design goal: you should know
@@ -386,6 +417,53 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
           { x: 21, y: 5, width: 2, height: 2, color: 0xeef3fb },
           { x: 26, y: 5, width: 2, height: 2, color: 0xeef3fb },
           { x: 31, y: 5, width: 2, height: 2, color: 0xeef3fb },
+        ],
+      },
+    },
+    {
+      id: LASER_ID,
+      name: "Laser",
+      type: WeaponType.RANGED,
+      enabled: true,
+      // Three shots and then a wait, so every one of them has to be worth
+      // taking: hard-hitting and pinpoint, with the magazine as the whole cost.
+      damage: 34,
+      range: 2000,
+      fireRate: 150,
+      magazineSize: 3,
+      // Long for three rounds, which is the point -- the weapon is the three
+      // shots, not the rate. `getReloadDurationMs` still prorates a partial
+      // reload, so topping up after one shot costs a third of this.
+      reloadTime: 2400,
+      automatic: false,
+      knockbackForce: 0.5,
+      recoilForce: 0.35,
+      moveSpeedMultiplier: 0.85,
+      ranged: {
+        // Near-instant and dead straight: a laser that could be dodged after it
+        // was fired would not read as a laser.
+        bulletSpeed: 3600,
+        spread: 0,
+        pellets: 1,
+        falloff: null,
+        explosion: null,
+        projectileStyle: { color: 0x8b5cf6, radius: 2.6, trailLength: 120 },
+      },
+      melee: null,
+      // A slim emitter with a bright lens at the muzzle, so the silhouette
+      // reads as "laser" from across the arena rather than as another rifle.
+      silhouette: {
+        length: 32,
+        height: 14,
+        gripX: 9,
+        gripY: 7,
+        color: 0x64748b,
+        parts: [
+          { x: 0, y: 4, width: 8, height: 6, color: 0x475569 },
+          { x: 6, y: 3, width: 12, height: 8 },
+          { x: 17, y: 5, width: 12, height: 4, color: 0x8b5cf6 },
+          { x: 28, y: 3, width: 4, height: 8, color: 0xc4b5fd },
+          { x: 9, y: 10, width: 5, height: 4, color: 0x475569 },
         ],
       },
     },
@@ -419,6 +497,15 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
       spawnWeight: 25,
       color: 0xff9f4a,
       weaponId: SHOTGUN_ID,
+    },
+    {
+      id: "weapon-laser",
+      name: "Laser",
+      type: PowerUpType.WEAPON,
+      enabled: true,
+      spawnWeight: 20,
+      color: 0x8b5cf6,
+      weaponId: LASER_ID,
     },
     {
       id: "grenade-pack",
@@ -485,6 +572,25 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
     // Long enough that a crate in a quiet corner still gets found, short enough
     // that its spawn point eventually frees up again.
     lifetimeMs: 45000,
+
+    // A crate is a physical object: it falls, it can be shoved, and a long
+    // enough drop breaks it open by itself.
+    physicsEnabled: true,
+    // Heavier than a player (2200): a crate drops rather than floats.
+    gravity: 2000,
+    maxFallSpeed: 1400,
+    // Stops within roughly its own width once you stop pushing.
+    groundFriction: 900,
+    // Nearly nothing, so a crate shoved off a ledge keeps the arc it left with.
+    airFriction: 60,
+    // About half a player's run: shoving a crate is deliberate, not incidental.
+    pushSpeed: 170,
+    // A rifle round moves it a few pixels; sustained fire walks it along.
+    shotImpulse: 55,
+    // Two player-heights of free fall. Nudging one down a step costs nothing.
+    fallDamageMinDrop: 180,
+    // 60 health means a crate survives about 500px of drop beyond the threshold.
+    fallDamagePer100px: 12,
   },
 
   grenades: {

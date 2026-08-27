@@ -1459,6 +1459,48 @@ tunable: starting and maximum count, minimum and maximum throw speed, maximum
 charge time, gravity, bounciness, friction, fuse, blast radius, maximum damage,
 damage at the edge, and how many a pickup grants.
 
+### A crate is a physical object
+
+Crates fall, slide, and are shoved by anyone who walks into one. Shots nudge
+them along the direction they were fired, so sustained fire walks a crate across
+a ledge; push one off something high enough and the landing breaks it open by
+itself. All of it is `crate.*` configuration, `physicsEnabled` included -- off
+gives back exactly the old behaviour, a crate hanging wherever it landed.
+
+**Pushing means pushing, not colliding.** A crate is shootable but not solid --
+you walk through one -- and that is deliberately unchanged. Making crates solid
+would put a *moving* obstacle into the collision the client predicts against,
+which is a far bigger promise than "a crate can be shoved" and a far bigger
+source of correction. So walking into one carries it along in front of you, at
+`pushSpeed` and only while you are actually heading that way: standing inside a
+crate does not slowly drag it across the arena.
+
+The body lives server-side beside the contents, for the same reason. A client
+that could shove a crate would be a client deciding where a power-up ends up.
+`state.x`/`state.y` carry the result of each tick and never the cause.
+
+**Fall damage is measured per airborne stretch, not per drop.** A crate knocked
+off a tower that clips a ledge half way down has survived that far, so each fall
+is judged on its own: `fellFrom` records the top of the current one and resets on
+every landing. Below `fallDamageMinDrop` a fall is free, so nudging a crate down
+a step never quietly destroys it.
+
+`stepBox` in `shared/src/game/boxPhysics.ts` is the shared half: integrate, then
+push back out of whatever you ended up inside, sized by the caller. The player's
+`stepPlayerMovement` stays its own, because it carries a platformer's worth of
+feel -- coyote time, corner correction, jump buffering -- that a crate has no
+business having.
+
+On the client a crate is eased towards the authoritative position every frame
+rather than written to it on each patch, or a sliding crate would step five
+times a second; a gap larger than `SNAP_DISTANCE` is taken in one step, because
+that is a crate that broke and respawned somewhere else rather than one that
+travelled.
+
+Verified in a live match with the shove and impulse turned up so the effect is
+unmistakable: one crate moved 218px sideways, fell 120px and lost 34 of its 60
+health, while the four nothing touched sat exactly still.
+
 ### Crates announce themselves
 
 A crate never simply appears. The spot it is about to land on is marked, the
@@ -1622,21 +1664,77 @@ the server.
 
 ## The weapon catalogue
 
-Seven weapons, and every one of them is data. A weapon is a row in
+Eight weapons, and every one of them is data. A weapon is a row in
 `config.weapons`: numbers, a falloff curve, an optional blast, and a silhouette
 made of rectangles. Nothing about the list below required a line of code that
 knows which weapon it is.
 
 ```
-                  damage   range   rpm   mag   what it is for
-Assault Rifle         18    1400   520    30   the baseline, no falloff
-SMG                   11     900   900    40   close work; three times the rifle's cone
-Shotgun            13 x9     620    75     6   contact range, brutal, useless beyond it
-Sniper Rifle          62    2600    40     5   two hits, across the whole arena
-Flamethrower        7 x2     300   720   100   the highest close dps in the game
-Rocket Launcher     0(!)    1800    48     2   the round does nothing; the blast is the weapon
-Chainsaw              34      62     -     -   if you can reach them
+                  damage   mag   →kill   speed   what it is for
+Chainsaw             120     -       1   1.15x   one contact, one kill -- if you can reach them
+SMG                   12    35       9   1.10x   close work, and the one thing that outruns a chainsaw
+Assault Rifle         18    30       6   1.00x   the baseline, no falloff, the yardstick
+Shotgun            10 x9     5       2   0.97x   contact range, brutal, useless beyond it
+Flamethrower        7 x2    80       8   0.88x   by far the best sustain; area denial, not a chase
+Laser                 34     3       3   0.85x   three shots, three needed; every one has to land
+Sniper Rifle          55     4       2   0.78x   two hits, across the whole arena
+Rocket Launcher     0(!)     2       2   0.75x   the round does nothing; the blast is the weapon
 ```
+
+`→kill` is shots to kill at `player.maxHealth` of 100. Damage is absolute, not a
+fraction of health, so raising max health moves every number in that column --
+at 150 the chainsaw stops killing in one, and the laser's three rounds stop
+being enough for one kill at all.
+
+**The ladder is the balance.** Reach and lethality buy weight: the chainsaw and
+the SMG close and kite, the rifle sits at exactly 1 as the yardstick everything
+else is read against, and the long-range weapons pay for their reach in legs.
+That gives each weapon a natural counter rather than a flat power ranking -- a
+sniper is rushed, a rusher is kited, a kiter is out-damaged.
+
+**1.15x on the chainsaw is measured, not guessed.** At 1.05x it never closes on
+anybody -- 30 seconds to cross 400px against a rifle. At 1.25x a sniper gets one
+shot where they need two, and simply loses. At 1.15x the heavy weapons get
+exactly the shots they need while the rifle and SMG out-range it, so an instant
+kill stays fair: its openings are corners, ledges, somebody's reload and the
+closing walls, not a footrace. The 700ms swing interval is the other half --
+an instant kill has to be dodgeable, and a whiffed swing is the only counterplay
+there is. At the old 260ms a miss cost nothing.
+
+**The shotgun gave up its own instant kill for this.** Nine pellets at 13 was
+117 against 100 health: a kill with no window to react. Two weapons in that role
+means neither is special, and the chainsaw is the one that pays for it by having
+to arrive. At 10 a full contact blast leaves the target on 10hp, and the faster
+pump keeps two blasts about as quick as the rifle's six.
+
+**The laser is three decisions.** Pinpoint (no spread at all), near-instant
+(3600px/s, so it cannot be dodged after it is fired) and hard-hitting -- with a
+magazine of three as the entire cost. Reloading it takes 2400ms from empty,
+which `getReloadDurationMs` still prorates: one shot taken is a third of that,
+not the whole wait.
+
+**A weapon changes how fast you run.** `moveSpeedMultiplier` is a factor on the
+player's top running speed. Below 1 is a weapon you lug; above 1 is one you can
+run with. See the ladder in the table above -- it is the axis that gives each
+weapon a counter.
+
+It is kept apart from the speed power-up rather than folded into it, because
+they are different things that happen to multiply: a boost is temporary and
+belongs to the player, a weapon's weight belongs to the weapon and changes the
+moment it is swapped. Folding one into the other would make the HUD's boost
+timer lie, and would leave the value wrong for anyone who picked a weapon up
+while boosted.
+
+Nothing new crosses the wire for it. The weapon id is already synchronised and
+the catalogue is shared, so the server's `equip` and the client's reconcile read
+the same figure out of the same row -- measured over a live match with a
+deliberately halved weapon, the reconciliation error stayed at 0.000px mean and
+0.000px maximum across 46 patches, which is what agreement looks like.
+
+Reload time was *already* weapon-driven and did not need a second knob:
+`reloadTime` is per weapon, and `getReloadDurationMs` scales it by how much of
+the magazine is actually missing. The laser demonstrates it -- 2400ms is a long
+wait for three rounds, and that is the weapon's whole personality.
 
 **Explosions are one mechanism, not two.** A grenade and a rocket differ in how
 they arrive and in their numbers, never in what happens when they go off — the
@@ -1793,6 +1891,56 @@ Beyond the existing muzzle flashes and impacts, there are landing puffs, a ring
 under the mid-air jump, sparks where a grenade bounces, debris when a crate
 breaks, a burst tinted with a power-up's own colour when it is collected, and a
 blast drawn at the radius the server actually used.
+
+### Standing still once it is over
+
+A decided match used to leave the arena twitching. Two separate faults, both
+visible as a player who "stops" and then flickers between two poses:
+
+- **`FINALE.celebrateMs` was written down and never consulted.** The winner's
+  hop was started and then ticked for as long as anybody was watching, so it
+  bounced 34px up and down through the entire twelve-second results screen with
+  no resting frame.
+- **The walk cycle ran off the last velocity the server sent.** Whatever a
+  player happened to be doing when the match ended, they kept doing on the
+  spot -- a match decided mid-sprint left everyone jogging in place.
+
+Both are fixed by the same rule: **when the match is decided, animations
+conclude and then stop.** `PlayerViewState` carries `matchLive`, and a view that
+is not live settles its pose to neutral (`settleStep`) rather than animating it.
+The settle is eased rather than snapped, because the requirement is that an
+animation in progress *finishes* -- a runner settles out of their stride instead
+of jumping to attention -- and it latches: once neutral, nothing writes to the
+body again until play resumes.
+
+The celebration ends itself rather than waiting to be told. It keeps two clocks,
+and they are not interchangeable: the hop *animates* on the scene's slowed
+clock, so it stays in slow motion with the rest of the finale, while the
+*deadline* runs on real time. An attempt at measuring the deadline in scaled
+time too made `celebrateMs` mean whatever the time scale happened to be --
+measured at 8.07s of wall time for a 2200ms constant, most of it spent bouncing
+behind the results screen.
+
+Two further things only came out of measuring, and neither would have been
+guessed:
+
+- **The finale stops ticking on its own schedule.** Handing it the job of ending
+  the celebration left the winner frozen 4.5px off the ground at a 0.009rad
+  tilt, held for the rest of the results screen -- stable, but not a resting
+  pose. A celebration that has gone untouched for `CELEBRATION_STALE_MS` is now
+  finished by the view itself, so the pose never depends on somebody else
+  remembering.
+- **Prediction kept running with nothing left to predict.** No input is
+  accepted after the match and the authoritative position has stopped moving,
+  but re-simulating it every frame still produced 3.47px of permanent wobble
+  under the winner. The local view reads the server's position directly once
+  the match is over, and the prediction is not stepped at all.
+
+Measured over two full matches after the fix: the hop runs for a second or two
+and then the drawn position holds an exact 0.000px spread for the six to seven
+seconds sampled afterwards, with the winner's view ending on
+`celebratingFor=-1, lift=0, bodyY=0, rotation=0` -- one stable frame, and
+nothing still running behind it.
 
 ### Where the health and ammo bars live
 
@@ -2187,7 +2335,8 @@ npm test
 ```
 
 - **`tests/physics.test.ts`** — arena integrity (spawns are free, grounded and enclosed),
-  movement, jump height, the double jump (two jumps and no more, refilled on landing,
+  movement, jump height, that the weapon in hand raises or lowers the run speed cap
+  and multiplies with a speed power-up rather than replacing it, the double jump (two jumps and no more, refilled on landing,
   only one after walking off a ledge), the closing walls' clamp, wall collision, and
   determinism of the shared step.
 - **`tests/combat.test.ts`** — projectile collision, tunnelling at high bullet speeds,
@@ -2210,7 +2359,14 @@ npm test
   between — `getReloadDurationMs` pinned against the exact numbers in the spec
   it was built to satisfy (5, 6 and 9 of 10 rounds), plus a live server case that
   starts a manual reload with a single round missing and checks it finishes on
-  its own, much shorter deadline rather than the full one.
+  its own, much shorter deadline rather than the full one. And the laser: three
+  rounds, emptied in three shots, reloading itself afterwards, and reachable from
+  a crate — plus that every shipped weapon leaves running speed alone, so the new
+  weapon-weight ladder runs in the intended order with the rifle pinned at 1,
+  that the chainsaw can close on a sniper but not on the SMG (measured the way
+  the value was chosen — how many shots a defender gets crossing 400px), that it
+  is the *only* weapon killing in one hit, and that equipping a weapon is what
+  hands its weight to the movement state.
 - **`tests/wire.test.ts`** — every configurable maximum survives the wire. The
   schema's field widths are checked against the admin's own declared maxima by
   encoding real state and decoding it again, so a setting the game would silently
@@ -2219,7 +2375,11 @@ npm test
   no catalogue, a hand-crafted command from an unauthorized session changes nothing,
   arguments are clamped, unknown config paths are refused, and a room override never
   reaches the server configuration.
-- **`tests/powerups.test.ts`** — the closing arena (timing, symmetry, minimum width,
+- **`tests/powerups.test.ts`** — crate physics (it falls and lands, is carried by a
+  player walking into it but not by one standing still inside it, is nudged along
+  a shot's direction with sustained fire compounding, is charged for the fall it
+  actually took and nothing for the free part, and hangs perfectly still when
+  `physicsEnabled` is off). Also the closing arena (timing, symmetry, minimum width,
   crush damage, disabling it) and the crate pipeline end to end: spawn points, weighted
   contents, crate damage and destruction, revealed pickups, collection, and every
   power-up effect including expiry. Also asserts a crate never exposes its contents —
@@ -2236,7 +2396,10 @@ npm test
   and the minimap's own geometry: a world position normalises to the right 0..1
   fraction of the arena (clamped when something sits outside its bounds), and a
   reveal radius of 0 or anything nonsensical is treated as no limit at all. And
-  the trail catalogue and the path behind it: movement too slow or too small is
+  that a pose eases to exactly neutral and latches there rather than approaching
+  it forever, that a long frame cannot fling it past upright, and that the
+  finale hands the celebration a duration it actually ends on. Also the trail
+  catalogue and the path behind it: movement too slow or too small is
   not recorded, the fade and taper follow one curve, points age out one at a
   time rather than all at once, the ring buffer never grows past its configured
   length, a teleport clears it — and it rewrites its segment objects instead of

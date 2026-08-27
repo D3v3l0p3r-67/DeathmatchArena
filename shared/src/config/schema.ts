@@ -344,6 +344,7 @@ function weaponFields(weapon: WeaponDefinition): FieldDescriptor[] {
 
     number(`${prefix}.knockbackForce`, WEAPONS, group, "Knockback", weapon.ranged && weapon.ranged.pellets > 1 ? "How hard each *pellet* shoves whoever it hits. Nine of them land at contact range." : "How hard a hit shoves whoever it lands on. 1 is a firm push, 2 launches.", { min: 0, max: 5, step: 0.05 }),
     number(`${prefix}.recoilForce`, WEAPONS, group, "Recoil", "How hard firing shoves the shooter backwards. Separate from knockback: a weapon that throws people need not throw its owner. Applied once per shot, so an automatic applies it several times a second.", { min: 0, max: 5, step: 0.05 }),
+    number(`${prefix}.moveSpeedMultiplier`, WEAPONS, group, "Move speed x", "What carrying this weapon does to the player's top running speed. 1 leaves it alone; below 1 is a weapon you lug. Multiplies with a speed power-up rather than replacing it.", { min: 0.1, max: 3, step: 0.05 }),
   ];
 
   if (weapon.type === WeaponType.RANGED) {
@@ -480,6 +481,15 @@ function crateFields(): FieldDescriptor[] {
     number("powerUpSpawning.maxActiveCrates", CRATES, "Spawning", "Maximum active crates", "Upper bound on crates present at once, regardless of how many spawn points are free.", { min: 0, max: 64, step: 1, integer: true }),
     number("powerUpSpawning.revealedLifetimeMs", CRATES, "Spawning", "Revealed power-up lifetime (ms)", "How long a revealed power-up waits to be collected before vanishing.", { min: 0, max: 600000, step: 1000 }),
     number("powerUpSpawning.pickupRadius", CRATES, "Spawning", "Pickup radius (px)", "How close a player must come to collect a revealed power-up.", { min: 4, max: 400, step: 1 }),
+    boolean("crate.physicsEnabled", CRATES, "Physics", "Crates are physical", "Off means a crate hangs where it landed and nothing moves it. On, it falls, slides, is shoved by anyone who walks into it, is nudged by gunfire, and breaks if pushed off something high enough."),
+    number("crate.gravity", CRATES, "Physics", "Gravity (px/s²)", "Downward acceleration on a falling crate.", { min: 0, max: 8000, step: 50 }),
+    number("crate.maxFallSpeed", CRATES, "Physics", "Terminal velocity (px/s)", "The fastest a crate ever falls.", { min: 50, max: 4000, step: 50 }),
+    number("crate.groundFriction", CRATES, "Physics", "Ground friction (px/s²)", "How quickly a shoved crate stops once it is resting on something.", { min: 0, max: 6000, step: 50 }),
+    number("crate.airFriction", CRATES, "Physics", "Air friction (px/s²)", "The same in the air. Low, so a crate knocked off a ledge keeps the arc it left with.", { min: 0, max: 2000, step: 10 }),
+    number("crate.pushSpeed", CRATES, "Physics", "Push speed (px/s)", "Top speed a player walking into a crate can shove it at. A speed rather than a force, so shoving is deliberate and never launches one across the arena.", { min: 0, max: 1000, step: 10 }),
+    number("crate.shotImpulse", CRATES, "Physics", "Shot impulse (px/s)", "How hard one hit shoves a crate along the shot's direction. Sustained fire walks a crate along.", { min: 0, max: 1000, step: 5 }),
+    number("crate.fallDamageMinDrop", CRATES, "Physics", "Free fall height (px)", "How far a crate may fall before landing hurts it. Below this a drop costs nothing, so nudging one down a step does not quietly destroy it.", { min: 0, max: 3000, step: 10 }),
+    number("crate.fallDamagePer100px", CRATES, "Physics", "Fall damage per 100px", "Damage taken on landing, per 100px fallen beyond the free height.", { min: 0, max: 500, step: 1 }),
   ];
 }
 

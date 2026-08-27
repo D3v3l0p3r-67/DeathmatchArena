@@ -72,8 +72,11 @@ function applyHorizontalIntent(
   if (direction !== 0) {
     const acceleration = state.onGround ? player.groundAcceleration : player.airAcceleration;
     // A speed power-up raises the cap, not the acceleration, so a boosted player
-    // still feels the same to steer -- they just keep gaining until a higher top speed.
-    const maxSpeed = player.moveSpeed * (state.speedMultiplier || 1);
+    // still feels the same to steer -- they just keep gaining until a higher top
+    // speed. The weapon's own factor multiplies with it: a heavy weapon slows a
+    // boosted player and an unboosted one by the same proportion.
+    const maxSpeed =
+      player.moveSpeed * (state.speedMultiplier || 1) * (state.weaponSpeedMultiplier || 1);
 
     // The limit never clips below the speed already carried. Clamping to the run
     // cap outright would mean a knocked-back player cancels the knockback simply

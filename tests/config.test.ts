@@ -41,6 +41,7 @@ const RAILGUN: WeaponDefinition = {
   automatic: false,
   knockbackForce: 2,
   recoilForce: 0.7,
+  moveSpeedMultiplier: 1,
   ranged: {
     bulletSpeed: 4000,
     spread: 0,

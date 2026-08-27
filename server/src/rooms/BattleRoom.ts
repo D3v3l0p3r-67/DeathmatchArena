@@ -679,8 +679,8 @@ export class BattleRoom extends Room<{ state: GameState }> {
         player.onGround = runtime.movement.onGround;
         player.knockbackTimer = runtime.movement.knockbackTimer;
       },
-      damageCrate: (crateId, amount, attackerId, now) =>
-        this.powerUpSystem.damageCrate(crateId, amount, attackerId, now),
+      damageCrate: (crateId, amount, attackerId, now, impulseX) =>
+        this.powerUpSystem.damageCrate(crateId, amount, attackerId, now, impulseX),
     };
   }
 
