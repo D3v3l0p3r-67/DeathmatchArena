@@ -30,6 +30,8 @@ export const ClientMessage = {
   START_MATCH: "startMatch",
   /** Host asks for a different arena for the coming match. */
   SELECT_ARENA: "selectArena",
+  /** Host only: switch the room's game mode while waiting. */
+  SELECT_MODE: "selectMode",
   /** Add one bot at the given difficulty. Host only, and only while waiting. */
   ADD_BOT: "addBot",
   /** Remove one bot from the room. Host only, and only while waiting. */
@@ -51,6 +53,11 @@ export type ClientMessageType = (typeof ClientMessage)[keyof typeof ClientMessag
 /** Payload of {@link ClientMessage.SELECT_ARENA}. */
 export interface SelectArenaRequest {
   arenaId: string;
+}
+
+/** Payload of {@link ClientMessage.SELECT_MODE}. */
+export interface SelectModeRequest {
+  modeId: string;
 }
 
 /** Payload of {@link ClientMessage.ADD_BOT}. */

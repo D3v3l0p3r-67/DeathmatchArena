@@ -74,6 +74,8 @@ export class PlayerView {
   private readonly belt: Phaser.GameObjects.Graphics;
   private readonly label: Phaser.GameObjects.Text;
   private readonly healthBar: Phaser.GameObjects.Graphics;
+  /** The Flag Hunt leader's marker. Hidden in every other mode. */
+  private readonly crown: Phaser.GameObjects.Image;
   /** Under the health bar, in the same shape. See `drawAmmoBar`. */
   private readonly ammoBar: Phaser.GameObjects.Graphics;
   /** The wind-up indicator: an arrow from the hand, growing with the charge. */
@@ -170,6 +172,12 @@ export class PlayerView {
     this.ammoBar = scene.add.graphics();
     this.throwArrow = scene.add.graphics();
 
+    this.crown = scene.add
+      .image(0, PLAYER.NAME_LABEL_OFFSET_Y - 22, TextureKeys.Crown)
+      .setOrigin(0.5, 1)
+      .setTint(0xffd75e)
+      .setVisible(false);
+
     this.label = scene.add
       .text(0, PLAYER.NAME_LABEL_OFFSET_Y, name, {
         fontFamily: '"Rajdhani", "Segoe UI", sans-serif',
@@ -201,6 +209,7 @@ export class PlayerView {
         this.ammoBar,
         this.throwArrow,
         this.label,
+        this.crown,
       ])
       .setDepth(isLocal ? 20 : 10);
 
@@ -209,6 +218,17 @@ export class PlayerView {
 
   setName(name: string): void {
     if (this.label.text !== name) this.label.setText(name);
+  }
+
+  /**
+   * Crown or uncrown this player as the Flag Hunt leader.
+   *
+   * On a tie every leader wears one — a shared first place is still first
+   * place, and crowning nobody would make the marker vanish exactly when the
+   * race is closest.
+   */
+  setLeader(leader: boolean): void {
+    if (this.crown.visible !== leader) this.crown.setVisible(leader);
   }
 
   /** Highlight the player currently being spectated. */

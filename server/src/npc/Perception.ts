@@ -1,4 +1,5 @@
 import {
+  GameMode,
   MatchState,
   PLAYER,
   PLAYER_HALF_HEIGHT,
@@ -17,6 +18,7 @@ import type { PlayerRuntime } from "../rooms/PlayerRuntime.js";
 import type {
   BrainContext,
   PerceivedEnemy,
+  PerceivedFlag,
   PerceivedGrenade,
   PerceivedItem,
   PerceivedTrap,
@@ -65,6 +67,7 @@ export class Perception {
     memory: Memory,
     profile: BrainProfile,
     now: number,
+    gameSense: number,
   ): BrainContext {
     const state = this.context.state;
     const playing = state.matchState === MatchState.PLAYING;
@@ -82,6 +85,10 @@ export class Perception {
     const grenades = this.senseGrenades(self, now);
     const traps = this.senseTraps(self);
     const items = this.senseItems(self, sightRange);
+
+    const flagHunt = state.gameModeId === GameMode.FLAG_HUNT;
+    const flags = flagHunt ? this.senseFlags(self, sightRange) : [];
+    const leaderFlagCount = flagHunt ? this.readLeaderboard(enemies) : 0;
 
     const nearestEnemy = enemies[0] ?? null;
     const grenadeDanger = grenades.reduce((worst, grenade) => Math.max(worst, grenade.threat), 0);
@@ -118,9 +125,57 @@ export class Perception {
       weaponEffectiveness: this.rateWeapon(selfContext, nearestEnemy),
       enemyVulnerability: nearestEnemy ? clamp01(1 - nearestEnemy.health) : 0,
       playing,
+      flagHunt,
+      suddenDeath: flagHunt && state.suddenDeath,
+      flags,
+      nearestFlag: flags[0] ?? null,
+      leaderFlagCount,
+      gameSense: clamp01(gameSense),
       safeCentreX: (state.shrinkLeft + state.shrinkRight) / 2,
       explosionRadius: this.context.config.getGrenadeConfig().explosionRadius,
     };
+  }
+
+  // -------------------------------------------------------------------------
+  // Flag Hunt
+  // -------------------------------------------------------------------------
+
+  /** Flags on the ground within sight, nearest first. */
+  private senseFlags(self: PlayerState, sightRange: number): PerceivedFlag[] {
+    const flags: PerceivedFlag[] = [];
+
+    for (const flag of this.context.state.flags.values()) {
+      const distance = distanceBetween(self.x, self.y, flag.x, flag.y);
+      if (distance > sightRange) continue;
+      flags.push({ id: flag.id, x: flag.x, y: flag.y, distance, dropped: flag.dropped });
+    }
+
+    return flags.sort((a, b) => a.distance - b.distance);
+  }
+
+  /**
+   * Stamp flag counts onto the perceived enemies and return the best count in
+   * the match.
+   *
+   * Reading live counts through remembered enemies is not a hole in the
+   * honesty boundary: the count is on the leaderboard in every client's HUD,
+   * so a player knows an unseen rival's score exactly as well as a seen one's.
+   * *Where* that rival is stays as stale as memory says it is.
+   */
+  private readLeaderboard(enemies: PerceivedEnemy[]): number {
+    let best = 0;
+    for (const player of this.context.state.players.values()) {
+      if (!player.inMatch) continue;
+      if (player.flagCount > best) best = player.flagCount;
+    }
+
+    for (const enemy of enemies) {
+      const player = this.context.state.players.get(enemy.sessionId);
+      enemy.flagCount = player?.flagCount ?? 0;
+      enemy.isLeader = best > 0 && enemy.flagCount === best;
+    }
+
+    return best;
   }
 
   // -------------------------------------------------------------------------
@@ -143,6 +198,7 @@ export class Perception {
         reloading: false,
         grenades: 0,
         weapon,
+        flagCount: 0,
       },
       self,
       runtime,
@@ -179,6 +235,7 @@ export class Perception {
     target.reloading = self.reloading;
     target.grenades = self.grenades;
     target.weapon = weapon;
+    target.flagCount = self.flagCount;
 
     return target;
   }
@@ -246,6 +303,9 @@ export class Perception {
         shootable: this.hasFiringLine(self, other),
         ageMs: 0,
         facingUs,
+        // Filled in by readLeaderboard once the mode is known.
+        flagCount: 0,
+        isLeader: false,
       });
     }
 
@@ -338,6 +398,9 @@ export class Perception {
         shootable: false,
         ageMs: now - entry.lastSeenAt,
         facingUs: 0,
+        // Filled in by readLeaderboard once the mode is known.
+        flagCount: 0,
+        isLeader: false,
       });
     }
 

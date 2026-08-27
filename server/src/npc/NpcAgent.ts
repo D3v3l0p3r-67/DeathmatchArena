@@ -333,7 +333,14 @@ export class NpcAgent {
     if (now >= this.nextPerceiveAt) {
       const interval = Math.max(20, this.room.config.getNpcConfig().perceptionIntervalMs);
       this.nextPerceiveAt = now + interval;
-      this.context = this.perception.build(player, runtime, this.memory, this.profile, now);
+      this.context = this.perception.build(
+        player,
+        runtime,
+        this.memory,
+        this.profile,
+        now,
+        this.difficulty.targetSelectionSkill,
+      );
     }
 
     const context = this.context;

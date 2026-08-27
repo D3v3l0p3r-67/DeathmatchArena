@@ -440,6 +440,49 @@ export interface GaugesConfig {
 }
 
 /**
+ * Flag Hunt: hold the most flags when the clock runs out.
+ *
+ * All of it lives here rather than in the mode's code, so a room can be retuned
+ * from the admin interface mid-deployment like every other system. Kills move
+ * flags around (a death drops a share of them) but never decide the winner.
+ */
+export interface FlagHuntConfig {
+  /** How long a match runs, in ms. The clock, not a safety valve. */
+  matchDurationMs: number;
+  /** How often a fresh flag appears, in ms. */
+  flagSpawnIntervalMs: number;
+  /** Cap on flags lying in the arena at once (spawned and dropped together). */
+  maxFlagsOnMap: number;
+  /** Flags placed the moment the match starts. */
+  initialFlags: number;
+  /** How long an untouched spawned flag lasts before vanishing. 0 = forever. */
+  flagLifetimeMs: number;
+  /**
+   * Share of a player's flags dropped when they die, 0..100.
+   *
+   * The floor of the share: 10 flags at 50% drops 5; 3 flags at 50% drops 1
+   * and keeps 2. 0 means death costs nothing, 100 means everything.
+   */
+  deathDropPercent: number;
+  /** How long a dropped flag lies where it fell before vanishing. 0 = forever. */
+  droppedFlagLifetimeMs: number;
+  /** How far apart dropped flags scatter around the death, in px. */
+  dropScatterPx: number;
+  /** How close a player must come to take a flag, in px. */
+  pickupRadius: number;
+  /** How long a death keeps a player out before they respawn, in ms. */
+  respawnDelayMs: number;
+  /** Crown the current leader(s) so everybody knows who to hunt. */
+  leaderMarkerEnabled: boolean;
+  /**
+   * On a tie at full time: stop the clock, spawn a flag, first of the tied
+   * players to gain one wins. Off, the tie stands and the earliest-tied wins
+   * by placement order.
+   */
+  suddenDeathEnabled: boolean;
+}
+
+/**
  * The corner minimap.
  *
  * Purely a presentation convenience: every position it can show is already in
@@ -556,6 +599,13 @@ export interface MatchConfig {
   resultsMs: number;
   /** Safety valve: a match can never run longer than this. */
   maxDurationMs: number;
+  /**
+   * The rule set new rooms start under.
+   *
+   * A default rather than a law: the host can switch the room's mode in the
+   * lobby, exactly as they pick the map.
+   */
+  gameMode: string;
 }
 
 /**
@@ -761,4 +811,5 @@ export interface GameConfig {
   npc: NpcConfig;
   minimap: MinimapConfig;
   gauges: GaugesConfig;
+  flagHunt: FlagHuntConfig;
 }

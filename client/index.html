@@ -85,6 +85,19 @@
             <button class="button button--ghost" id="map-picker-cancel" type="button">Cancel</button>
           </div>
 
+          <!-- Which rules will be played. Same shape as the map row: the host
+               picks, everyone sees. -->
+          <div class="lobby__map">
+            <span class="lobby__map-label">Mode</span>
+            <span class="lobby__map-name" id="lobby-mode-name">-</span>
+            <button class="button button--ghost lobby__map-change" id="change-mode" type="button">Change</button>
+          </div>
+          <div class="difficulty-picker" id="mode-picker">
+            <p class="difficulty-picker__title">Game mode</p>
+            <div class="difficulty-picker__options" id="mode-picker-options"></div>
+            <button class="button button--ghost" id="mode-picker-cancel" type="button">Cancel</button>
+          </div>
+
           <ul class="player-list" id="lobby-players"></ul>
 
           <!-- Host only. The server enforces that; this only asks. -->
@@ -121,6 +134,10 @@
             <span class="hud__label">Kills</span>
             <span class="hud__value" id="hud-kills">0</span>
           </div>
+          <div class="hud__stat" id="hud-flags-stat" hidden>
+            <span class="hud__label">Flags</span>
+            <span class="hud__value" id="hud-flags">0</span>
+          </div>
           <div class="hud__stat hud__stat--muted">
             <span class="hud__label">State</span>
             <span class="hud__value" id="hud-match-state">WAITING</span>
@@ -131,6 +148,13 @@
              where everyone's eyes already are rather than tucked in beside the
              personal buffs it is not one of. -->
         <div class="hud__notice">
+          <!-- Flag Hunt's clock. The one number that decides a timed mode
+               belongs where the closing-walls deadline already lives. In
+               sudden death the clock stops meaning time and says so. -->
+          <div class="effect effect--clock" id="hud-clock">
+            <span class="effect__label" id="hud-clock-label">TIME</span>
+            <span class="effect__timer" id="hud-clock-timer">-</span>
+          </div>
           <div class="effect effect--shrink" id="hud-shrink">
             <span class="effect__label" id="hud-shrink-label">ARENA</span>
             <span class="effect__timer" id="hud-shrink-timer">-</span>
@@ -144,6 +168,10 @@
         <div class="minimap" id="minimap">
           <div class="minimap__frame" id="minimap-frame"></div>
         </div>
+
+        <!-- Flag Hunt's live leaderboard, under the minimap: who holds what,
+             sorted by flags. Hidden in every other mode. -->
+        <ol class="flagboard" id="flagboard" hidden></ol>
 
         <ul class="kill-feed" id="kill-feed"></ul>
 
@@ -217,10 +245,10 @@
       <!-- =========================== DEATH / SPECTATE ======================== -->
       <div class="spectator" data-layer="spectator">
         <div class="spectator__banner">
-          <h2 class="spectator__title">You were eliminated.</h2>
+          <h2 class="spectator__title" id="spectate-title">You were eliminated.</h2>
           <p class="spectator__subtitle" id="spectate-subtitle">
-            Spectating <strong id="spectate-target">-</strong> &middot; placed
-            <strong id="spectate-placement">-</strong>
+            Spectating <strong id="spectate-target">-</strong><span id="spectate-placement-wrap">
+              &middot; placed <strong id="spectate-placement">-</strong></span>
           </p>
           <p class="spectator__hint" id="spectate-hint">
             <kbd>A</kbd><kbd>&larr;</kbd> <kbd>D</kbd><kbd>&rarr;</kbd> switch player
@@ -239,6 +267,7 @@
                 <th scope="col">#</th>
                 <th scope="col">Player</th>
                 <th scope="col">Kills</th>
+                <th scope="col" id="standings-flags-header" hidden>Flags</th>
               </tr>
             </thead>
             <tbody id="results-body"></tbody>

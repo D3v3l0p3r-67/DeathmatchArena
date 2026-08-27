@@ -13,8 +13,11 @@
  * queue. Only the clock is ours.
  */
 import {
+  GameMode,
   MatchState,
+  cloneConfig,
   getArena,
+  getGameConfig,
   listArenas,
   type ArenaDefinition,
 } from "@deathmatch/shared";
@@ -28,6 +31,8 @@ interface Options {
   arenas: ArenaDefinition[];
   /** Give up on a match that will not end, in seconds. */
   timeoutSec: number;
+  /** Which rules to play: "deathmatch" (default) or "flagHunt". */
+  mode: string;
   verbose: boolean;
   /** Print what the bot was doing every time the arena hurt it. */
   why: boolean;
@@ -58,6 +63,7 @@ function parseOptions(argv: readonly string[]): Options {
     difficulties,
     arenas,
     timeoutSec: Number(flag("timeout", "180")),
+    mode: flag("mode", GameMode.DEATHMATCH),
     verbose: argv.includes("--verbose"),
     why: argv.includes("--why"),
   };
@@ -88,6 +94,15 @@ function classify(weaponId: string, attackerId: string, victimId: string): Cause
   return { kind: "shot", detail: weaponId || "unknown" };
 }
 
+/** What one Flag Hunt match amounted to, beyond who died of what. */
+interface FlagReport {
+  collected: number;
+  dropped: number;
+  suddenDeath: boolean;
+  winnerFlags: number;
+  finished: boolean;
+}
+
 function playMatch(
   arena: ArenaDefinition,
   bots: number,
@@ -95,9 +110,23 @@ function playMatch(
   timeoutSec: number,
   seed: number,
   why = false,
+  mode: string = GameMode.DEATHMATCH,
+  flagReports?: FlagReport[],
 ): Death[] {
   const harness = createHarness(arena, seed);
   harness.state.matchState = MatchState.WAITING;
+  harness.state.gameModeId = mode;
+
+  if (mode === GameMode.FLAG_HUNT) {
+    // A five-minute clock makes for a very slow hundred matches; a shorter one
+    // exercises exactly the same machinery.
+    const config = cloneConfig(getGameConfig());
+    config.flagHunt.matchDurationMs = Math.min(
+      config.flagHunt.matchDurationMs,
+      Math.max(20, timeoutSec - 30) * 1000,
+    );
+    harness.replaceConfig(config);
+  }
 
   // Somebody has to be in the room or the bots are sent home, but they are not
   // playing: this is a match between bots, watched.
@@ -116,6 +145,10 @@ function playMatch(
   const startedAt = clock.now;
   const deaths: Death[] = [];
   const alive = new Map<string, boolean>();
+  const flagCounts = new Map<string, number>();
+  let collected = 0;
+  let droppedTotal = 0;
+  let sawSuddenDeath = false;
 
   let seen = 0;
   for (let elapsed = 0; elapsed < timeoutSec; elapsed += 0.25) {
@@ -154,6 +187,18 @@ function playMatch(
       }
     }
 
+    if (mode === GameMode.FLAG_HUNT) {
+      for (const agent of harness.npcs.list()) {
+        const player = harness.state.players.get(agent.sessionId);
+        if (!player) continue;
+        const before = flagCounts.get(agent.sessionId) ?? 0;
+        if (player.flagCount > before) collected += player.flagCount - before;
+        if (player.flagCount < before) droppedTotal += before - player.flagCount;
+        flagCounts.set(agent.sessionId, player.flagCount);
+      }
+      if (harness.state.suddenDeath) sawSuddenDeath = true;
+    }
+
     for (const agent of harness.npcs.list()) {
       const player = harness.state.players.get(agent.sessionId);
       if (!player) continue;
@@ -190,12 +235,25 @@ function playMatch(
     }
   }
 
+  if (mode === GameMode.FLAG_HUNT && flagReports) {
+    const winner = harness.state.players.get(harness.state.winnerId);
+    const endState: string = harness.state.matchState;
+    flagReports.push({
+      collected,
+      dropped: droppedTotal,
+      suddenDeath: sawSuddenDeath,
+      winnerFlags: winner?.flagCount ?? 0,
+      finished: endState === MatchState.FINISHED,
+    });
+  }
+
   harness.damage.length = 0;
   return deaths;
 }
 
 const options = parseOptions(process.argv.slice(2));
 const all: Death[] = [];
+const flagReports: FlagReport[] = [];
 
 for (let match = 0; match < options.matches; match++) {
   const arena = options.arenas[match % options.arenas.length]!;
@@ -208,6 +266,8 @@ for (let match = 0; match < options.matches; match++) {
     options.timeoutSec,
     1000 + match * 7919,
     options.why,
+    options.mode,
+    flagReports,
   );
   all.push(...deaths);
 
@@ -252,3 +312,15 @@ const median = (values: number[]): number => {
   return sorted[Math.floor(sorted.length / 2)]!;
 };
 console.log(`\nmedian time of death: ${median(ended.map((d) => d.at)).toFixed(1)}s`);
+
+if (options.mode === GameMode.FLAG_HUNT && flagReports.length > 0) {
+  const finished = flagReports.filter((report) => report.finished).length;
+  const suddenDeaths = flagReports.filter((report) => report.suddenDeath).length;
+  const sum = (values: number[]) => values.reduce((a, b) => a + b, 0);
+  console.log("\nflag hunt:");
+  console.log(`  matches finished        ${finished}/${flagReports.length}`);
+  console.log(`  sudden deaths           ${suddenDeaths}`);
+  console.log(`  flags collected/match   ${(sum(flagReports.map((r) => r.collected)) / flagReports.length).toFixed(1)}`);
+  console.log(`  flags dropped/match     ${(sum(flagReports.map((r) => r.dropped)) / flagReports.length).toFixed(1)}`);
+  console.log(`  winner's flags (avg)    ${(sum(flagReports.map((r) => r.winnerFlags)) / flagReports.length).toFixed(1)}`);
+}

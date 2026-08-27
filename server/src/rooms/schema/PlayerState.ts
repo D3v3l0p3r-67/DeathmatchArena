@@ -47,6 +47,14 @@ export class PlayerState extends Schema implements SyncedPlayer {
    */
   @type("uint16") spawnX = 0;
   @type("uint16") spawnY = 0;
+
+  /**
+   * Flags currently held. The score in Flag Hunt, zero everywhere else.
+   *
+   * Only the server ever writes it: pickups, drops and the win all resolve in
+   * `FlagSystem`, so a client can neither claim a flag nor keep one.
+   */
+  @type("uint16") flagCount = 0;
   @type("float32") velocityX = 0;
   @type("float32") velocityY = 0;
 

@@ -21,6 +21,7 @@ import type {
   ArenaShrinkConfig,
   BotDifficultyLevel,
   CrateConfig,
+  FlagHuntConfig,
   GameConfig,
   GaugesConfig,
   GrenadeConfig,
@@ -150,6 +151,10 @@ export class GameConfigView {
 
   getGaugesConfig(): GaugesConfig {
     return this.config.gauges;
+  }
+
+  getFlagHuntConfig(): FlagHuntConfig {
+    return this.config.flagHunt;
   }
 
   getGrenadeConfig(): GrenadeConfig {
@@ -296,6 +301,10 @@ export function getMinimapConfig(): MinimapConfig {
 
 export function getGaugesConfig(): GaugesConfig {
   return current.getGaugesConfig();
+}
+
+export function getFlagHuntConfig(): FlagHuntConfig {
+  return current.getFlagHuntConfig();
 }
 
 export function getGrenadeConfig(): GrenadeConfig {

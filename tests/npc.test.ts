@@ -80,6 +80,7 @@ function emptyContext(overrides: Partial<BrainContext> = {}): BrainContext {
       reloading: false,
       grenades: 3,
       weapon: getWeapon("assault-rifle"),
+      flagCount: 0,
     },
     enemies: [],
     visibleEnemies: [],
@@ -96,6 +97,12 @@ function emptyContext(overrides: Partial<BrainContext> = {}): BrainContext {
     weaponEffectiveness: 1,
     enemyVulnerability: 0,
     playing: true,
+    flagHunt: false,
+    suddenDeath: false,
+    flags: [],
+    nearestFlag: null,
+    leaderFlagCount: 0,
+    gameSense: 0.5,
     safeCentreX: 1600,
     explosionRadius: 190,
     ...overrides,
@@ -120,6 +127,8 @@ function enemy(overrides: Partial<PerceivedEnemy> = {}): PerceivedEnemy {
     shootable: true,
     ageMs: 0,
     facingUs: 0,
+    flagCount: 0,
+    isLeader: false,
     ...overrides,
   };
 }
@@ -841,7 +850,7 @@ describe("perception", () => {
     const perception = new Perception(harness.context);
     const self = harness.state.players.get(selfId)!;
     const runtime = harness.runtimes.get(selfId)!;
-    return perception.build(self, runtime, memory, profile(), now);
+    return perception.build(self, runtime, memory, profile(), now, 0.8);
   }
 
   it("sees an enemy standing in the open", () => {

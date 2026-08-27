@@ -1,4 +1,5 @@
 import {
+  GameMode,
   MatchState,
   getPlayerConfig,
   clamp,
@@ -20,6 +21,14 @@ export interface HudSnapshot {
   /** Whole seconds until the arena starts closing; 0 once it has. */
   shrinkCountdownSeconds: number;
   shrinking: boolean;
+  /** Which mode this match runs. Decides whether the Flag Hunt panels show. */
+  gameModeId: string;
+  /** Whole seconds left on a timed mode's clock; 0 when no clock is running. */
+  matchClockSeconds: number;
+  suddenDeath: boolean;
+  /** Everyone in the room, for the Flag Hunt leaderboard. */
+  players: ReadonlyMap<string, SyncedPlayer>;
+  localSessionId: string;
 }
 
 /**
@@ -64,12 +73,20 @@ export class HUD {
   private readonly alive = requireElement("hud-alive");
   private readonly kills = requireElement("hud-kills");
   private readonly matchStateLabel = requireElement("hud-match-state");
+  private readonly flagsStat = requireElement("hud-flags-stat");
+  private readonly flags = requireElement("hud-flags");
+  private readonly clockEffect = requireElement("hud-clock");
+  private readonly clockLabel = requireElement("hud-clock-label");
+  private readonly clockTimer = requireElement("hud-clock-timer");
+  private readonly flagboard = requireElement("flagboard");
   private readonly crosshair = requireElement("crosshair");
   private readonly hitmarker = requireElement("hitmarker");
   private readonly damageFlash = requireElement("damage-flash");
 
   /** Whether the last `update` saw a reload in progress, to catch the edges. */
   private wasReloading = false;
+  /** What the flagboard currently shows, so its DOM is rebuilt only on change. */
+  private flagboardSignature = "";
   private hitmarkerTimer = 0;
   private damageFlashTimer = 0;
 
@@ -84,6 +101,8 @@ export class HUD {
     setText(this.alive, `${snapshot.aliveCount} / ${snapshot.totalPlayers}`);
     setText(this.matchStateLabel, snapshot.matchState);
     setText(this.kills, String(player?.kills ?? 0));
+
+    this.updateFlagHunt(snapshot);
 
     if (!player) return;
 
@@ -239,6 +258,93 @@ export class HUD {
     this.damageFlashTimer = performance.now();
   }
 
+  /**
+   * Everything Flag Hunt puts on screen: your count, the clock, the board.
+   *
+   * All of it renders server truth -- flag counts, the remaining seconds and
+   * the sudden-death bit are synchronised state, so the HUD never runs a
+   * clock of its own. In any other mode every element here stays hidden.
+   */
+  private updateFlagHunt(snapshot: HudSnapshot): void {
+    const active = snapshot.gameModeId === GameMode.FLAG_HUNT;
+    this.flagsStat.hidden = !active;
+    this.flagboard.hidden = !active || snapshot.matchState !== MatchState.PLAYING;
+
+    const showClock =
+      active &&
+      snapshot.matchState === MatchState.PLAYING &&
+      (snapshot.suddenDeath || snapshot.matchClockSeconds > 0);
+    toggleClass(this.clockEffect, "is-active", showClock);
+
+    if (!active) return;
+
+    setText(this.flags, String(snapshot.player?.flagCount ?? 0));
+
+    if (showClock) {
+      toggleClass(this.clockEffect, "is-sudden", snapshot.suddenDeath);
+      toggleClass(
+        this.clockEffect,
+        "is-urgent",
+        !snapshot.suddenDeath && snapshot.matchClockSeconds <= 30,
+      );
+      if (snapshot.suddenDeath) {
+        setText(this.clockLabel, "SUDDEN DEATH");
+        setText(this.clockTimer, "NEXT FLAG WINS");
+      } else {
+        setText(this.clockLabel, "TIME");
+        setText(this.clockTimer, formatClock(snapshot.matchClockSeconds));
+      }
+    }
+
+    if (!this.flagboard.hidden) this.renderFlagboard(snapshot);
+  }
+
+  /**
+   * The live leaderboard, sorted the way the mode scores: flags, then kills,
+   * then name -- the same order the server ranks the final standings in, so
+   * the board never disagrees with the result screen.
+   *
+   * The DOM is rebuilt only when what it would say changes; at 20Hz the
+   * common case is a string comparison and nothing else.
+   */
+  private renderFlagboard(snapshot: HudSnapshot): void {
+    const rows: SyncedPlayer[] = [];
+    for (const player of snapshot.players.values()) {
+      if (player.inMatch) rows.push(player);
+    }
+    rows.sort(
+      (a, b) => b.flagCount - a.flagCount || b.kills - a.kills || a.name.localeCompare(b.name),
+    );
+
+    const best = rows[0]?.flagCount ?? 0;
+    const signature = rows
+      .map((player) => `${player.sessionId}:${player.flagCount}:${player.kills}:${player.name}`)
+      .join("|");
+    if (signature === this.flagboardSignature) return;
+    this.flagboardSignature = signature;
+
+    this.flagboard.replaceChildren();
+    rows.forEach((player, index) => {
+      const row = document.createElement("li");
+      row.className = "flagboard__row";
+      if (player.sessionId === snapshot.localSessionId) row.classList.add("is-you");
+      if (best > 0 && player.flagCount === best) row.classList.add("is-leader");
+
+      const rank = document.createElement("span");
+      rank.className = "flagboard__rank";
+      rank.textContent = `${index + 1}.`;
+      const name = document.createElement("span");
+      name.className = "flagboard__name";
+      name.textContent = player.name;
+      const flags = document.createElement("span");
+      flags.className = "flagboard__flags";
+      flags.textContent = `\u{1F6A9} ${player.flagCount}`;
+
+      row.append(rank, name, flags);
+      this.flagboard.appendChild(row);
+    });
+  }
+
   /** Called each frame to expire transient effects. */
   tick(now: number): void {
     if (this.damageFlashTimer !== 0 && now - this.damageFlashTimer > 120) {
@@ -250,6 +356,13 @@ export class HUD {
       this.hitmarkerTimer = 0;
     }
   }
+}
+
+/** Always m:ss -- a match clock reads as a clock even under a minute. */
+function formatClock(totalSeconds: number): string {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
 /** m:ss for anything over a minute, plain seconds below it. */

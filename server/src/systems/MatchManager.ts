@@ -10,7 +10,6 @@ import {
   type KillPayload,
   type MatchResultMessage,
   type CareerUpdate,
-  type MatchStanding,
 } from "@deathmatch/shared";
 import type { PlayerRuntime } from "../rooms/PlayerRuntime.js";
 import { DamageSource, type DamageSourceValue, type RoomContext } from "../rooms/RoomContext.js";
@@ -22,6 +21,7 @@ import type { ProjectileSystem } from "./ProjectileSystem.js";
 import type { TrapSystem } from "./TrapSystem.js";
 import type { NpcSystem } from "../npc/NpcSystem.js";
 import type { WeaponSystem } from "./WeaponSystem.js";
+import { createGameMode, type GameMode } from "../modes/index.js";
 
 /**
  * Owns the match lifecycle: WAITING -> COUNTDOWN -> PLAYING -> FINISHED -> WAITING.
@@ -43,6 +43,29 @@ export class MatchManager {
 
   /** Players who pressed "play again" on the results screen. */
   private readonly requeueRequests = new Set<string>();
+
+  /**
+   * The rules this match is played under.
+   *
+   * Rebuilt at every match start from the room's `gameModeId`, so a mode's
+   * per-match state (flags, respawn timers, a sudden death) never leaks into
+   * the next match -- or into a match of a different mode. Between matches it
+   * holds the previous mode, whose hooks are only reachable while PLAYING.
+   */
+  private mode: GameMode = createGameMode("", this.modeServices());
+
+  /**
+   * The narrow slice of this manager a mode may drive. Safe to build in the
+   * field initializer above: parameter properties are assigned first, so
+   * `this.context` already exists (`useDefineForClassFields` is off).
+   */
+  private modeServices() {
+    return {
+      context: this.context,
+      respawn: (player: PlayerState, now: number) => this.respawn(player, now),
+      finish: (winner: PlayerState | null, now: number) => this.finishMatch(winner, now),
+    };
+  }
 
   constructor(
     private readonly context: RoomContext,
@@ -244,29 +267,39 @@ export class MatchManager {
     this.traps.reset();
     this.npcs?.onMatchStarted(now);
 
+    // A fresh mode instance per match: whatever rules the room is set to when
+    // the countdown ends are the rules for the whole match, and nothing a mode
+    // accumulated last match survives into this one.
+    this.mode = createGameMode(state.gameModeId, this.modeServices());
+    this.mode.onMatchStarted(now);
+
     this.refreshCounters();
-    this.context.logger.info("Match started", { players: participants.length, arena: state.arenaId });
+    this.context.logger.info("Match started", {
+      players: participants.length,
+      arena: state.arenaId,
+      mode: this.mode.id,
+    });
   }
 
   private updatePlaying(now: number): void {
     this.refreshCounters();
 
-    const state = this.context.state;
-
+    // The duration cap is a safety valve over every mode, not a rule of any:
+    // a mode with its own clock ends itself well before this fires.
     if (now >= this.matchDeadline) {
       this.context.logger.warn("Match hit the duration cap, ending it");
-      this.finishMatch(this.pickLeader(), now);
+      this.finishMatch(this.mode.pickTimeoutWinner(), now);
       return;
     }
 
-    if (state.aliveCount <= 1) {
-      const survivor = this.getAlivePlayers()[0] ?? null;
-      this.finishMatch(survivor, now);
-    }
+    // Everything else that can end a match is the mode's call: last player
+    // standing in deathmatch, the clock and sudden death in flag hunt.
+    this.mode.update(now);
   }
 
   private finishMatch(winner: PlayerState | null, now: number): void {
     const state = this.context.state;
+    if (state.matchState !== MatchState.PLAYING) return;
 
     if (winner) {
       winner.placement = 1;
@@ -283,7 +316,10 @@ export class MatchManager {
     this.traps.reset();
     this.npcs?.onMatchEnded();
 
-    const standings = this.buildStandings();
+    // Standings before the mode's cleanup: a timed mode ranks by scores its
+    // cleanup is about to reset.
+    const standings = this.mode.buildStandings();
+    this.mode.onMatchEnded(now);
     const payload: MatchResultMessage = {
       winnerId: state.winnerId,
       winnerName: state.winnerName,
@@ -326,6 +362,7 @@ export class MatchManager {
       player.weaponId = this.context.config.getDefaultWeaponId();
       player.grenades = 0;
       player.chargingGrenade = false;
+      player.flagCount = 0;
       if (runtime) this.powerUps.clearSpeedBoost(player, runtime);
       runtime?.resetForMatch(now);
     }
@@ -352,7 +389,21 @@ export class MatchManager {
   // Player lifecycle
   // -------------------------------------------------------------------------
 
-  private spawnPlayer(player: PlayerState, runtime: PlayerRuntime, spawnIndex: number, now: number): void {
+  /**
+   * Put a player into the world at a spawn point.
+   *
+   * `fresh` separates a match start from a mid-match respawn: a fresh spawn
+   * zeroes the scoreboard (kills, deaths, placement, flags), a respawn only
+   * revives -- in a mode where the dead come back, dying already cost what the
+   * mode says it costs, and wiping the score would cost the match too.
+   */
+  private spawnPlayer(
+    player: PlayerState,
+    runtime: PlayerRuntime,
+    spawnIndex: number,
+    now: number,
+    fresh = true,
+  ): void {
     const spawn = this.playerSpawns()[spawnIndex]!;
     const position = findFreeSpawnPosition(this.context.world, spawn.x, spawn.y);
 
@@ -375,14 +426,33 @@ export class MatchManager {
     player.health = player0.maxHealth;
     player.alive = true;
     player.inMatch = true;
-    player.kills = 0;
-    player.deaths = 0;
-    player.placement = 0;
+    if (fresh) {
+      player.kills = 0;
+      player.deaths = 0;
+      player.placement = 0;
+      player.flagCount = 0;
+    }
     player.lastProcessedInput = 0;
 
     // Everyone starts a match on the default weapon; the rest is earned from crates.
     this.weapons.equip(player, runtime, this.context.config.getDefaultWeaponId());
     this.grenades.resupply(player);
+  }
+
+  /**
+   * Bring a dead player back into a running match, on a mode's say-so.
+   *
+   * A random spawn each time rather than the one they started on, so dying
+   * relocates you -- and so a camper cannot learn where a victim reappears.
+   */
+  private respawn(player: PlayerState, now: number): void {
+    if (this.context.state.matchState !== MatchState.PLAYING) return;
+    const runtime = this.context.runtimes.get(player.sessionId);
+    if (!runtime || player.alive) return;
+
+    const spawnIndex = this.shuffledSpawnIndices()[0] ?? 0;
+    this.spawnPlayer(player, runtime, spawnIndex, now, false);
+    this.refreshCounters();
   }
 
   /**
@@ -486,9 +556,11 @@ export class MatchManager {
       killer.kills += 1;
     }
 
-    // Placement counts the survivors: the last player out of N finishes Nth.
+    // Whether death places you (last of N finishes Nth) or the table waits for
+    // the clock is the mode's rule, and so is whether this kill ends anything.
     const survivors = this.getAlivePlayers().length;
-    victim.placement = survivors + 1;
+    const placement = this.mode.placementOnDeath(survivors);
+    if (placement !== null) victim.placement = placement;
 
     const payload: KillPayload = {
       killerId: killer?.sessionId ?? "",
@@ -498,10 +570,14 @@ export class MatchManager {
       weaponId,
       // Decided here rather than by the client, which will not learn the match
       // is over until the next patch.
-      endsMatch: survivors <= 1,
+      endsMatch: this.mode.killEndsMatch(survivors),
       selfInflicted: !killer || killer.sessionId === victim.sessionId,
     };
     this.context.broadcast(ServerMessage.KILL, payload);
+
+    // After the kill is public: a mode that drops the victim's flags wants the
+    // kill feed to already carry the death it is scattering loot for.
+    this.mode.onEliminated(victim, killer, this.context.now());
 
     this.refreshCounters();
   }
@@ -565,16 +641,6 @@ export class MatchManager {
     );
   }
 
-  /** Fallback "winner" when a match times out: most kills, then least damage taken. */
-  private pickLeader(): PlayerState | null {
-    const alive = this.getAlivePlayers();
-    if (alive.length === 0) return null;
-    return alive.reduce((best, player) => {
-      if (player.kills !== best.kills) return player.kills > best.kills ? player : best;
-      return player.health > best.health ? player : best;
-    });
-  }
-
   /**
    * Fold this match into the players' records.
    *
@@ -601,19 +667,6 @@ export class MatchManager {
     }
 
     if (updates.length > 0) this.context.recordCareers(updates);
-  }
-
-  private buildStandings(): MatchStanding[] {
-    const players = Array.from(this.context.state.players.values()).filter((player) => player.placement > 0 || player.inMatch);
-
-    return players
-      .map<MatchStanding>((player) => ({
-        sessionId: player.sessionId,
-        name: player.name,
-        kills: player.kills,
-        placement: player.placement > 0 ? player.placement : 1,
-      }))
-      .sort((a, b) => a.placement - b.placement || b.kills - a.kills);
   }
 
   /**
