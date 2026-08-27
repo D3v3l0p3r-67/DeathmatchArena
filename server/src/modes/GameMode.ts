@@ -17,8 +17,28 @@ import type { PlayerState } from "../rooms/schema/PlayerState.js";
  * one at the countdown's end from the room's `gameModeId`, so a mode may keep
  * per-match state in plain fields without ever cleaning up after itself.
  */
+/**
+ * Facts about a mode the rest of the room consults, rather than questions it
+ * asks per event.
+ *
+ * Shared mechanics that a mode can veto belong here -- the closing walls being
+ * the first -- so a system checks one flag instead of knowing mode ids, and the
+ * client learns everything it needs from the state the server publishes.
+ * Read live (a method, not a constant) so a value backed by configuration can
+ * be retuned mid-match through the debug console like any other setting.
+ */
+export interface GameModeTraits {
+  /** Whether this mode's matches run on a published clock. */
+  timedMatch: boolean;
+  /** Whether the closing-walls mechanic runs during this mode's matches. */
+  arenaShrinking: boolean;
+}
+
 export interface GameMode {
   readonly id: GameModeValue;
+
+  /** What this mode is like. See `GameModeTraits`. */
+  traits(): GameModeTraits;
 
   /** The match has just started: every participant is spawned and playing. */
   onMatchStarted(now: number): void;

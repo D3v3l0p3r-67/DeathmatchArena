@@ -34,10 +34,19 @@ export class FlagHuntMode implements GameMode {
     return this.services.context.config.getFlagHuntConfig();
   }
 
+  /**
+   * Both read from configuration on every ask, so an admin's change applies
+   * mid-match. The mode is time-limited by design, which is why the walls are
+   * off by default: two clocks racing to end one match is one clock too many.
+   */
+  traits() {
+    return { timedMatch: this.config.timedMatch, arenaShrinking: this.config.arenaShrinking };
+  }
+
   onMatchStarted(now: number): void {
     this.endsAt = now + this.config.matchDurationMs;
     this.flags.start(now);
-    this.publishClock(now);
+    if (this.config.timedMatch) this.publishClock(now);
   }
 
   update(now: number): void {
@@ -61,8 +70,14 @@ export class FlagHuntMode implements GameMode {
     this.updateRespawns(now);
 
     if (!state.suddenDeath) {
-      this.publishClock(now);
-      if (now >= this.endsAt) this.resolveFullTime(now);
+      if (this.config.timedMatch) {
+        this.publishClock(now);
+        if (now >= this.endsAt) this.resolveFullTime(now);
+      } else if (state.matchTimeRemainingSeconds !== 0) {
+        // Untimed: no clock to show, and full time never arrives. Zeroed here
+        // so switching the setting off mid-match clears a half-run countdown.
+        state.matchTimeRemainingSeconds = 0;
+      }
     }
   }
 

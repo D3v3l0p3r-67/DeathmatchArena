@@ -447,6 +447,23 @@ export interface GaugesConfig {
  * flags around (a death drops a share of them) but never decide the winner.
  */
 export interface FlagHuntConfig {
+  /**
+   * Whether the match runs on a clock at all.
+   *
+   * On, the mode ends itself at `matchDurationMs` and publishes the remaining
+   * time; off, there is no clock and only a walkover (or the global duration
+   * valve) ends the match.
+   */
+  timedMatch: boolean;
+  /**
+   * Whether the closing-walls mechanic runs during Flag Hunt.
+   *
+   * Off by default: the mode is already time-limited by its own clock, so the
+   * arena stays its full size for the whole match -- no countdown, no
+   * shrinking, no crush damage. The mode declares this; nothing in the UI
+   * special-cases it, the server simply never publishes any shrink state.
+   */
+  arenaShrinking: boolean;
   /** How long a match runs, in ms. The clock, not a safety valve. */
   matchDurationMs: number;
   /** How often a fresh flag appears, in ms. */

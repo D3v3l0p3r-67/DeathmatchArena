@@ -549,6 +549,8 @@ function gameModeFields(): FieldDescriptor[] {
         { value: "flagHunt", label: "Flag Hunt" },
       ],
     },
+    boolean("flagHunt.timedMatch", MODES, "Flag Hunt", "Timed match", "On, the match runs on a clock and ends at full time with most flags winning. Off, there is no clock and only everyone else leaving ends it."),
+    boolean("flagHunt.arenaShrinking", MODES, "Flag Hunt", "Arena shrinking", "Whether the closing walls run during Flag Hunt. Off by default: the mode is already time-limited, so the arena keeps its full size and no countdown or shrink warnings appear."),
     number("flagHunt.matchDurationMs", MODES, "Flag Hunt", "Match duration (ms)", "How long a Flag Hunt match runs. The clock is the mode: when it reaches zero, most flags wins.", { min: 30000, max: 1800000, step: 15000 }),
     number("flagHunt.flagSpawnIntervalMs", MODES, "Flag Hunt", "Flag spawn interval (ms)", "How often a fresh flag appears at a free power-up spawn point.", { min: 1000, max: 120000, step: 500 }),
     number("flagHunt.maxFlagsOnMap", MODES, "Flag Hunt", "Max flags on the map", "Cap on flags lying in the arena at once, spawned and dropped together.", { min: 1, max: 32, step: 1, integer: true }),
