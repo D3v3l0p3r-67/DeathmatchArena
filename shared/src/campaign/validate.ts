@@ -4,6 +4,8 @@
  * Catching a misspelt spawn point or enemy id here is the difference between a
  * clear message and an encounter that silently never spawns.
  */
+import { SurfaceType } from "../game/types.js";
+import { getCrateConfig } from "../config/registry.js";
 import type { ArenaDefinition } from "../arena/types.js";
 import { getCampaignEnemy } from "./catalogue.js";
 import type { CampaignEnemySpawn, CampaignLevelDefinition } from "./types.js";
@@ -20,6 +22,30 @@ export function validateCampaignLevel(
   const spawnPoints = new Set(arena.powerUpSpawns.map((point) => point.id));
   for (const crate of level.crates) {
     if (!spawnPoints.has(crate.spawnPointId)) say(`crate spawn point ${crate.spawnPointId} not in arena`);
+  }
+
+  /*
+   * A crate placed inside a wall is not a crate in a wall: box physics shoves
+   * it out on the first tick, so it ends up somewhere the level never chose --
+   * once 212px away, on top of a post, which is exactly the sort of thing that
+   * is invisible in the data and obvious in the game.
+   */
+  const crateConfig = getCrateConfig();
+  const halfWidth = crateConfig.width / 2;
+  const halfHeight = crateConfig.height / 2;
+  for (const crate of level.crates) {
+    const point = arena.powerUpSpawns.find((candidate) => candidate.id === crate.spawnPointId);
+    if (!point) continue;
+
+    for (const element of arena.elements) {
+      // Platforms are one-way: a crate resting on one is not stuck in it.
+      if (element.type === SurfaceType.PLATFORM) continue;
+      const overlapsX = point.x + halfWidth > element.x && point.x - halfWidth < element.x + element.width;
+      const overlapsY = point.y + halfHeight > element.y && point.y - halfHeight < element.y + element.height;
+      if (overlapsX && overlapsY) {
+        say(`crate spawn ${crate.spawnPointId} starts inside solid element ${element.id}`);
+      }
+    }
   }
 
   const cameraZones = new Set(level.cameraZones.map((zone) => zone.id));

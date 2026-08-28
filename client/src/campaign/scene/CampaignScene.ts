@@ -15,6 +15,7 @@ import Phaser from "phaser";
 import {
   MatchState,
   ServerMessage,
+  damp,
   getCampaignEnemy,
   getPowerUp,
   type CampaignZone,
@@ -40,6 +41,14 @@ import type { CampaignDirector } from "../core/CampaignDirector.js";
 import { LOCAL_PLAYER_ID } from "../sim/LocalMatch.js";
 
 export const CAMPAIGN_SCENE_KEY = "CampaignScene";
+
+/**
+ * How quickly the camera's limits close on a new lock, per second.
+ *
+ * Roughly half a second to settle: fast enough that a fight feels framed the
+ * moment it starts, slow enough to read as a camera move rather than a cut.
+ */
+const CAMERA_BOUNDS_SMOOTHING = 0.0005;
 
 /** What the scene reports up to the app shell (sounds, HUD flashes). */
 export interface CampaignSceneEvents {
@@ -69,6 +78,17 @@ export class CampaignScene extends Phaser.Scene {
   /** Real time of the last update; Phaser's smoothed delta under-reports on a
    *  struggling machine, and the simulation must track the wall clock. */
   private lastUpdateAt = 0;
+
+  /*
+   * Camera limits, eased rather than set.
+   *
+   * Locking a zone by writing `setBounds` straight in re-clamps the camera on
+   * the spot, which reads as a cut: the arena jumps sideways the instant a
+   * fight starts. Holding a current and a target rectangle and closing the gap
+   * every frame turns the same lock into a move the eye can follow.
+   */
+  private readonly bounds = { x: 0, y: 0, width: 0, height: 0 };
+  private readonly targetBounds = { x: 0, y: 0, width: 0, height: 0 };
   private zoneOverlay: Phaser.GameObjects.Graphics | null = null;
   private debugZones = false;
 
@@ -94,6 +114,8 @@ export class CampaignScene extends Phaser.Scene {
     this.inputController.setEnabled(true);
     this.effects = new EffectsSystem(this);
 
+    Object.assign(this.bounds, { x: 0, y: 0, width: arena.width, height: arena.height });
+    Object.assign(this.targetBounds, this.bounds);
     this.cameras.main.setBounds(0, 0, arena.width, arena.height);
     this.lastUpdateAt = 0;
     this.cameraController.snapTo(director.player()?.x ?? arena.width / 2, director.player()?.y ?? arena.height / 2);
@@ -151,7 +173,14 @@ export class CampaignScene extends Phaser.Scene {
     });
 
     this.syncViews();
-    this.followPlayer(deltaMs / 1000);
+
+    // A dead body is thrown and faded by its own animation; without this it
+    // simply stood there until the corpse sweep removed it seconds later.
+    const deltaSeconds = deltaMs / 1000;
+    for (const view of this.playerViews.values()) view.tickDeath(deltaSeconds);
+
+    this.updateCameraBounds(deltaSeconds);
+    this.followPlayer(deltaSeconds);
     if (this.debugZones) this.drawZoneOverlay();
   }
 
@@ -163,8 +192,20 @@ export class CampaignScene extends Phaser.Scene {
   setCameraLock(zone: CampaignZone | null): void {
     const arena = this.director?.match.arena;
     if (!arena) return;
-    if (zone) this.cameras.main.setBounds(zone.x, zone.y, zone.width, zone.height);
-    else this.cameras.main.setBounds(0, 0, arena.width, arena.height);
+    Object.assign(
+      this.targetBounds,
+      zone ? zone : { x: 0, y: 0, width: arena.width, height: arena.height },
+    );
+  }
+
+  /** Close the gap to the wanted limits, then hand them to the camera. */
+  private updateCameraBounds(deltaSeconds: number): void {
+    const close = (from: number, to: number) => damp(from, to, CAMERA_BOUNDS_SMOOTHING, deltaSeconds);
+    this.bounds.x = close(this.bounds.x, this.targetBounds.x);
+    this.bounds.y = close(this.bounds.y, this.targetBounds.y);
+    this.bounds.width = close(this.bounds.width, this.targetBounds.width);
+    this.bounds.height = close(this.bounds.height, this.targetBounds.height);
+    this.cameras.main.setBounds(this.bounds.x, this.bounds.y, this.bounds.width, this.bounds.height);
   }
 
   shake(intensity: number): void {
@@ -269,7 +310,11 @@ export class CampaignScene extends Phaser.Scene {
       this.projectileViews.delete(id);
     }
 
-    // Crates.
+    // Crates. `refresh` only aims the view at the authoritative position --
+    // `render` is what actually moves it, and without that call a crate stayed
+    // drawn wherever it first appeared while the simulation carried it off:
+    // shots then flew through the picture of a crate that was no longer there.
+    const deltaSeconds = this.game.loop.delta / 1000;
     for (const [id, crate] of state.crates) {
       let view = this.crateViews.get(id);
       if (!view) {
@@ -277,6 +322,7 @@ export class CampaignScene extends Phaser.Scene {
         this.crateViews.set(id, view);
       }
       view.refresh(crate);
+      view.render(deltaSeconds);
     }
     for (const [id, view] of this.crateViews) {
       if (state.crates.has(id)) continue;

@@ -183,13 +183,10 @@ describe("campaign: the yard encounter", () => {
     tick(director, 100);
 
     assert.ok(breach, "clearing the yard triggers the scripted breach");
-    // The scripted breach destroys the yard-door crates.
-    const doorPoints = new Set(["door-low", "door-top"]);
-    const remaining = Array.from(director.match.state.crates.values()).filter((crate) =>
-      Array.from(doorPoints).some((id) => {
-        const point = OUTPOST_ARENA.powerUpSpawns.find((p) => p.id === id)!;
-        return Math.abs(crate.x - point.x) < 60 && Math.abs(crate.y - point.y) < 120;
-      }),
+    // The scripted breach destroys the crate holding the yard's exit shut.
+    const door = OUTPOST_ARENA.powerUpSpawns.find((point) => point.id === "door")!;
+    const remaining = Array.from(director.match.state.crates.values()).filter(
+      (crate) => Math.abs(crate.x - door.x) < 60 && Math.abs(crate.y - door.y) < 120,
     );
     assert.equal(remaining.length, 0, "the yard door is gone");
   });
@@ -361,6 +358,93 @@ describe("campaign: respawn rules", () => {
     director.match.matchManager.applyDamage(LOCAL_PLAYER_ID, "", 1_000_000, 0, 0, "test");
     tick(director, 100);
     assert.equal(failed, true);
+  });
+});
+
+describe("campaign: the level is actually playable", () => {
+  it("can be walked from the spawn to the finish line", () => {
+    const director = makeDirector();
+    director.debugSetGodMode(true);
+    const player = director.player()!;
+
+    /*
+     * Walk right, double-jump when progress stalls, and shoot whatever is in
+     * the way -- everything a player has. Nothing here teleports: this is the
+     * test that would have caught a 240px wall standing on the only route,
+     * which three debug-teleported playthroughs happily jumped straight over.
+     */
+    let lastX = player.x;
+    let stalledFrames = 0;
+    for (let frame = 0; frame < 60 * 200; frame++) {
+      const stalled = Math.abs(player.x - lastX) < 0.4;
+      if (stalled) stalledFrames++;
+      else {
+        stalledFrames = 0;
+        lastX = player.x;
+      }
+
+      const phase = frame % 60;
+      director.match.applyInput({
+        moveLeft: false,
+        moveRight: true,
+        jump: stalled && (phase < 6 || (phase >= 12 && phase < 18)),
+        fire: stalled,
+        reload: false,
+        chargeGrenade: false,
+        aimAngle: 0,
+      });
+      tick(director, 16.7);
+      if (player.x > 8800) break;
+    }
+
+    assert.ok(
+      player.x > 8760,
+      `the player should reach the finish zone on foot, got stuck at ${Math.round(player.x)} ` +
+        `(stalled ${stalledFrames} frames)`,
+    );
+  });
+
+  it("places no crate inside solid geometry", () => {
+    // Box physics shoves such a crate out on the first tick, landing it
+    // somewhere the level never chose -- and the shot that misses it lands
+    // nowhere near the crate the player can see.
+    assert.deepEqual(
+      validateCampaignLevel(OUTPOST_LEVEL, OUTPOST_ARENA).filter((issue) => issue.includes("inside solid")),
+      [],
+    );
+
+    const broken: CampaignLevelDefinition = {
+      ...OUTPOST_LEVEL,
+      crates: [{ spawnPointId: "wall-trap" }],
+    };
+    const arena = {
+      ...OUTPOST_ARENA,
+      powerUpSpawns: [{ id: "wall-trap", x: 4400, y: 1000, enabled: true }],
+      elements: [...OUTPOST_ARENA.elements, { id: "slab", type: "wall" as const, x: 4380, y: 980, width: 60, height: 60 }],
+    };
+    assert.ok(
+      validateCampaignLevel(broken, arena).some((issue) => issue.includes("inside solid")),
+      "a crate buried in a wall must be reported",
+    );
+  });
+
+  it("settles every crate within a crate's height of where it was placed", () => {
+    const director = makeDirector();
+    const placed = new Map<string, { x: number; y: number }>();
+    for (const crate of director.match.state.crates.values()) {
+      placed.set(crate.id, { x: crate.x, y: crate.y });
+    }
+
+    tick(director, 4000);
+
+    for (const crate of director.match.state.crates.values()) {
+      const from = placed.get(crate.id)!;
+      const drift = Math.hypot(crate.x - from.x, crate.y - from.y);
+      assert.ok(
+        drift <= 44,
+        `crate ${crate.id} drifted ${Math.round(drift)}px from where the level put it`,
+      );
+    }
   });
 });
 

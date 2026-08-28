@@ -89,14 +89,20 @@ export const OUTPOST_ARENA: ArenaDefinition = {
 
     // --- Barrier stretch: a wall the crates finish, cover either side.
     el("cover-3", 3900, 1050, 100, 90, OBSTACLE),
-    el("barrier-post", 4360, 900, 26, 240, WALL),
+    // A doorway, not a wall: the frame stops at 1084 and the 56px gap under it
+    // is exactly what the barrier crates fill. Solid to the floor -- as this
+    // was -- the level simply ended here, because 240px is far above the 159px
+    // a double jump reaches.
+    el("barrier-lintel", 4390, 900, 132, 184, WALL),
 
     // --- The yard: an enclosed encounter arena with inner platforms.
-    el("yard-wall-w", 4750, 920, 30, 220, WALL),
+    // Open arch: a 100px gap under it, so the yard can be entered on foot.
+    el("yard-wall-w", 4750, 860, 30, 180, WALL),
     el("p-yard-1", 5000, 990, 220, 24, PLATFORM),
     el("p-yard-2", 5450, 990, 220, 24, PLATFORM),
     el("p-yard-3", 5210, 860, 260, 24, PLATFORM),
-    el("yard-wall-e", 5950, 920, 30, 220, WALL),
+    // The yard's exit: a 56px gap the door crate blocks until the breach.
+    el("yard-wall-e", 5950, 860, 30, 224, WALL),
 
     // --- Sniper stretch: long sightline, low cover, the perch high right.
     el("cover-4", 6480, 1040, 110, 100, OBSTACLE),
@@ -117,12 +123,18 @@ export const OUTPOST_ARENA: ArenaDefinition = {
   powerUpSpawns: [
     { id: "start-med", x: 420, y: 1090, enabled: true },
     { id: "s1-prize", x: 210, y: 720, enabled: true },
-    { id: "b-low-1", x: 4400, y: 1090, enabled: true },
-    { id: "b-low-2", x: 4452, y: 1090, enabled: true },
-    { id: "b-top", x: 4426, y: 1000, enabled: true },
+    // The barrier: two crates on the floor and one bridging them, stacked
+    // clear of `barrier-post` (which ends at x=4386) -- a crate spawned
+    // inside solid geometry gets squeezed out by its own physics and ends up
+    // nowhere near where the level meant to put it.
+    // Three crates side by side filling the barrier doorway. Never stacked:
+    // crate physics collides with the world, not with other crates, so a crate
+    // placed on a crate falls straight through it.
+    { id: "b-left", x: 4412, y: 1118, enabled: true },
+    { id: "b-mid", x: 4456, y: 1118, enabled: true },
+    { id: "b-right", x: 4500, y: 1118, enabled: true },
     { id: "yard-med", x: 5330, y: 810, enabled: true },
-    { id: "door-low", x: 5916, y: 1090, enabled: true },
-    { id: "door-top", x: 5916, y: 1000, enabled: true },
+    { id: "door", x: 5965, y: 1118, enabled: true },
     { id: "cp2-rocket", x: 6150, y: 1090, enabled: true },
     { id: "s2-prize", x: 6806, y: 1010, enabled: true },
     { id: "cp3-med", x: 7280, y: 1090, enabled: true },
@@ -169,13 +181,12 @@ export const OUTPOST_LEVEL: CampaignLevelDefinition = {
     { spawnPointId: "start-med", powerUpId: "health-50" },
     { spawnPointId: "s1-prize", powerUpId: "weapon-laser" },
     // The barrier: three crates the player shoots (or blows) through.
-    { spawnPointId: "b-low-1", group: "barrier" },
-    { spawnPointId: "b-low-2", group: "barrier" },
-    { spawnPointId: "b-top", group: "barrier" },
+    { spawnPointId: "b-left", group: "barrier" },
+    { spawnPointId: "b-mid", group: "barrier" },
+    { spawnPointId: "b-right", group: "barrier" },
     { spawnPointId: "yard-med", powerUpId: "health-50" },
     // The yard's exit, opened by a scripted breach when the encounter falls.
-    { spawnPointId: "door-low", group: "yard-door" },
-    { spawnPointId: "door-top", group: "yard-door" },
+    { spawnPointId: "door", group: "yard-door" },
     { spawnPointId: "cp2-rocket", powerUpId: "weapon-rocket-launcher" },
     { spawnPointId: "s2-prize", powerUpId: "speed-boost" },
     { spawnPointId: "cp3-med", powerUpId: "health-50" },
