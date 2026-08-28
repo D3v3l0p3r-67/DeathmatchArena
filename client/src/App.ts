@@ -304,6 +304,14 @@ export class App {
         pixelArt: false,
         powerPreference: "high-performance",
       },
+      // Listen for the pointer on the full-window wrapper, not the canvas: with
+      // FIT scaling a non-16:9 window letterboxes the canvas, and a mouse over
+      // those bands would otherwise stop existing for the game -- the aim and
+      // the crosshair froze the moment the pointer left the picture.
+      input: {
+        mouse: { target: "game-root" },
+        touch: { target: "game-root" },
+      },
       // Physics is simulated by the shared deterministic code, not by Phaser.
       scene: [BootScene, GameScene, CampaignScene],
       banner: false,
@@ -804,8 +812,10 @@ export class App {
   private updateCrosshair(): void {
     if (this.campaign) {
       const scene = this.game?.scene.getScene(CAMPAIGN_SCENE_KEY) as CampaignScene | undefined;
-      const pointer = scene?.input.activePointer;
-      if (pointer) this.hud.setCrosshairPosition(pointer.x, pointer.y);
+      if (scene?.scene.isActive()) {
+        const pointer = scene.getPointerScreenPosition();
+        this.hud.setCrosshairPosition(pointer.x, pointer.y);
+      }
       return;
     }
     const scene = this.getGameScene();

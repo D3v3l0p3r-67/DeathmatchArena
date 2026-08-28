@@ -171,6 +171,23 @@ export class CampaignScene extends Phaser.Scene {
     this.cameraController?.shake(260, intensity);
   }
 
+  /**
+   * The pointer in real screen (CSS) pixels, for the DOM crosshair.
+   *
+   * Phaser reports the pointer in the game's logical 1280x720 units; the
+   * canvas is FIT-scaled to the window, so those must be mapped through the
+   * scale manager or the crosshair drifts away from the mouse everywhere but
+   * the canvas origin -- the same transform the multiplayer scene does.
+   */
+  getPointerScreenPosition(): { x: number; y: number } {
+    const pointer = this.input.activePointer;
+    const scale = this.scale;
+    return {
+      x: (pointer.x / scale.gameSize.width) * scale.displaySize.width + scale.canvasBounds.x,
+      y: (pointer.y / scale.gameSize.height) * scale.displaySize.height + scale.canvasBounds.y,
+    };
+  }
+
   setDebugZones(enabled: boolean): void {
     this.debugZones = enabled;
     if (!enabled) {
