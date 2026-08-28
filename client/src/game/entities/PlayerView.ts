@@ -147,8 +147,15 @@ export class PlayerView {
     readonly sessionId: string,
     name: string,
     readonly isLocal: boolean,
+    /**
+     * Fixed body tint, overriding the per-session palette.
+     *
+     * The campaign uses it so an enemy's colour says its type -- a Heavy reads
+     * differently from a Runner at a glance; multiplayer never passes it.
+     */
+    colorOverride?: number,
   ) {
-    this.color = getPlayerColor(sessionId, isLocal);
+    this.color = colorOverride ?? getPlayerColor(sessionId, isLocal);
 
     this.shadow = scene.add
       .image(0, PLAYER.HEIGHT / 2, TextureKeys.PlayerShadow)
@@ -218,6 +225,16 @@ export class PlayerView {
 
   setName(name: string): void {
     if (this.label.text !== name) this.label.setText(name);
+  }
+
+  /**
+   * Draw this player larger or smaller than life.
+   *
+   * Presence, not physics: a campaign boss towers over the arena while its
+   * hitbox stays the ordinary player's -- the simulation is untouched.
+   */
+  setBodyScale(scale: number): void {
+    this.container.setScale(scale);
   }
 
   /**

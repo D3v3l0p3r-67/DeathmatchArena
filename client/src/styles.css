@@ -1038,6 +1038,211 @@ kbd {
   color: var(--danger);
 }
 
+/* ------------------------------ campaign ------------------------------- */
+
+/* Level select rows: name on the left, the record on the right. */
+.campaign-levels {
+  margin: 18px 0;
+  padding: 0;
+  list-style: none;
+  text-align: left;
+}
+
+.campaign-levels__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  background: rgba(10, 13, 20, 0.45);
+}
+
+.campaign-levels__row.is-selected {
+  border-color: rgba(56, 189, 248, 0.65);
+}
+
+.campaign-levels__row.is-locked {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.campaign-levels__name {
+  flex: 1;
+  font-weight: 600;
+}
+
+.campaign-levels__record {
+  font-size: 13px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.campaign-levels__rank {
+  min-width: 26px;
+  text-align: center;
+  font-weight: 700;
+  color: #ffd75e;
+}
+
+.difficulty-picker--inline {
+  position: static;
+  margin: 0 0 14px;
+}
+
+/* The hidden attribute must win over any display class an element carries. */
+[hidden] {
+  display: none !important;
+}
+
+/* The multiplayer-only furniture leaves during a campaign run. */
+.hud.hud--campaign .hud__corner--top-left,
+.hud.hud--campaign .minimap,
+.hud.hud--campaign .flagboard,
+.hud.hud--campaign .kill-feed {
+  display: none;
+}
+
+/* The in-game overlay: only visible while a level is running. */
+.campaign-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: none;
+  z-index: 6;
+}
+
+.campaign-layer.is-active {
+  display: block;
+}
+
+.campaign-layer__stats {
+  position: absolute;
+  top: 18px;
+  left: 20px;
+  display: grid;
+  gap: 4px;
+}
+
+.campaign-layer__objective {
+  position: absolute;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  color: #cfe3f5;
+  background: rgba(5, 7, 12, 0.55);
+  border: 1px solid var(--panel-border);
+  border-radius: 999px;
+  padding: 4px 14px;
+}
+
+.campaign-layer__objective:empty {
+  display: none;
+}
+
+.campaign-layer__boss {
+  position: absolute;
+  top: 86px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(520px, 60vw);
+  text-align: center;
+}
+
+.campaign-layer__boss-name {
+  font-size: 12px;
+  letter-spacing: 0.22em;
+  color: var(--danger);
+}
+
+.campaign-layer__boss-bar {
+  margin-top: 4px;
+  height: 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 77, 94, 0.55);
+  background: rgba(5, 7, 12, 0.7);
+  overflow: hidden;
+}
+
+.campaign-layer__boss-fill {
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, #ff4d5e, #ff8a5e);
+  transition: width 160ms ease;
+}
+
+.campaign-layer__toast {
+  position: absolute;
+  top: 140px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 18px;
+  border-radius: 8px;
+  background: rgba(5, 7, 12, 0.78);
+  border: 1px solid rgba(56, 189, 248, 0.5);
+  font-size: 15px;
+  letter-spacing: 0.05em;
+  color: #e8eefc;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
+}
+
+.campaign-layer__death {
+  position: absolute;
+  top: 40%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  padding: 16px 28px;
+  border-radius: 10px;
+  background: rgba(5, 7, 12, 0.8);
+  border: 1px solid rgba(255, 77, 94, 0.55);
+}
+
+.campaign-layer__death b {
+  color: var(--danger);
+  letter-spacing: 0.08em;
+}
+
+.campaign-layer__death span {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.campaign-layer__debug {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: #ffd75e;
+  background: rgba(5, 7, 12, 0.7);
+  border-radius: 999px;
+  padding: 3px 12px;
+}
+
+/* The rank letter, writ large on the results panel. */
+.campaign-rank {
+  font-size: 64px;
+  color: #ffd75e;
+}
+
+.campaign-standings td:first-child {
+  text-align: left;
+  color: var(--text-dim);
+}
+
+.campaign-standings td:last-child {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ------------------------------- flagboard ------------------------------- */
 
 /* Flag Hunt's live standings, under the minimap so score and map share the

@@ -35,6 +35,7 @@
             />
             <p class="field-error" id="name-error" role="alert"></p>
             <button class="button button--primary" id="play-button" type="submit">Play</button>
+            <button class="button button--ghost" id="campaign-button" type="button">Campaign</button>
             <button class="menu__settings" id="menu-settings-button" type="button">Settings</button>
           </form>
 
@@ -51,6 +52,49 @@
             <kbd>Mouse</kbd> aim &middot; <kbd>Click</kbd> fire &middot; <kbd>R</kbd> reload
           </p>
           <p class="connection-error" id="connection-error" role="alert"></p>
+        </div>
+      </section>
+
+      <!-- ============================= CAMPAIGN ============================= -->
+      <section class="screen screen--campaign" data-screen="campaign">
+        <div class="panel panel--campaign">
+          <p class="panel__eyebrow">Single player</p>
+          <h2 class="panel__title">Campaign</h2>
+
+          <ul class="campaign-levels" id="campaign-levels"></ul>
+
+          <div class="difficulty-picker is-active difficulty-picker--inline">
+            <p class="difficulty-picker__title">Difficulty</p>
+            <div class="difficulty-picker__options" id="campaign-difficulty"></div>
+          </div>
+
+          <div class="results__actions">
+            <button class="button button--primary" id="campaign-start" type="button">Start</button>
+            <button class="button button--ghost" id="campaign-continue" type="button" hidden>Continue</button>
+            <button class="button button--ghost" id="campaign-back" type="button">Back</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ======================== CAMPAIGN RESULTS ========================== -->
+      <section class="screen screen--campaign-results" data-screen="campaign-results">
+        <div class="panel panel--results">
+          <p class="results__eyebrow" id="camp-results-eyebrow">Level complete</p>
+          <h2 class="results__winner campaign-rank" id="camp-results-rank">A</h2>
+          <table class="standings campaign-standings">
+            <tbody>
+              <tr><td>Score</td><td id="camp-r-score">0</td></tr>
+              <tr><td>Kills</td><td id="camp-r-kills">0</td></tr>
+              <tr><td>Deaths</td><td id="camp-r-deaths">0</td></tr>
+              <tr><td>Secrets</td><td id="camp-r-secrets">0/0</td></tr>
+              <tr><td>Time</td><td id="camp-r-time">0:00</td></tr>
+              <tr><td>Accuracy</td><td id="camp-r-accuracy">0%</td></tr>
+            </tbody>
+          </table>
+          <div class="results__actions">
+            <button class="button button--primary" id="camp-retry" type="button">Retry</button>
+            <button class="button button--ghost" id="camp-to-menu" type="button">Main menu</button>
+          </div>
         </div>
       </section>
 
@@ -233,6 +277,31 @@
         <div class="crosshair" id="crosshair" aria-hidden="true"></div>
         <div class="hitmarker" id="hitmarker" aria-hidden="true"></div>
         <div class="damage-flash" id="damage-flash" aria-hidden="true"></div>
+      </div>
+
+      <!-- ======================= CAMPAIGN OVERLAY =========================== -->
+      <div class="campaign-layer" data-layer="campaign">
+        <div class="campaign-layer__stats">
+          <div class="hud__stat"><span class="hud__label">Score</span><span class="hud__value" id="camp-score">0</span></div>
+          <div class="hud__stat"><span class="hud__label">Kills</span><span class="hud__value" id="camp-kills">0</span></div>
+          <div class="hud__stat" id="camp-lives-row" hidden><span class="hud__label">Lives</span><span class="hud__value" id="camp-lives">0</span></div>
+        </div>
+
+        <div class="campaign-layer__objective" id="camp-objective"></div>
+
+        <div class="campaign-layer__boss" id="camp-boss" hidden>
+          <span class="campaign-layer__boss-name" id="camp-boss-name">BOSS</span>
+          <div class="campaign-layer__boss-bar"><div class="campaign-layer__boss-fill" id="camp-boss-fill"></div></div>
+        </div>
+
+        <div class="campaign-layer__toast" id="camp-toast" hidden></div>
+        <div class="campaign-layer__death" id="camp-death" hidden>
+          <b>You are down.</b>
+          <span id="camp-death-detail">Respawning at the last checkpoint&hellip;</span>
+        </div>
+        <div class="campaign-layer__debug" id="camp-debug" hidden>
+          DEBUG &middot; G god &middot; K kill all &middot; Z zones &middot; 1-3 checkpoints
+        </div>
       </div>
 
       <!-- The connection dropped, but the seat is being held. Not a screen: the

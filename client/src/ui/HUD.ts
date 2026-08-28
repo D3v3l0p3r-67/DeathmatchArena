@@ -90,6 +90,11 @@ export class HUD {
   private hitmarkerTimer = 0;
   private damageFlashTimer = 0;
 
+  /** Campaign runs hide the multiplayer corner rows and the minimap. */
+  setCampaignMode(campaign: boolean): void {
+    toggleClass(this.root, "hud--campaign", campaign);
+  }
+
   setVisible(visible: boolean): void {
     toggleClass(this.root, "is-active", visible);
     if (!visible) toggleClass(this.crosshair, "is-active", false);

@@ -141,8 +141,8 @@ export class PowerUpSystem {
       [PowerUpType.SPEED]: (powerUp, player, runtime, now) => {
         if (powerUp.type !== PowerUpType.SPEED) return false;
         runtime.speedBoostEndsAt = now + powerUp.durationMs;
-        runtime.movement.speedMultiplier = powerUp.speedMultiplier;
-        player.speedMultiplier = powerUp.speedMultiplier;
+        runtime.movement.speedMultiplier = runtime.baseSpeedMultiplier * powerUp.speedMultiplier;
+        player.speedMultiplier = runtime.movement.speedMultiplier;
         return true;
       },
     };
@@ -216,8 +216,8 @@ export class PowerUpSystem {
   /** Remove a player's speed effect. Also used when they die or a match resets. */
   clearSpeedBoost(player: PlayerState, runtime: PlayerRuntime): void {
     runtime.speedBoostEndsAt = 0;
-    runtime.movement.speedMultiplier = 1;
-    player.speedMultiplier = 1;
+    runtime.movement.speedMultiplier = runtime.baseSpeedMultiplier;
+    player.speedMultiplier = runtime.baseSpeedMultiplier;
     player.boostSeconds = 0;
   }
 
@@ -395,6 +395,25 @@ export class PowerUpSystem {
    *
    * Returns the name of the power-up inside, or null when nowhere is free.
    */
+  /**
+   * Put a crate on a specific spawn point, with chosen contents.
+   *
+   * The campaign's way of dressing a level: placed pickups and destructible
+   * scenery are ordinary crates, spawned deliberately instead of on the
+   * timer. Returns the crate id, or null when the point is taken or unknown.
+   */
+  spawnCrateAt(spawnIndex: number, contents: PowerUpDefinition | null, now: number): string | null {
+    const points = this.enabledSpawnPoints();
+    if (spawnIndex < 0 || spawnIndex >= points.length) return null;
+    if (this.occupiedSpawns.has(spawnIndex)) return null;
+
+    const chosen = contents ?? this.context.config.pickWeightedPowerUp(this.context.random);
+    if (!chosen) return null;
+
+    this.spawnCrate(spawnIndex, chosen, now);
+    return this.occupiedSpawns.get(spawnIndex) ?? null;
+  }
+
   debugSpawnCrate(contents: PowerUpDefinition | null, now: number): string | null {
     const spawnIndex = this.pickFreeSpawnIndex();
     if (spawnIndex === -1) return null;

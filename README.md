@@ -523,6 +523,74 @@ afterwards starts from.
 
 ---
 
+## Single-player campaign
+
+Alongside the multiplayer arena there is a classic side-scrolling run-and-gun
+campaign: linear levels played start to finish, with encounters, checkpoints,
+secrets, scripted events and a multi-phase boss. Reach it from the menu's
+**Campaign** button.
+
+### The same engine, run locally
+
+The campaign is deliberately not a second engine. Movement, weapons,
+projectiles, grenades, damage, power-ups, traps and the NPC brains are the
+*same classes* the multiplayer server runs -- imported from `server/src` and
+wired against a local room context in the browser (`client/src/campaign/sim/
+LocalMatch.ts`), exactly the way the test harness wires them in Node. The
+difference is only where the truth lives: single player simulates 100% locally
+at 60Hz, works with no connection at all, and sends nothing per-frame anywhere.
+
+What may leave the machine are rare, high-level events -- level started,
+checkpoint reached, level completed, progress changed -- fired at a server
+best-effort (`POST /api/campaign/event`, journalled to
+`data/campaign-events.jsonl`) and never awaited: losing the connection
+mid-level changes nothing. Because those payloads are client claims, nothing
+may ever grant cross-mode rewards from them without server-side verification;
+the shapes live in `shared/src/campaign/` so a future verifier speaks the same
+language without touching the gameplay engine.
+
+### Data-driven levels
+
+A level is a value, not code (`shared/src/campaign/`): an arena for geometry,
+plus checkpoints, camera zones, placed crates (pickups and destructible
+scenery are ordinary multiplayer crates), encounters with waves, secrets, a
+boss with a phase table, and a trigger list that is the level's whole
+scripting vocabulary -- `when X` (enter a zone, a group dies, an encounter
+completes, objects are destroyed, a timer, boss phases) `do Y` (spawn a group,
+start an encounter, blow objects up, lock the camera, message, objective,
+checkpoint, start the boss, complete the level). There is no
+`if (levelId === ...)` anywhere; a new level, enemy variant or boss is new
+configuration validated by `validateCampaignLevel`.
+
+Enemy types (`soldier`, `runner`, `sniper`, `grenadier`, `heavy`, `turret`,
+the `warden` boss chassis) differ in behaviour first: each rides a brain
+profile from the shared personality catalogue plus a rung on the shared bot
+ladder, then a loadout, health, pace, stance and sight range. Campaign
+difficulty (Easy/Normal/Hard/Extreme) shifts every enemy along that ladder --
+reactions, aim, prediction, decision quality, damage dealt and taken -- scales
+health, and gates extra spawns per difficulty in the content itself, so harder
+runs change the fight, not just the numbers.
+
+Scoring is configurable end to end (`CAMPAIGN_SCORING`): kill points by type,
+combo chaining, death penalties, secrets, a par-time bonus and an accuracy
+bonus, with S-A-B-C-D ranks cut relative to what the played difficulty made
+achievable. Progress and the checkpoint resume save live in `localStorage`
+first; respawn rules (checkpoint / limited lives / one life) are level
+configuration, not player code.
+
+The vertical slice ships one level, **Outpost** (`level-01`): a patrol,
+a turret tower, a destructible barrier with a scripted alarm ambush behind it,
+a camera-locked two-wave yard encounter that breaches its own exit, a sniper
+stretch, two secrets, three checkpoints and a three-phase Warden boss.
+Playtime is around 3-5 minutes; the engine has never heard its name.
+
+While in a level, `F9` arms the level-building debug keys: `G` god mode,
+`K` clear enemies, `Z` draw trigger/checkpoint/secret/camera zones,
+`1`-`3` teleport between checkpoints. Known limits of the slice: the arena
+editor does not yet place campaign objects (levels are authored as
+configuration in `shared/src/campaign/levels/`), and flying/shield enemy
+archetypes are future entries in the catalogue.
+
 ## NPCs
 
 Bots that play the game rather than simulate playing it. No LLM, no neural

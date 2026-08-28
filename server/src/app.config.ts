@@ -3,6 +3,7 @@ import { monitor } from "@colyseus/monitor";
 import { playground } from "@colyseus/playground";
 import cors from "cors";
 import express from "express";
+import { appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -71,6 +72,26 @@ export default config({
         maxPlayers: match.maxPlayers,
         countdownMs: match.countdownMs,
       });
+    });
+
+    /**
+     * The campaign's optional cloud persistence -- the single seam single
+     * player has to a server, and a deliberately thin one: the client fires
+     * rare, high-level events (level started, checkpoint, level completed,
+     * progress changed) and never waits for the answer. Everything stored
+     * here is a client claim; nothing may reward it without server-side
+     * verification first.
+     */
+    app.use("/api/campaign", express.json({ limit: "64kb" }));
+    app.post("/api/campaign/event", (req, res) => {
+      const event = req.body as { kind?: string } | undefined;
+      const allowed = new Set(["levelStarted", "checkpointReached", "levelCompleted", "progressChanged"]);
+      if (!event || typeof event.kind !== "string" || !allowed.has(event.kind)) {
+        res.status(400).json({ ok: false });
+        return;
+      }
+      recordCampaignEvent(event);
+      res.json({ ok: true });
     });
 
     /**
@@ -156,3 +177,22 @@ export default config({
     }
   },
 });
+
+/**
+ * Append one campaign sync event to a local journal.
+ *
+ * Storage, not truth: a line of JSON per event under the data directory, so a
+ * future verifier (leaderboards, unlocks) has the raw claims to check --
+ * nothing reads this at runtime today.
+ */
+function recordCampaignEvent(event: unknown): void {
+  try {
+    mkdirSync(serverConfig.admin.dataDir, { recursive: true });
+    appendFileSync(
+      `${serverConfig.admin.dataDir}/campaign-events.jsonl`,
+      `${JSON.stringify({ at: Date.now(), event })}\n`,
+    );
+  } catch {
+    // Best-effort by design; the client neither knows nor cares.
+  }
+}
