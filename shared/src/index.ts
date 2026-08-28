@@ -47,3 +47,6 @@ export * from "./net/stateContract.js";
 export * from "./net/inputCodec.js";
 export * from "./net/validation.js";
 export * from "./net/RateLimiter.js";
+
+// Single-player campaign content and data model
+export * from "./campaign/index.js";

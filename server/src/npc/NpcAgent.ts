@@ -57,6 +57,20 @@ export class NpcAgent {
   readonly combat: CombatController;
   readonly targets = new TargetSelector();
 
+  /**
+   * An emplacement rather than a walker: aims and fires like anyone, but its
+   * movement buttons are stripped before the input is queued. Campaign turrets
+   * set this; nothing in multiplayer does.
+   */
+  stationary = false;
+
+  /**
+   * Per-agent sight, in px; null means the room's configured NPC sight range.
+   * Lets a campaign sniper watch a whole yard while a brawler only notices the
+   * room it is in.
+   */
+  sightRangeOverride: number | null = null;
+
   /** The state machine label of whatever the current action is doing. */
   private actionState = "";
   private combatMode: CombatMode = { kind: "idle" };
@@ -340,6 +354,7 @@ export class NpcAgent {
         this.profile,
         now,
         this.difficulty.targetSelectionSkill,
+        this.sightRangeOverride,
       );
     }
 
@@ -381,7 +396,7 @@ export class NpcAgent {
     this.effective = deriveEffectiveProfile(this.profile, context);
 
     // Who before what: every action then reasons about the same enemy.
-    const sightRange = this.room.config.getNpcConfig().sightRange;
+    const sightRange = this.sightRangeOverride ?? this.room.config.getNpcConfig().sightRange;
     const previousTarget = this.chosenTarget?.sessionId ?? null;
     this.chosenTarget = this.targets.pick(context, this.effective, sightRange, {
       skill: this.difficulty.targetSelectionSkill,
@@ -463,9 +478,9 @@ export class NpcAgent {
     const buttons = this.movement.takeButtons();
 
     this.input.seq = ++this.sequence;
-    this.input.moveLeft = buttons.moveLeft;
-    this.input.moveRight = buttons.moveRight;
-    this.input.jump = buttons.jump;
+    this.input.moveLeft = !this.stationary && buttons.moveLeft;
+    this.input.moveRight = !this.stationary && buttons.moveRight;
+    this.input.jump = !this.stationary && buttons.jump;
     this.input.fire = combat.fire;
     this.input.reload = combat.reload;
     this.input.chargeGrenade = combat.chargeGrenade;

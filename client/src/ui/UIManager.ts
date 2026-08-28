@@ -11,7 +11,15 @@ import {
 } from "@deathmatch/shared";
 import { query, requireElement, setText, toggleClass } from "./dom.js";
 
-export type ScreenName = "menu" | "matchmaking" | "lobby" | "countdown" | "results" | "none";
+export type ScreenName =
+  | "menu"
+  | "matchmaking"
+  | "lobby"
+  | "countdown"
+  | "results"
+  | "campaign"
+  | "campaign-results"
+  | "none";
 
 export interface UICallbacks {
   /** The host would like to begin, with whoever is in the room. */
@@ -23,6 +31,8 @@ export interface UICallbacks {
   /** The host asked for this bot to go. */
   onRemoveBot(sessionId: string): void;
   onPlay(name: string): void;
+  /** The player opened the single-player campaign screen. */
+  onCampaignOpen(): void;
   onCancelMatchmaking(): void;
   onLeaveLobby(): void;
   onPlayAgain(): void;
@@ -114,6 +124,7 @@ export class UIManager {
     requireElement("back-to-menu").addEventListener("click", () => this.callbacks.onBackToMenu());
 
     this.nameInput.addEventListener("input", () => this.clearNameError());
+    requireElement("campaign-button").addEventListener("click", () => this.callbacks.onCampaignOpen());
     this.buildBotPicker();
     this.changeMapButton.addEventListener("click", () => this.toggleMapPicker(true));
     requireElement("map-picker-cancel").addEventListener("click", () => this.toggleMapPicker(false));

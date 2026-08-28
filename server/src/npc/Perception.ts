@@ -68,10 +68,11 @@ export class Perception {
     profile: BrainProfile,
     now: number,
     gameSense: number,
+    sightRangeOverride: number | null = null,
   ): BrainContext {
     const state = this.context.state;
     const playing = state.matchState === MatchState.PLAYING;
-    const sightRange = this.context.config.getNpcConfig().sightRange;
+    const sightRange = sightRangeOverride ?? this.context.config.getNpcConfig().sightRange;
 
     const selfContext = this.describeSelf(self, runtime);
     const visible = this.lookForEnemies(self, sightRange, now);

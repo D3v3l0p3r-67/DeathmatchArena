@@ -343,11 +343,11 @@ export const TRAILS = Object.freeze({
   player: {
     segments: 12,
     fadeMs: 280,
-    // Matched to the grenade's, which reads clearly against the arena's very
-    // dark palette. Lower was legible in a still frame and close to invisible
-    // in motion, which is the only way anybody actually sees it. Dimmer than
-    // the grenade's, though: at this width the same alpha was a glare.
-    alpha: 0.45,
+    // Lower than the grenade's: at this width -- nearly the player's own
+    // silhouette -- even the freshest segment, right against the body, needs
+    // to start see-through or the afterimage reads as a solid second player
+    // rather than a fading one.
+    alpha: 0.28,
     // Nearly the body's 48px, so the newest stretch of trail reads as an
     // afterimage of the player rather than a ribbon behind their feet...
     width: 44,

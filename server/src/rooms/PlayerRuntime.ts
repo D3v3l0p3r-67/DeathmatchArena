@@ -71,6 +71,15 @@ export class PlayerRuntime {
   speedBoostEndsAt = 0;
 
   /**
+   * This player's own speed factor, before any temporary boost.
+   *
+   * 1 for everybody in a normal match. Campaign enemies use it to be slow
+   * Heavies or quick Runners without a config fork: a boost multiplies it,
+   * and a boost expiring restores it rather than resetting to full speed.
+   */
+  baseSpeedMultiplier = 1;
+
+  /**
    * Timestamp the current grenade wind-up began; 0 when not charging.
    *
    * The server's own clock, which is what makes throw strength something a
@@ -105,7 +114,7 @@ export class PlayerRuntime {
     this.reloadEndsAt = 0;
     this.speedBoostEndsAt = 0;
     this.grenadeChargeStartedAt = 0;
-    this.movement.speedMultiplier = 1;
+    this.movement.speedMultiplier = this.baseSpeedMultiplier;
     this.movement.knockbackTimer = 0;
     this.highestAcceptedSeq = 0;
     this.lastInput.seq = 0;
