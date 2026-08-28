@@ -341,17 +341,25 @@ export type BurstName = keyof typeof BURSTS;
  */
 export const TRAILS = Object.freeze({
   player: {
-    segments: 10,
+    segments: 12,
     fadeMs: 280,
     // Matched to the grenade's, which reads clearly against the arena's very
     // dark palette. Lower was legible in a still frame and close to invisible
-    // in motion, which is the only way anybody actually sees it.
-    alpha: 0.6,
-    width: 11,
-    taper: 0.25,
+    // in motion, which is the only way anybody actually sees it. Dimmer than
+    // the grenade's, though: at this width the same alpha was a glare.
+    alpha: 0.45,
+    // Nearly the body's 48px, so the newest stretch of trail reads as an
+    // afterimage of the player rather than a ribbon behind their feet...
+    width: 44,
+    // ...and a hard taper narrows it to a thin tail within a few segments,
+    // giving the wedge its silhouette.
+    taper: 0.09,
     color: 0x9fe8ff,
     additive: true,
-    minSpeed: 300,
+    // Below every weapon's run speed. At 300 it was above most of them --
+    // moveSpeed 330 x a multiplier as low as 0.75 -- so the trail only ever
+    // appeared in falls and speed boosts, one isolated square at a time.
+    minSpeed: 180,
     minSampleDistance: 6,
   },
   grenade: {
