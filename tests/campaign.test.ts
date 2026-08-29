@@ -371,6 +371,37 @@ describe("campaign: the boss", () => {
     }
   });
 
+  it("reports a bar fraction that follows the damage, and none once it is dead", () => {
+    const director = makeDirector();
+    const boss = startBoss(director);
+    const fraction = () => {
+      const status = director.bossStatus();
+      return status ? status.health / status.maxHealth : null;
+    };
+
+    assert.equal(fraction(), 1, "full at the start");
+
+    /*
+     * This is what the HUD bar's width is: the boss's own health over the
+     * boss's own maximum. Walked down in steps rather than checked once, so a
+     * bar that only moved at the ends would fail here.
+     */
+    const readings: number[] = [];
+    for (let step = 0; step < 8; step++) {
+      hitEnemy(director, boss.sessionId, 90);
+      tick(director, 50);
+      if (boss.alive) readings.push(Math.round(fraction()! * 100) / 100);
+    }
+    for (let i = 1; i < readings.length; i++) {
+      assert.ok(readings[i]! < readings[i - 1]!, `reading ${i} (${readings[i]}) should be below ${readings[i - 1]}`);
+    }
+    assert.ok(readings.length >= 5, `several steps should still be alive, got ${readings.length}`);
+
+    killEnemy(director, boss.sessionId);
+    tick(director, 100);
+    assert.equal(director.bossStatus(), null, "a dead boss has no bar to show");
+  });
+
   it("defeat opens the finish, and the finish ends the level with a result", () => {
     const director = makeDirector();
     const boss = startBoss(director);
