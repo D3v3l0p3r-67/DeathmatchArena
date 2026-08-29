@@ -13,6 +13,7 @@ import { TrapActivation, type ArenaDefinition, type TrapDefinition } from "../..
 import { SurfaceType, type SurfaceTypeValue } from "../../game/types.js";
 import { LASER_ID, ROCKET_LAUNCHER_ID, ASSAULT_RIFLE_ID } from "../../config/defaults.js";
 import type { CampaignLevelDefinition } from "../types.js";
+import { CAMPAIGN_LIVES } from "../catalogue.js";
 
 const { FLOOR, PLATFORM, WALL, OBSTACLE } = SurfaceType;
 
@@ -164,7 +165,7 @@ export const OUTPOST_LEVEL: CampaignLevelDefinition = {
   startingGrenades: 2,
 
   parTimeMs: 5 * 60 * 1000,
-  respawnRule: { kind: "checkpoint" },
+  respawnRule: { kind: "lives", lives: CAMPAIGN_LIVES },
 
   /** Clearing the outpost opens the refinery. */
   nextLevelId: "level-02",

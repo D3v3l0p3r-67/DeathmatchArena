@@ -1517,6 +1517,22 @@ kbd {
   color: var(--text-dim);
 }
 
+/*
+ * The last death is not the same event as the others: one sends you back to a
+ * checkpoint, this one ends the run. Bigger, wider and brighter, so the two are
+ * never mistaken for each other in the half-second before the results appear.
+ */
+.campaign-layer__death.is-gameover {
+  padding: 22px 46px;
+  border-color: rgba(255, 77, 94, 0.9);
+  box-shadow: 0 0 40px rgba(255, 77, 94, 0.25);
+}
+
+.campaign-layer__death.is-gameover b {
+  font-size: 26px;
+  letter-spacing: 0.22em;
+}
+
 .campaign-layer__debug {
   position: absolute;
   bottom: 14px;

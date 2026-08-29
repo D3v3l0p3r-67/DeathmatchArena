@@ -16,6 +16,7 @@ import { TrapActivation, type ArenaDefinition, type TrapDefinition } from "../..
 import { SurfaceType, type SurfaceTypeValue } from "../../game/types.js";
 import { ASSAULT_RIFLE_ID, FLAMETHROWER_ID, LASER_ID } from "../../config/defaults.js";
 import type { CampaignLevelDefinition } from "../types.js";
+import { CAMPAIGN_LIVES } from "../catalogue.js";
 
 const { FLOOR, PLATFORM, WALL, OBSTACLE } = SurfaceType;
 
@@ -197,7 +198,7 @@ export const REFINERY_LEVEL: CampaignLevelDefinition = {
   musicTrackId: "arena",
 
   parTimeMs: 6 * 60 * 1000,
-  respawnRule: { kind: "checkpoint" },
+  respawnRule: { kind: "lives", lives: CAMPAIGN_LIVES },
 
   checkpoints: [
     { id: "cp1", x: 2700, y: FLOOR_Y - 40, zone: { x: 2660, y: 0, width: 140, height: 1400 } },

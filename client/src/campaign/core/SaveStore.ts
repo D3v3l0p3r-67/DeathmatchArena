@@ -37,6 +37,13 @@ export interface CheckpointSave {
   elapsedMs: number;
   weaponId: string;
   grenades: number;
+  /**
+   * Attempts left under a lives rule, so quitting and resuming is not a free
+   * refill. Optional because saves written before lives existed do not have it;
+   * those resume on a full set, which is the generous reading of a missing
+   * number.
+   */
+  livesLeft?: number | null;
 }
 
 export interface CampaignSyncSink {

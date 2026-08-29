@@ -178,6 +178,8 @@ export class CampaignDirector {
     this.startedAt = this.match.now();
 
     if (resume) {
+      // A resumed run keeps the attempts it had left, not a fresh set.
+      if (resume.livesLeft != null) this.livesLeft = resume.livesLeft;
       this.elapsedOffsetMs = resume.elapsedMs;
       this.score.restore(resume.score);
       this.encounters.restoreCompleted(resume.completedEncounters);
@@ -397,6 +399,7 @@ export class CampaignDirector {
       elapsedMs: this.elapsedMs(),
       weaponId: player?.weaponId ?? this.level.startingWeapon,
       grenades: player?.grenades ?? 0,
+      livesLeft: this.livesLeft,
     });
 
     this.triggers.notifyCheckpointReached(checkpointId, this.match.now());

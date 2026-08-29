@@ -17,6 +17,7 @@ import {
   ServerMessage,
   damp,
   getCampaignEnemy,
+  getGrenadeConfig,
   getPowerUp,
   type CampaignZone,
   type CrateDestroyedPayload,
@@ -296,6 +297,17 @@ export class CampaignScene extends Phaser.Scene {
         },
         this.game.loop.delta / 1000,
       );
+
+      /*
+       * The wind-up indicator, the same arrow multiplayer draws and for the
+       * same reason: a grenade you cannot aim is a grenade you throw at the
+       * ceiling. Read from this client's own button rather than from the
+       * simulation, so it grows at frame rate -- and here that is not even a
+       * shortcut, because in single player this client *is* the simulation.
+       */
+      if (sessionId === LOCAL_PLAYER_ID) {
+        view.setThrowCharge(this.inputController?.chargeProgress(getGrenadeConfig().maxChargeMs) ?? 0);
+      }
     }
     for (const [sessionId, view] of this.playerViews) {
       if (state.players.has(sessionId)) continue;

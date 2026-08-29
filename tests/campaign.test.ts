@@ -8,6 +8,7 @@ import { describe, it } from "node:test";
 
 import {
   CAMPAIGN_LEVELS,
+  CAMPAIGN_LIVES,
   CAMPAIGN_SCORING,
   OUTPOST_ARENA,
   OUTPOST_LEVEL,
@@ -23,6 +24,7 @@ import {
 } from "@deathmatch/shared";
 
 import { CampaignDirector } from "../client/src/campaign/core/CampaignDirector.js";
+import type { CheckpointSave } from "../client/src/campaign/core/SaveStore.js";
 import { ScoreTracker } from "../client/src/campaign/core/ScoreTracker.js";
 import { LOCAL_PLAYER_ID } from "../client/src/campaign/sim/LocalMatch.js";
 
@@ -396,6 +398,70 @@ describe("campaign: respawn rules", () => {
     director.match.matchManager.applyDamage(LOCAL_PLAYER_ID, "", 1_000_000, 0, 0, "test");
     tick(director, 100);
     assert.equal(failed, true);
+  });
+
+  it("every shipped level grants the campaign's two lives", () => {
+    for (const level of CAMPAIGN_LEVELS) {
+      assert.equal(
+        level.respawnRule.kind,
+        "lives",
+        `${level.id} should run on lives, not ${level.respawnRule.kind}`,
+      );
+      assert.equal(
+        (level.respawnRule as { kind: "lives"; lives: number }).lives,
+        CAMPAIGN_LIVES,
+        `${level.id} should grant CAMPAIGN_LIVES`,
+      );
+    }
+  });
+
+  it("the shipped level plays out its two lives and then ends the run", () => {
+    const director = makeDirector();
+    const seen: (number | null)[] = [];
+    let failed = false;
+    director.ui.on("playerDied", ({ livesLeft }) => seen.push(livesLeft));
+    director.ui.on("levelFailed", () => (failed = true));
+
+    // Two deaths, played through the real level rather than a synthetic one.
+    director.match.matchManager.applyDamage(LOCAL_PLAYER_ID, "", 1_000_000, 0, 0, "test");
+    tick(director, 3000);
+    assert.deepEqual(seen, [1], "the first death leaves one life");
+    assert.equal(failed, false);
+    assert.equal(director.livesRemaining(), 1);
+
+    director.match.matchManager.applyDamage(LOCAL_PLAYER_ID, "", 1_000_000, 0, 0, "test");
+    tick(director, 100);
+    assert.equal(failed, true, "the second death ends the run");
+    assert.equal(director.livesRemaining(), 0);
+  });
+
+  it("a resumed run keeps the lives it had left, rather than a fresh set", () => {
+    const director = makeDirector();
+    director.debugSetGodMode(true);
+    director.debugTeleport(3620, 1100);
+    tick(director, 100);
+
+    // Spend a life *after* the checkpoint, then claim a later one so the save
+    // is rewritten with the reduced count.
+    director.debugSetGodMode(false);
+    director.match.matchManager.applyDamage(LOCAL_PLAYER_ID, "", 1_000_000, 0, 0, "test");
+    tick(director, 3000);
+    assert.equal(director.livesRemaining(), 1);
+
+    director.debugSetGodMode(true);
+    director.debugTeleport(6100, 1100);
+    tick(director, 100);
+    tick(director, 100);
+
+    const save = JSON.parse(storage.get("deathmatch-campaign-checkpoint")!) as CheckpointSave;
+    assert.equal(save.livesLeft, 1, "the save records the life already spent");
+
+    const resumed = new CampaignDirector(OUTPOST_LEVEL, OUTPOST_ARENA, "normal", {
+      seed: 4242,
+      now: () => clock.now,
+    });
+    resumed.start(save);
+    assert.equal(resumed.livesRemaining(), 1, "resuming is not a free refill");
   });
 });
 

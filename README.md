@@ -45,10 +45,10 @@ Useful server endpoints in development:
 ### Other commands
 
 ```bash
-npm test           # 529 tests: physics, combat, grenades, power-ups, traps, arenas, configuration,
+npm test           # 532 tests: physics, combat, grenades, power-ups, traps, arenas, configuration,
                    #            administration, NPC brains, campaign, music, presentation, debug
                    #            access, protocol, and real networked matches
-npm run smoke      # 20 checks in a real browser: menus, pickers, a campaign level, pause, settings
+npm run smoke      # 21 checks in a real browser: menus, pickers, a campaign level, pause, settings
 npm run lint       # eslint across the workspace
 npm run typecheck  # tsc --noEmit across all three packages
 npm run build      # bundles the server and builds the client
@@ -633,6 +633,41 @@ bonus, with S-A-B-C-D ranks cut relative to what the played difficulty made
 achievable. Progress and the checkpoint resume save live in `localStorage`
 first; respawn rules (checkpoint / limited lives / one life) are level
 configuration, not player code.
+
+### Two lives, then the run is over
+
+Both shipped levels run on `{ kind: "lives", lives: CAMPAIGN_LIVES }`, and
+`CAMPAIGN_LIVES` is 2. The two rules do different jobs and both apply:
+checkpoints decide *where* a death puts you back, lives decide how many times.
+Unlimited retries make a level a formality — you eventually walk through
+anything one metre at a time — so the second failure ends the run instead of the
+level, and the results screen says *Game over* with no next level to take.
+
+The number is one constant rather than a field copied into every level, because
+it is a rule about the campaign, not about any one place in it. A level that
+wants something else still says so: a boss rush could ask for `oneLife`, a
+tutorial for plain `checkpoint`.
+
+Two details that are easy to get wrong and are covered by tests. The remaining
+lives ride along in the checkpoint save, so quitting and resuming is not a free
+refill (a save written before lives existed has no count, and resumes on a full
+set). And the last death is held on screen for two seconds under a GAME OVER
+card before the results replace it: swapping screens on the frame the last life
+goes reads as a bug rather than as an ending, because the player never sees what
+killed them.
+
+### Aiming a grenade
+
+Holding right-click draws an arrow from the player's hand, growing and turning
+green → amber → red as the throw charges. The campaign draws the same arrow the
+multiplayer scene does, from the same `PlayerView`, measured from this client's
+own button rather than from simulation state so it grows at frame rate rather
+than in 20Hz steps.
+
+In multiplayer that last point is a deliberate small trust: the client draws its
+own charge, and the server measures the same button over the same ticks, so a
+full arrow really is a full-power throw. In the campaign it is not a trust at
+all — this client *is* the simulation, and there is nothing to verify against.
 
 ### The levels, and the chain between them
 

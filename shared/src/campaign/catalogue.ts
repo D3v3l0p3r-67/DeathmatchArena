@@ -205,6 +205,21 @@ export function getCampaignDifficulty(id: CampaignDifficultyId): CampaignDifficu
   return CAMPAIGN_DIFFICULTIES.find((difficulty) => difficulty.id === id) ?? CAMPAIGN_DIFFICULTIES[1]!;
 }
 
+/**
+ * How many attempts a level allows before the run is over.
+ *
+ * Checkpoints decide *where* a death puts the player back; this decides how
+ * many times. Unlimited retries make a level a formality -- you eventually walk
+ * through anything one metre at a time -- so a level is worth two attempts, and
+ * the second failure ends the run rather than the level.
+ *
+ * One number, here, because it is a rule about the campaign rather than about
+ * any one level. A level that wants something else still says so in its own
+ * `respawnRule`: a boss rush could ask for `oneLife`, a tutorial for
+ * `checkpoint`.
+ */
+export const CAMPAIGN_LIVES = 2;
+
 export const CAMPAIGN_SCORING: CampaignScoringConfig = {
   comboWindowMs: 4000,
   comboStepPercent: 25,

@@ -38,6 +38,9 @@ import { HttpCampaignSync, SaveStore } from "./core/SaveStore.js";
 import { buildCampaignConfig, LOCAL_PLAYER_ID } from "./sim/LocalMatch.js";
 import { CampaignScene, CAMPAIGN_SCENE_KEY, type CampaignSceneEvents } from "./scene/CampaignScene.js";
 
+/** How long the game-over card holds the screen before the results replace it. */
+const GAME_OVER_HOLD_MS = 2000;
+
 /** What the flow needs from the shell around it. */
 export interface CampaignFlowDeps {
   ui: UIManager;
@@ -65,6 +68,8 @@ export class CampaignFlow {
   private pendingLevelId: string | null = null;
   private paused = false;
   private debugArmed = false;
+  /** The game-over card is up and the results are on their way. */
+  private ending = false;
 
   constructor(private readonly deps: CampaignFlowDeps) {
     this.bindPauseMenu();
@@ -122,6 +127,7 @@ export class CampaignFlow {
     this.lastStarted = { levelId, difficulty };
     this.debugArmed = false;
     this.paused = false;
+    this.ending = false;
 
     if (!this.run || this.run.difficulty !== difficulty) {
       this.run = {
@@ -208,6 +214,8 @@ export class CampaignFlow {
     this.run = null;
     this.pendingLevelId = null;
     this.paused = false;
+    this.ending = false;
+    this.deps.campaignUi.hideDeath();
     this.deps.campaignUi.setLayerActive(false);
     this.deps.hud.setVisible(false);
     this.deps.hud.setCampaignMode(false);
@@ -221,7 +229,9 @@ export class CampaignFlow {
    * fine way to lose a run to a stray key. It opens the pause menu instead.
    */
   setPaused(paused: boolean): void {
-    if (!this.director) return;
+    // Nothing to pause once the run is over: the card is playing out and the
+    // results are already scheduled.
+    if (!this.director || this.ending) return;
     this.paused = paused;
     this.withScene((scene) => scene.setPaused(paused));
 
@@ -333,15 +343,26 @@ export class CampaignFlow {
     });
 
     director.ui.on("levelFailed", () => {
-      campaignUi.setLayerActive(false);
-      hud.setVisible(false);
-      hud.setCampaignMode(false);
-      campaignUi.showResults(null);
-      // A failed level ends the run: there is no next level to offer.
-      campaignUi.setNextLevel(null, null);
-      campaignUi.setNewBest(false);
-      this.run = null;
-      ui.showScreen("campaign-results");
+      /*
+       * Held for a beat over the level itself. Swapping straight to the results
+       * screen the frame the last life goes reads as a bug rather than as an
+       * ending -- the player never sees what killed them.
+       */
+      this.ending = true;
+      campaignUi.showGameOver();
+      window.setTimeout(() => {
+        this.ending = false;
+        campaignUi.hideDeath();
+        campaignUi.setLayerActive(false);
+        hud.setVisible(false);
+        hud.setCampaignMode(false);
+        campaignUi.showResults(null);
+        // A failed level ends the run: there is no next level to offer.
+        campaignUi.setNextLevel(null, null);
+        campaignUi.setNewBest(false);
+        this.run = null;
+        ui.showScreen("campaign-results");
+      }, GAME_OVER_HOLD_MS);
     });
   }
 

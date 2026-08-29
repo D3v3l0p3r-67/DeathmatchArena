@@ -45,6 +45,7 @@ export class CampaignUI {
   private readonly bossFill = requireElement("camp-boss-fill");
   private readonly toastEl = requireElement("camp-toast");
   private readonly death = requireElement("camp-death");
+  private readonly deathTitle = requireElement("camp-death-title");
   private readonly deathDetail = requireElement("camp-death-detail");
   private readonly debugHint = requireElement("camp-debug");
 
@@ -275,17 +276,32 @@ export class CampaignUI {
   }
 
   showDeath(livesLeft: number | null): void {
+    setText(this.deathTitle, "You are down.");
     setText(
       this.deathDetail,
       livesLeft === null
         ? "Respawning at the last checkpoint…"
-        : `${livesLeft} ${livesLeft === 1 ? "life" : "lives"} left…`,
+        : `${livesLeft} ${livesLeft === 1 ? "life" : "lives"} left · back to the last checkpoint…`,
     );
+    toggleClass(this.death, "is-gameover", false);
+    this.death.hidden = false;
+  }
+
+  /**
+   * The last death, which is a different event: the run is over and no
+   * checkpoint is coming. Held over the level for a moment before the results
+   * take the screen, so the ending is read rather than skipped past.
+   */
+  showGameOver(): void {
+    setText(this.deathTitle, "GAME OVER");
+    setText(this.deathDetail, "Out of lives.");
+    toggleClass(this.death, "is-gameover", true);
     this.death.hidden = false;
   }
 
   hideDeath(): void {
     this.death.hidden = true;
+    toggleClass(this.death, "is-gameover", false);
   }
 
   setDebugHint(visible: boolean): void {
@@ -368,7 +384,7 @@ export class CampaignUI {
       );
       setText(requireElement("camp-r-accuracy"), `${Math.round(result.accuracy * 100)}%`);
     } else {
-      setText(this.resultsEyebrow, "Level failed");
+      setText(this.resultsEyebrow, "Game over");
       setText(this.resultsRank, "✕");
       toggleClass(this.resultsRank, "is-failed", true);
       this.lightRankScale(null);

@@ -134,6 +134,12 @@ try {
   const running = await page.evaluate(() => document.querySelector('[data-layer="campaign"]')?.classList.contains("is-active"));
   check(running === true, "starting a level puts the campaign HUD up");
 
+  const lives = await page.evaluate(() => ({
+    hidden: document.getElementById("camp-lives-row").hidden,
+    text: document.getElementById("camp-lives").textContent.trim(),
+  }));
+  check(!lives.hidden && lives.text === "2", "the level starts with two lives on the HUD", `read "${lives.text}"`);
+
   // Escape must pause rather than quit, twice in a row -- the soft-lock.
   await page.keyboard.press("Escape");
   await page.waitForTimeout(400);
