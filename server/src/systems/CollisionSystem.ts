@@ -1,7 +1,6 @@
 import {
-  PLAYER_HALF_HEIGHT,
-  PLAYER_HALF_WIDTH,
   centeredBounds,
+  hitBounds,
   segmentVsBounds,
   type CollisionWorld,
   type RayHit,
@@ -56,7 +55,7 @@ export class CollisionSystem {
     for (const player of players) {
       if (!player.alive || player.sessionId === excludeId) continue;
 
-      const bounds = centeredBounds(player.x, player.y, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT);
+      const bounds = hitBounds(player);
       const hit = segmentVsBounds(x0, y0, x1, y1, bounds);
       if (hit && (closest === null || hit.t < closest.t)) {
         closest = { ...hit, player };
@@ -118,7 +117,7 @@ export class CollisionSystem {
     for (const player of players) {
       if (!player.alive || player.sessionId === excludeId) continue;
 
-      const bounds = centeredBounds(player.x, player.y, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT);
+      const bounds = hitBounds(player);
       const nearestX = clampTo(originX, bounds.left, bounds.right);
       const nearestY = clampTo(originY, bounds.top, bounds.bottom);
 

@@ -256,7 +256,16 @@ export interface CampaignScoringConfig {
 
 export type CampaignRank = "S" | "A" | "B" | "C" | "D";
 
-export interface CampaignLevelResult {
+/**
+ * How a run went, whether or not it reached the end.
+ *
+ * A level that ends in a game over is still a run somebody played: they killed
+ * things, found secrets and spent time doing it, and a results screen showing
+ * six dashes throws all of that away. So the numbers are their own shape, and
+ * only a *finished* level adds the two things a failure cannot have -- the
+ * end-of-level bonuses, and a rank.
+ */
+export interface CampaignRunSummary {
   levelId: string;
   difficulty: CampaignDifficultyId;
   score: number;
@@ -267,6 +276,9 @@ export interface CampaignLevelResult {
   timeMs: number;
   /** 0..1 hit ratio. */
   accuracy: number;
+}
+
+export interface CampaignLevelResult extends CampaignRunSummary {
   rank: CampaignRank;
 }
 

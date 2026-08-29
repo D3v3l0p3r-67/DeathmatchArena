@@ -16,7 +16,9 @@ import {
   FIXED_DELTA,
   KNOCKBACK_IMPULSE,
   MatchState,
+  PLAYER,
   PowerUpType,
+  hitBounds,
   SHOTGUN_ID,
   ServerMessage,
   createInputCommand,
@@ -1124,6 +1126,68 @@ describe("knockback and recoil", () => {
     stepPlayerMovement(movement, input, FIXED_DELTA, harness.context.world, undefined, getPlayerConfig());
 
     assert.ok(movement.velocityX > getPlayerConfig().moveSpeed, "the shove was clipped away");
+  });
+});
+
+describe("a boss is as big as it looks", () => {
+  let harness: Harness;
+
+  beforeEach(() => {
+    harness = createHarness();
+  });
+
+  /*
+   * The Warden is drawn at 1.35 and used to be shot at a plain player's 28x48,
+   * so barely half the figure on screen could be hit at all: a bullet through
+   * its head or its legs passed through. That reads exactly like a boss that
+   * ignores gunfire, which is how it was reported.
+   */
+  it("scales the damage box with the drawn size", () => {
+    const plain = hitBounds({ x: 0, y: 0, bodyScale: 1 });
+    const boss = hitBounds({ x: 0, y: 0, bodyScale: 1.35 });
+
+    assert.equal(plain.bottom - plain.top, PLAYER.HEIGHT);
+    assert.equal(plain.right - plain.left, PLAYER.WIDTH);
+    assert.ok(
+      Math.abs(boss.bottom - boss.top - PLAYER.HEIGHT * 1.35) < 1e-6,
+      "the boss box is as tall as the boss is drawn",
+    );
+  });
+
+  it("treats a missing or nonsensical scale as a plain player", () => {
+    for (const scale of [0, -2, Number.NaN]) {
+      const bounds = hitBounds({ x: 0, y: 0, bodyScale: scale });
+      assert.equal(bounds.bottom - bounds.top, PLAYER.HEIGHT, `scale ${scale} should fall back to 1`);
+    }
+  });
+
+  it("lands a shot on the head of a big target that a player-sized box would miss", () => {
+    harness.addPlayer("shooter", 200, 1700);
+    const target = harness.addPlayer("target", 600, 1700);
+    target.bodyScale = 1.35;
+
+    // 28px above centre: inside the drawn body (half-height 32.4), outside a
+    // plain player's box (half-height 24).
+    const shooter = harness.state.players.get("shooter")!;
+    shooter.y = target.y - 28;
+    fireAt(harness, "shooter", 0, 0);
+    harness.step(30);
+
+    assert.equal(harness.damage.length, 1, "the head shot should register");
+    assert.equal(harness.damage[0]!.victimId, "target");
+  });
+
+  it("leaves an ordinary player exactly as hard to hit as before", () => {
+    harness.addPlayer("shooter", 200, 1700);
+    const target = harness.addPlayer("target", 600, 1700);
+    assert.equal(target.bodyScale, 1, "everybody but a boss is a plain player");
+
+    const shooter = harness.state.players.get("shooter")!;
+    shooter.y = target.y - 28;
+    fireAt(harness, "shooter", 0, 0);
+    harness.step(30);
+
+    assert.equal(harness.damage.length, 0, "that shot still passes over an ordinary head");
   });
 });
 

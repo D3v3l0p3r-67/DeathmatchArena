@@ -44,6 +44,8 @@ export interface SyncedPlayer {
   readonly weaponId: string;
   /** Movement speed multiplier from an active effect; 1 when nothing is active. */
   readonly speedMultiplier: number;
+  /** Drawn and shot-at size relative to a player; 1 for everyone but a boss. */
+  readonly bodyScale: number;
   /** Seconds left of the window in which a shove decays on its own terms. */
   readonly knockbackTimer: number;
   /**

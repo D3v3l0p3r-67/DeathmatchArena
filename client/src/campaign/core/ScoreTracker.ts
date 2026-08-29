@@ -9,6 +9,7 @@ import type {
   CampaignDifficultyId,
   CampaignLevelResult,
   CampaignRank,
+  CampaignRunSummary,
   CampaignScoringConfig,
 } from "@deathmatch/shared";
 import { getCampaignDifficulty } from "@deathmatch/shared";
@@ -113,6 +114,31 @@ export class ScoreTracker {
     return this.shots > 0 ? Math.min(1, this.hits / this.shots) : 0;
   }
 
+  /**
+   * The numbers as they stand right now: what was banked, with none of the
+   * end-of-level bonuses and no rank. This is what a run that ended badly has
+   * to show for itself, and it is the honest amount -- a par-time bonus for a
+   * level nobody finished would be a reward for failing quickly.
+   */
+  summarize(
+    levelId: string,
+    difficulty: CampaignDifficultyId,
+    timeMs: number,
+    secretsTotal: number,
+  ): CampaignRunSummary {
+    return {
+      levelId,
+      difficulty,
+      score: Math.round(this.points * getCampaignDifficulty(difficulty).scoreScale),
+      kills: this.kills,
+      deaths: this.deaths,
+      secretsFound: this.secretsFound,
+      secretsTotal,
+      timeMs,
+      accuracy: this.accuracy(),
+    };
+  }
+
   finalize(
     levelId: string,
     difficulty: CampaignDifficultyId,
@@ -141,17 +167,6 @@ export class ScoreTracker {
     const rank: CampaignRank =
       fraction >= thresholds.S ? "S" : fraction >= thresholds.A ? "A" : fraction >= thresholds.B ? "B" : fraction >= thresholds.C ? "C" : "D";
 
-    return {
-      levelId,
-      difficulty,
-      score,
-      kills: this.kills,
-      deaths: this.deaths,
-      secretsFound: this.secretsFound,
-      secretsTotal,
-      timeMs,
-      accuracy: this.accuracy(),
-      rank,
-    };
+    return { ...this.summarize(levelId, difficulty, timeMs, secretsTotal), score, rank };
   }
 }

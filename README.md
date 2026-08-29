@@ -45,7 +45,7 @@ Useful server endpoints in development:
 ### Other commands
 
 ```bash
-npm test           # 532 tests: physics, combat, grenades, power-ups, traps, arenas, configuration,
+npm test           # 538 tests: physics, combat, grenades, power-ups, traps, arenas, configuration,
                    #            administration, NPC brains, campaign, music, presentation, debug
                    #            access, protocol, and real networked matches
 npm run smoke      # 21 checks in a real browser: menus, pickers, a campaign level, pause, settings
@@ -648,6 +648,14 @@ it is a rule about the campaign, not about any one place in it. A level that
 wants something else still says so: a boss rush could ask for `oneLife`, a
 tutorial for plain `checkpoint`.
 
+A game over still reports the run. Six dashes said "nothing happened here",
+which is untrue of a level somebody spent five minutes on: the kills, secrets,
+time and accuracy are all real, and only the *rank* is missing. So
+`CampaignRunSummary` is the numbers, `CampaignLevelResult` extends it with the
+rank, and a failure carries the summary — the score being what was banked, with
+none of the end-of-level bonuses. Paying a par-time bonus to a level nobody
+finished would make failing quickly score better than playing well.
+
 Two details that are easy to get wrong and are covered by tests. The remaining
 lives ride along in the checkpoint save, so quitting and resuming is not a free
 refill (a save written before lives existed has no count, and resumes on a full
@@ -655,6 +663,24 @@ set). And the last death is held on screen for two seconds under a GAME OVER
 card before the results replace it: swapping screens on the frame the last life
 goes reads as a bug rather than as an ending, because the player never sees what
 killed them.
+
+### A boss is as big as it looks
+
+Campaign bosses are drawn larger than a player — the Warden at 1.35 — and for a
+while only the *drawing* knew that. Every hit test used a plain player's 28×48
+box, so of the 37.8×64.8 figure on screen only **55% of its area could be hit**:
+a bullet through its head or its legs passed straight through. Reported as "does
+the level-1 boss even have a hit area — it doesn't seem to lose health", which is
+exactly what it looked like.
+
+`bodyScale` is now player state rather than a rendering detail, and
+`hitBounds()` scales the damage box with it — bullets, melee arcs and blasts
+alike. The scene reads the same field it is drawn from, so the two agree by
+construction rather than by both being told the same number.
+
+Movement is deliberately *not* scaled: a boss still walks the gaps its level was
+drawn around, so the physics box stays a player's. Only what hurts is measured
+against the silhouette.
 
 ### Aiming a grenade
 

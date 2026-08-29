@@ -89,6 +89,20 @@ export class PlayerState extends Schema implements SyncedPlayer {
    * server used, or a boosted player would fight their own reconciliation.
    */
   @type("float32") speedMultiplier = 1;
+
+  /**
+   * How much bigger this figure is than a player, drawn *and* shot at.
+   *
+   * Campaign bosses loom: the Warden is drawn at 1.35. For a while only the
+   * drawing knew that, and the hit test used a plain player's 28x48 box -- so
+   * barely half the area of the thing on screen could actually be hit, and
+   * shooting a boss in the head or the shoulders did nothing at all. It reads
+   * exactly like a broken boss, and it was.
+   *
+   * Movement is deliberately *not* scaled: a boss still walks through the gaps
+   * the level was drawn around. This is the damage silhouette, nothing else.
+   */
+  @type("float32") bodyScale = 1;
   /**
    * Seconds left of the shove-decay window.
    *

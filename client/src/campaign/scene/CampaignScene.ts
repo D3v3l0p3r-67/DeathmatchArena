@@ -275,7 +275,9 @@ export class CampaignScene extends Phaser.Scene {
         const isLocal = sessionId === LOCAL_PLAYER_ID;
         const enemyType = isLocal ? null : this.enemyTypeFor(player.name);
         view = new PlayerView(this, sessionId, player.name, isLocal, enemyType?.color);
-        if (enemyType?.bodyScale) view.setBodyScale(enemyType.bodyScale);
+        // Read from state rather than from the definition: the size the shot
+        // test uses is the size that gets drawn, by construction.
+        if (player.bodyScale !== 1) view.setBodyScale(player.bodyScale);
         this.playerViews.set(sessionId, view);
       }
       view.setName(player.name);

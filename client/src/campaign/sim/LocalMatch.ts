@@ -219,6 +219,10 @@ export class LocalMatch {
     runtime.movement.speedMultiplier = runtime.baseSpeedMultiplier;
     player.speedMultiplier = runtime.baseSpeedMultiplier;
 
+    // The figure's size is simulation state, not a drawing detail: it decides
+    // what a shot can hit as well as what the scene draws.
+    player.bodyScale = definition.bodyScale ?? 1;
+
     agent.stationary = definition.stationary === true;
     agent.sightRangeOverride = definition.detectionRange ?? null;
     return agent;

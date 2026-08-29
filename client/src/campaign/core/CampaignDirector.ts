@@ -17,6 +17,7 @@ import {
   type CampaignEnemySpawn,
   type CampaignLevelDefinition,
   type CampaignLevelResult,
+  type CampaignRunSummary,
   type CampaignProgress,
   type CampaignTriggerAction,
   type CampaignZone,
@@ -44,7 +45,8 @@ export interface CampaignUiEvents {
   shake: { intensity: number };
   playerDied: { respawnInMs: number; livesLeft: number | null };
   levelCompleted: { result: CampaignLevelResult; progress: CampaignProgress };
-  levelFailed: Record<string, never>;
+  /** The run ended badly. The summary is what it managed before it did. */
+  levelFailed: { summary: CampaignRunSummary };
 }
 
 export interface CampaignDirectorOptions {
@@ -476,7 +478,14 @@ export class CampaignDirector {
   private failLevel(): void {
     if (this.finished || this.failed) return;
     this.failed = true;
-    this.ui.emit("levelFailed", {});
+    this.ui.emit("levelFailed", {
+      summary: this.score.summarize(
+        this.level.id,
+        this.difficulty,
+        this.elapsedMs(),
+        this.level.secrets.length,
+      ),
+    });
   }
 
   private completeLevel(): void {

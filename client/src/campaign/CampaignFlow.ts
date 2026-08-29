@@ -342,7 +342,7 @@ export class CampaignFlow {
       ui.showScreen("campaign-results");
     });
 
-    director.ui.on("levelFailed", () => {
+    director.ui.on("levelFailed", ({ summary }) => {
       /*
        * Held for a beat over the level itself. Swapping straight to the results
        * screen the frame the last life goes reads as a bug rather than as an
@@ -356,7 +356,7 @@ export class CampaignFlow {
         campaignUi.setLayerActive(false);
         hud.setVisible(false);
         hud.setCampaignMode(false);
-        campaignUi.showResults(null);
+        campaignUi.showFailure(summary);
         // A failed level ends the run: there is no next level to offer.
         campaignUi.setNextLevel(null, null);
         campaignUi.setNewBest(false);

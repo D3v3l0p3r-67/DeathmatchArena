@@ -12,8 +12,7 @@
  */
 import {
   MatchState,
-  PLAYER_HALF_HEIGHT,
-  PLAYER_HALF_WIDTH,
+  hitHalfExtents,
   ServerMessage,
   clamp,
   distanceToBox,
@@ -57,13 +56,16 @@ export function detonate(context: RoomContext, blast: Blast, now: number): void 
   for (const player of Array.from(context.state.players.values())) {
     if (!player.alive || !player.inMatch) continue;
 
+    // Measured against what is drawn: a blast that clips a boss's shoulder
+    // should hurt it for the same reason a bullet there should.
+    const extents = hitHalfExtents(player.bodyScale);
     const distance = distanceToBox(
       blast.x,
       blast.y,
       player.x,
       player.y,
-      PLAYER_HALF_WIDTH,
-      PLAYER_HALF_HEIGHT,
+      extents.halfWidth,
+      extents.halfHeight,
     );
     const damage = explosionDamageAt(distance, blast);
     if (damage <= 0) continue;

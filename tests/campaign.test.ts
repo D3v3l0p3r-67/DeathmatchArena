@@ -10,6 +10,7 @@ import {
   CAMPAIGN_LEVELS,
   CAMPAIGN_LIVES,
   CAMPAIGN_SCORING,
+  type CampaignRunSummary,
   OUTPOST_ARENA,
   OUTPOST_LEVEL,
   REFINERY_ARENA,
@@ -433,6 +434,56 @@ describe("campaign: respawn rules", () => {
     tick(director, 100);
     assert.equal(failed, true, "the second death ends the run");
     assert.equal(director.livesRemaining(), 0);
+  });
+
+  it("a game over reports what the run managed, not a row of dashes", () => {
+    const director = makeDirector();
+    let summary: CampaignRunSummary | null = null;
+    director.ui.on("levelFailed", (payload) => (summary = payload.summary));
+
+    // Play a little: bank a secret, then spend both lives.
+    director.debugSetGodMode(true);
+    director.debugTeleport(210, 740);
+    tick(director, 100);
+    director.debugSetGodMode(false);
+
+    director.match.matchManager.applyDamage(LOCAL_PLAYER_ID, "", 1_000_000, 0, 0, "test");
+    tick(director, 3000);
+    director.match.matchManager.applyDamage(LOCAL_PLAYER_ID, "", 1_000_000, 0, 0, "test");
+    tick(director, 100);
+
+    assert.ok(summary, "the failure carries a summary");
+    const failed: CampaignRunSummary = summary!;
+    assert.equal(failed.levelId, "level-01");
+    assert.equal(failed.deaths, 2, "both deaths counted");
+    assert.equal(failed.secretsFound, 1, "the secret it did find still counts");
+    assert.equal(failed.secretsTotal, 2);
+    // Two deaths cost 400 each, which is more than one secret pays, so the
+    // banked total is floored at zero -- what matters is that it is *the*
+    // banked total and not a dash.
+    assert.equal(failed.score, director.currentScore(), "the score is what was actually banked");
+    assert.ok(failed.timeMs > 0, "the run took time");
+    assert.ok(failed.accuracy >= 0 && failed.accuracy <= 1);
+  });
+
+  it("a failed run is not paid the bonuses a finished one earns", () => {
+    const director = makeDirector();
+    let summary: CampaignRunSummary | null = null;
+    director.ui.on("levelFailed", (payload) => (summary = payload.summary));
+
+    // Die immediately, twice: nothing killed, nothing found, no time spent.
+    director.match.matchManager.applyDamage(LOCAL_PLAYER_ID, "", 1_000_000, 0, 0, "test");
+    tick(director, 3000);
+    director.match.matchManager.applyDamage(LOCAL_PLAYER_ID, "", 1_000_000, 0, 0, "test");
+    tick(director, 100);
+
+    /*
+     * Zero, not a time bonus. `finalize` would have paid up to 3000 points for
+     * being under par and up to 2000 for accuracy; a level nobody finished
+     * earns neither, or failing quickly would score better than playing well.
+     */
+    assert.equal((summary as unknown as CampaignRunSummary).score, 0);
+    assert.ok(CAMPAIGN_SCORING.timeBonusMaxPoints > 0, "there is a bonus being withheld");
   });
 
   it("a resumed run keeps the lives it had left, rather than a fresh set", () => {

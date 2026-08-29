@@ -10,6 +10,7 @@ import {
   type CampaignDifficultyId,
   type CampaignLevelDefinition,
   type CampaignLevelResult,
+  type CampaignRunSummary,
   type CampaignProgress,
 } from "@deathmatch/shared";
 import { getCampaignArena, type CampaignInterlude } from "@deathmatch/shared";
@@ -367,30 +368,40 @@ export class CampaignUI {
     }
   }
 
-  showResults(result: CampaignLevelResult | null): void {
-    if (result) {
-      setText(this.resultsEyebrow, "Level complete");
-      setText(this.resultsRank, result.rank);
-      toggleClass(this.resultsRank, "is-failed", false);
-      this.lightRankScale(result.rank);
-      setText(requireElement("camp-r-score"), result.score.toLocaleString());
-      setText(requireElement("camp-r-kills"), String(result.kills));
-      setText(requireElement("camp-r-deaths"), String(result.deaths));
-      setText(requireElement("camp-r-secrets"), `${result.secretsFound}/${result.secretsTotal}`);
-      const totalSeconds = Math.round(result.timeMs / 1000);
-      setText(
-        requireElement("camp-r-time"),
-        `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, "0")}`,
-      );
-      setText(requireElement("camp-r-accuracy"), `${Math.round(result.accuracy * 100)}%`);
-    } else {
-      setText(this.resultsEyebrow, "Game over");
-      setText(this.resultsRank, "✕");
-      toggleClass(this.resultsRank, "is-failed", true);
-      this.lightRankScale(null);
-      for (const id of ["camp-r-score", "camp-r-kills", "camp-r-deaths", "camp-r-secrets", "camp-r-time", "camp-r-accuracy"]) {
-        setText(requireElement(id), "—");
-      }
-    }
+  /** A level played to the end: the numbers, the bonuses and a rank. */
+  showResults(result: CampaignLevelResult): void {
+    setText(this.resultsEyebrow, "Level complete");
+    setText(this.resultsRank, result.rank);
+    toggleClass(this.resultsRank, "is-failed", false);
+    this.lightRankScale(result.rank);
+    this.fillResultsTable(result);
+  }
+
+  /**
+   * A run that ended in a game over.
+   *
+   * The same table, filled in. Six dashes said "nothing happened here", which
+   * is untrue of a run somebody spent five minutes on -- what is missing is the
+   * rank, not the kills.
+   */
+  showFailure(summary: CampaignRunSummary): void {
+    setText(this.resultsEyebrow, "Game over");
+    setText(this.resultsRank, "✕");
+    toggleClass(this.resultsRank, "is-failed", true);
+    this.lightRankScale(null);
+    this.fillResultsTable(summary);
+  }
+
+  private fillResultsTable(summary: CampaignRunSummary): void {
+    setText(requireElement("camp-r-score"), summary.score.toLocaleString());
+    setText(requireElement("camp-r-kills"), String(summary.kills));
+    setText(requireElement("camp-r-deaths"), String(summary.deaths));
+    setText(requireElement("camp-r-secrets"), `${summary.secretsFound}/${summary.secretsTotal}`);
+    const totalSeconds = Math.round(summary.timeMs / 1000);
+    setText(
+      requireElement("camp-r-time"),
+      `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, "0")}`,
+    );
+    setText(requireElement("camp-r-accuracy"), `${Math.round(summary.accuracy * 100)}%`);
   }
 }

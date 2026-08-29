@@ -30,6 +30,7 @@ export * from "./arena/validator.js";
 
 // Game model
 export * from "./game/constants.js";
+export * from "./game/hitbox.js";
 export * from "./game/types.js";
 export * from "./game/traps.js";
 export * from "./game/weapons.js";
