@@ -3,11 +3,11 @@ import { monitor } from "@colyseus/monitor";
 import { playground } from "@colyseus/playground";
 import cors from "cors";
 import express from "express";
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, mkdirSync, renameSync, statSync } from "node:fs";
 import path from "node:path";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { MATCH, getGameConfig } from "@deathmatch/shared";
+import { MATCH, RateLimiter, getGameConfig } from "@deathmatch/shared";
 import { adminServices, createAdminRouter, initialiseAdmin } from "./admin/index.js";
 import { initialisePlayerStats } from "./stats/index.js";
 import { serverConfig } from "./config.js";
@@ -90,6 +90,19 @@ export default config({
         res.status(400).json({ ok: false });
         return;
       }
+
+      /*
+       * An unauthenticated endpoint that appends to a file is a disk-filling
+       * vector: a loop of valid requests would grow the journal without limit.
+       * A caller sending more than a level's worth of events per minute is not
+       * playing, so drop the excess rather than refuse service -- exactly what
+       * the room does with a client that floods it with input.
+       */
+      if (!campaignEventLimiter.tryConsume(Date.now())) {
+        res.status(429).json({ ok: false });
+        return;
+      }
+
       recordCampaignEvent(event);
       res.json({ ok: true });
     });
@@ -179,6 +192,18 @@ export default config({
 });
 
 /**
+ * The whole server's budget for campaign events.
+ *
+ * Generous for real play -- a level start, a handful of checkpoints and a
+ * completion is a few events a minute -- and far below what it takes to fill
+ * a disk.
+ */
+const campaignEventLimiter = new RateLimiter({ maxEvents: 600, windowMs: 60_000 });
+
+/** Past this the journal is rolled over, so it cannot grow without bound. */
+const CAMPAIGN_JOURNAL_MAX_BYTES = 8 * 1024 * 1024;
+
+/**
  * Append one campaign sync event to a local journal.
  *
  * Storage, not truth: a line of JSON per event under the data directory, so a
@@ -188,10 +213,19 @@ export default config({
 function recordCampaignEvent(event: unknown): void {
   try {
     mkdirSync(serverConfig.admin.dataDir, { recursive: true });
-    appendFileSync(
-      `${serverConfig.admin.dataDir}/campaign-events.jsonl`,
-      `${JSON.stringify({ at: Date.now(), event })}\n`,
-    );
+    const journalPath = `${serverConfig.admin.dataDir}/campaign-events.jsonl`;
+
+    // One rollover kept, then overwritten: the journal is raw material for a
+    // future verifier, not an archive worth unbounded disk.
+    try {
+      if (statSync(journalPath).size > CAMPAIGN_JOURNAL_MAX_BYTES) {
+        renameSync(journalPath, `${journalPath}.1`);
+      }
+    } catch {
+      // No journal yet, or it cannot be rolled; appending is still fine.
+    }
+
+    appendFileSync(journalPath, `${JSON.stringify({ at: Date.now(), event })}\n`);
   } catch {
     // Best-effort by design; the client neither knows nor cares.
   }

@@ -90,21 +90,21 @@ export class ConfigPanel {
     nav.className = "config__nav";
 
     for (const { category } of this.snapshot.categories) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "config__nav-item";
-      button.textContent = category;
-      button.classList.toggle("is-active", category === this.activeCategory);
+      const navButton = document.createElement("button");
+      navButton.type = "button";
+      navButton.className = "config__nav-item";
+      navButton.textContent = category;
+      navButton.classList.toggle("is-active", category === this.activeCategory);
 
       // A dot rather than a count: the useful question is "has anything here been
       // changed from the default", not how many things.
-      if (this.categoryIsModified(category)) button.classList.add("is-modified");
+      if (this.categoryIsModified(category)) navButton.classList.add("is-modified");
 
-      button.addEventListener("click", () => {
+      navButton.addEventListener("click", () => {
         this.activeCategory = category;
         this.render();
       });
-      nav.append(button);
+      nav.append(navButton);
     }
 
     return nav;

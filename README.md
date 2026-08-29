@@ -45,9 +45,11 @@ Useful server endpoints in development:
 ### Other commands
 
 ```bash
-npm test           # 290 tests: physics, combat, grenades, power-ups, traps, arenas, configuration,
-                   #            administration, NPC brains, presentation, debug access, protocol,
-                   #            and real networked matches
+npm test           # 529 tests: physics, combat, grenades, power-ups, traps, arenas, configuration,
+                   #            administration, NPC brains, campaign, music, presentation, debug
+                   #            access, protocol, and real networked matches
+npm run smoke      # 20 checks in a real browser: menus, pickers, a campaign level, pause, settings
+npm run lint       # eslint across the workspace
 npm run typecheck  # tsc --noEmit across all three packages
 npm run build      # bundles the server and builds the client
 npm start          # runs the built server
@@ -184,6 +186,7 @@ keeps them unit-testable and free of circular imports.
 | File | Responsibility |
 | --- | --- |
 | `App.ts` | Screen flow and the bridge between the network, the scene and the DOM UI |
+| `campaign/CampaignFlow.ts` | The single-player flow: levels, the chain, pausing, saves, debug keys |
 | `game/scenes/GameScene.ts` | Rendering plus the local prediction loop |
 | `net/NetworkManager.ts` | Connection, message plumbing, state callbacks, ping |
 | `net/PredictionController.ts` | Local prediction and server reconciliation |
@@ -590,6 +593,17 @@ mid-level changes nothing. Because those payloads are client claims, nothing
 may ever grant cross-mode rewards from them without server-side verification;
 the shapes live in `shared/src/campaign/` so a future verifier speaks the same
 language without touching the gameplay engine.
+
+The endpoint takes untrusted writes from anyone who can reach it, so it is
+bounded on both axes: 600 events a minute per address, and a journal that rolls
+over to `.1` at 8MB rather than filling the disk. Both are cheap; neither makes
+the payloads any more trustworthy.
+
+The flow itself -- which level is being played, what has been cleared and
+carried, pausing, the scene lifecycle, the save and the debug keys -- lives in
+`client/src/campaign/CampaignFlow.ts`, not in `App.ts`. It was in `App.ts` for a
+while, and by the time the level chain existed roughly two thirds of the shell
+was campaign code, which made both harder to read than either deserved.
 
 ### Data-driven levels
 
@@ -1484,10 +1498,11 @@ interrupting a game for.
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs on every push and pull request: typecheck, the
-whole suite, then both bundles. One machine, one install, one red or green — the
-suite is deterministic and finishes in well under a minute, so splitting it
-across jobs would buy nothing but complexity.
+`.github/workflows/ci.yml` runs on every push and pull request: lint, typecheck,
+the whole suite, both bundles, then the browser smoke suite. One machine, one
+install, one red or green — everything before the browser is deterministic and
+finishes in well under a minute, so splitting it across jobs would buy nothing
+but complexity.
 
 It typechecks the *tests* as well as the source, which `npm test` does not: `tsx`
 strips types rather than checking them, so a test can pass while carrying a type
@@ -1502,6 +1517,39 @@ died with `Could not find .../tests/**/*.test.ts` before a single test executed,
 and the build step after it never ran at all. A single-level glob is expanded by
 the shell on every version of both, so the runner is handed paths and never has
 to glob anything.
+
+### The checks a unit test cannot make
+
+`npm run smoke` drives the built game in Chromium: the menus, all three lobby
+pickers, a campaign level, the pause cycle and the settings panel. Twenty checks,
+a few seconds each. It serves the built client from the game server itself, so
+there is one origin and one process to wait for.
+
+It exists because the last round of menu work shipped two faults that every unit
+test passed straight through. One was a set of modals that drew perfectly and
+swallowed no clicks at all — `#ui-root` is `pointer-events: none`, and the new
+`.modal` never opted back in. The other was a pause menu that closed while
+leaving the game frozen behind it. Neither is visible without a real browser
+pressing real buttons, and both are checks in this suite now. The
+`pointer-events` bug was reintroduced deliberately once to confirm the suite
+fails on it: it does, naming the element that intercepts the click.
+
+It is deliberately *smoke* — broad and shallow, proving the thing is wired
+together rather than re-testing physics that `npm test` already covers in Node.
+
+### Lint
+
+`eslint.config.js` encodes the conventions the code already follows — no
+shadowing, no `var`, `const` where nothing reassigns, `===`, no unused names
+without a leading underscore — so it mostly agrees with the tree and only speaks
+up when something drifts. It is deliberately not type-aware: the errors that
+would find are already found by `npm run typecheck`, and the whole-project
+service doubles lint time on a workspace this size. Its first run found eleven
+shadowed names, two of which were hiding something real.
+
+Prettier is configured but *not* enforced. Running it would reformat 97 files and
+reflow comments wrapped by hand to sit where they explain something; `npm run
+format` is there for anyone who wants it on a file they are already touching.
 
 ---
 

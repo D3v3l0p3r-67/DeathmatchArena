@@ -339,7 +339,9 @@ export class LocalMatch {
   private buildContext(): RoomContext {
     const silent = { debug() {}, info() {}, warn() {}, error() {} };
     const logger = { ...silent, child: () => logger } as RoomContext["logger"];
-    const match = this;
+    // Arrow functions close over `this` lexically, so the two live getters
+    // below need no alias of it -- they read the field at call time either way.
+    const configView = () => this.configView;
 
     return {
       state: this.state,
@@ -349,10 +351,10 @@ export class LocalMatch {
       runtimes: this.runtimes,
       roomId: "campaign",
       get config() {
-        return match.configView;
+        return configView();
       },
       get baselineConfig() {
-        return match.configView.config;
+        return configView().config;
       },
       now: () => this.now(),
       random: () => this.random(),

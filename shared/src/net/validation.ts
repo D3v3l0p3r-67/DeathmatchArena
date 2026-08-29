@@ -8,6 +8,7 @@ export interface NameValidationResult {
 }
 
 /** Control characters (C0 + DEL + C1) are stripped before a name is measured. */
+// eslint-disable-next-line no-control-regex -- matching control characters is the point
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/g;
 
 /**

@@ -194,8 +194,7 @@ export function createHarness(arenaOverride?: ArenaDefinition, seed = 12345): Ha
   } as unknown as RoomContext;
 
   const collision = new CollisionSystem(world);
-  let movement: InstanceType<typeof MovementSystem>;
-  let npcs: InstanceType<typeof NpcSystem>;
+
   const projectiles = new ProjectileSystem(context, collision);
   const weapons = new WeaponSystem(context, projectiles, collision);
   const arenaShrink = new ArenaShrinkSystem(context);
@@ -212,10 +211,10 @@ export function createHarness(arenaOverride?: ArenaDefinition, seed = 12345): Ha
     trapSystem,
   );
 
-  movement = new MovementSystem(context, world, weapons, grenadeSystem, () => arenaShrink.bounds);
+  const movement = new MovementSystem(context, world, weapons, grenadeSystem, () => arenaShrink.bounds);
   // Seeded, so a test is reproducible -- and settable, so a simulation can play
   // a hundred *different* matches rather than the same one a hundred times.
-  npcs = new NpcSystem(context, movement, seed);
+  const npcs = new NpcSystem(context, movement, seed);
   matchManager.setNpcSystem(npcs);
   arenaShrink.reset();
   // The arena's own traps, exactly as a room loads them at startup. A harness

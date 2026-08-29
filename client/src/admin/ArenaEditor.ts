@@ -1,4 +1,5 @@
 import {
+  clamp,
   SurfaceType,
   nextObjectId,
   trapRegistry,
@@ -820,9 +821,7 @@ function near(point: { x: number; y: number }, target: { x: number; y: number },
   return Math.hypot(point.x - target.x, point.y - target.y) <= radius;
 }
 
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
-}
+
 
 function hex(color: number): string {
   return `#${color.toString(16).padStart(6, "0")}`;

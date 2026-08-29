@@ -1101,7 +1101,7 @@ describe("bots in a real match", () => {
     // the arena and is shoved back by their return fire has been moving the
     // whole time even if it finishes where it started.
     const travelled = new Map(ids.map((id) => [id, 0]));
-    let previous = new Map(ids.map((id) => [id, harness.state.players.get(id)!.x]));
+    const previous = new Map(ids.map((id) => [id, harness.state.players.get(id)!.x]));
 
     // Sampled finely, because what a fighting bot mostly does is strafe -- and
     // with everybody kept alive, because the wide sight range means the fight

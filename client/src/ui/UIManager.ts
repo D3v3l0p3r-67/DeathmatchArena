@@ -506,6 +506,10 @@ export class UIManager {
         remove.title = `Remove ${player.name}`;
         remove.setAttribute("aria-label", `Remove ${player.name}`);
         remove.textContent = "x";
+        // "x" is a shape, not a name: without this a screen reader announces
+        // an unlabelled button and a player cannot tell which bot it removes.
+        remove.setAttribute("aria-label", `Remove ${player.name}`);
+        remove.title = `Remove ${player.name}`;
         remove.addEventListener("click", () => this.callbacks.onRemoveBot(sessionId));
         item.append(remove);
       }

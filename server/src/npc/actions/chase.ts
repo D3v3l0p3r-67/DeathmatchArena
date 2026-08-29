@@ -40,7 +40,7 @@ export const chaseAction: BrainAction = {
     return score;
   },
 
-  execute(agent: NpcAgent, context: BrainContext): void {
+  execute(agent: NpcAgent, _context: BrainContext): void {
     const target = agent.target;
     if (!target) {
       agent.stopMoving();

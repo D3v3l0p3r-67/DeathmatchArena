@@ -1,0 +1,9 @@
+dist
+build
+node_modules
+data
+package-lock.json
+
+# Formatting is opt-in here: the codebase's comment wrapping is hand-tuned and
+# `prettier --write .` would reflow 97 files, burying real changes. Use
+# `npm run format` on a file you are writing, not on the tree.

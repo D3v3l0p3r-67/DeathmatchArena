@@ -20,20 +20,8 @@ import { clientConfig } from "./config.js";
 import { DEFAULT_EFFECTS_SETTINGS, FINALE } from "./game/fx/effects.js";
 import { SettingsPanel, loadEffectsSettings } from "./ui/SettingsPanel.js";
 import { NetworkManager } from "./net/NetworkManager.js";
-import {
-  CAMPAIGN_LEVELS,
-  campaignChain,
-  getCampaignArena,
-  getCampaignLevel,
-  getWeapon,
-  loadGameConfig,
-  type CampaignDifficultyId,
-  type CampaignRun,
-} from "@deathmatch/shared";
-import { CampaignDirector } from "./campaign/core/CampaignDirector.js";
-import { HttpCampaignSync, SaveStore } from "./campaign/core/SaveStore.js";
-import { buildCampaignConfig, LOCAL_PLAYER_ID } from "./campaign/sim/LocalMatch.js";
-import { CampaignScene, CAMPAIGN_SCENE_KEY, type CampaignSceneEvents } from "./campaign/scene/CampaignScene.js";
+import { CampaignScene } from "./campaign/scene/CampaignScene.js";
+import { CampaignFlow } from "./campaign/CampaignFlow.js";
 import { CampaignUI } from "./ui/CampaignUI.js";
 import { MenuNavigator } from "./ui/MenuNavigator.js";
 import { MenuBackdrop } from "./ui/MenuBackdrop.js";
@@ -177,17 +165,9 @@ export class App {
   private gameScene: GameScene | null = null;
 
   // ---- Single-player campaign ---------------------------------------------
-  private campaign: CampaignDirector | null = null;
   private campaignUi!: CampaignUI;
-  private campaignSave: SaveStore | null = null;
-  private lastCampaignRun: { levelId: string; difficulty: CampaignDifficultyId } | null = null;
-  /** The playthrough in progress: what has been cleared, scored and carried. */
-  private campaignRun: CampaignRun | null = null;
-  /** The level a briefing card is introducing, played when it is dismissed. */
-  private pendingLevelId: string | null = null;
-  private campaignDebug = false;
-  /** The campaign's pause menu is open and the world is frozen. */
-  private campaignPaused = false;
+  /** Owns the run: levels, pausing, the scene and the save. See CampaignFlow. */
+  private campaignFlow!: CampaignFlow;
   private readonly navigator = new MenuNavigator({ onBack: () => void this.handleBack() });
   private readonly backdrop = new MenuBackdrop(document.body);
 
@@ -252,27 +232,30 @@ export class App {
       onSelectMode: (modeId) => this.network.selectMode(modeId),
       onPlayAgain: () => this.handlePlayAgain(),
       onBackToMenu: () => void this.returnToMenu(),
-      onCampaignOpen: () => this.openCampaignSelect(),
+      onCampaignOpen: () => this.campaignFlow.openSelect(),
     });
 
     this.campaignUi = new CampaignUI({
-      onStart: (levelId, difficulty, resume) => {
-        // Choosing a level by hand starts a new run; only taking the offered
-        // next level continues the one in progress.
-        this.campaignRun = null;
-        this.startCampaign(levelId, difficulty, resume);
-      },
+      // Choosing a level by hand starts a new run; only taking the offered
+      // next level continues the one in progress.
+      onStart: (levelId, difficulty, resume) => this.campaignFlow.start(levelId, difficulty, resume, true),
       onBack: () => this.ui.showScreen("menu"),
-      onRetry: () => {
-        if (!this.lastCampaignRun) return;
-        this.campaignRun = null;
-        this.startCampaign(this.lastCampaignRun.levelId, this.lastCampaignRun.difficulty, false);
-      },
-      onExitToMenu: () => this.exitCampaign(),
-      onNextLevel: () => this.advanceCampaign(),
-      onBriefingDone: () => this.playPendingLevel(),
+      onRetry: () => this.campaignFlow.retry(),
+      onExitToMenu: () => this.campaignFlow.exit(),
+      onNextLevel: () => this.campaignFlow.advance(),
+      onBriefingDone: () => this.campaignFlow.playPending(),
     });
-    this.bindCampaignKeys();
+    this.campaignFlow = new CampaignFlow({
+      ui: this.ui,
+      campaignUi: this.campaignUi,
+      hud: this.hud,
+      audio: this.audio,
+      sound: this.sound,
+      navigator: this.navigator,
+      openSettings: () => this.settings.setOpen(true),
+      game: () => this.game,
+      playerName: () => this.ui.getStoredName(),
+    });
 
     this.touch = new TouchControls({
       onIntent: (intent) => this.getGameScene()?.setTouchIntent(intent),
@@ -287,7 +270,6 @@ export class App {
     this.bindDebugConsoleKey();
     this.bindSettingsButton();
     this.bindFirstGesture();
-    this.bindPauseMenu();
     this.applySettings(this.settings.getSettings());
   }
 
@@ -309,49 +291,6 @@ export class App {
     window.addEventListener("keydown", start);
   }
 
-  private bindPauseMenu(): void {
-    document.getElementById("pause-resume")?.addEventListener("click", () => this.setCampaignPaused(false));
-    document.getElementById("pause-settings")?.addEventListener("click", () => this.settings.setOpen(true));
-    document.getElementById("pause-restart")?.addEventListener("click", () => {
-      this.setCampaignPaused(false);
-      if (this.lastCampaignRun) {
-        this.startCampaign(this.lastCampaignRun.levelId, this.lastCampaignRun.difficulty, true);
-      }
-    });
-    document.getElementById("pause-quit")?.addEventListener("click", () => {
-      void (async () => {
-        const leave = await this.ui.confirm(
-          "Quit to menu?",
-          "The run ends here. Progress since your last checkpoint is lost.",
-          "Quit",
-        );
-        if (!leave) return;
-        this.setCampaignPaused(false);
-        this.exitCampaign();
-      })();
-    });
-  }
-
-  /**
-   * Freeze or resume the campaign.
-   *
-   * Escape used to drop the player straight out of a level with no warning,
-   * which is a fine way to lose a run to a stray key. It now opens this.
-   */
-  private setCampaignPaused(paused: boolean): void {
-    if (!this.campaign) return;
-    this.campaignPaused = paused;
-    this.withCampaignScene((scene) => scene.setPaused(paused));
-
-    const menu = document.getElementById("pause-menu");
-    if (menu) toggleClass(menu, "is-active", paused);
-    const level = document.getElementById("pause-level");
-    if (level && paused) level.textContent = this.campaign.levelDefinition().name;
-
-    this.navigator.setEnabled(paused);
-    if (paused) this.navigator.focusFirst();
-  }
-
   /**
    * One meaning for "back", wherever the player is.
    *
@@ -370,17 +309,17 @@ export class App {
     }
     /*
      * The pause menu is closed *through the pause state*, never as a generic
-     * overlay. Closing it as one left `campaignPaused` true with no menu on
-     * screen -- a frozen game and no way back into the menu that froze it.
+     * overlay. Closing it as one left the flow paused with no menu on screen
+     * -- a frozen game and no way back into the menu that froze it.
      */
-    if (this.campaign && this.campaignPaused) {
-      this.setCampaignPaused(false);
+    if (this.campaignFlow.isPaused) {
+      this.campaignFlow.setPaused(false);
       return;
     }
     if (this.ui.closeTopOverlay()) return;
 
-    if (this.campaign) {
-      this.setCampaignPaused(true);
+    if (this.campaignFlow.isRunning) {
+      this.campaignFlow.setPaused(true);
       return;
     }
 
@@ -424,7 +363,7 @@ export class App {
   private updateMusic(): void {
     this.music.update();
 
-    const campaign = this.campaign;
+    const campaign = this.campaignFlow.current;
     if (campaign) {
       const level = campaign.levelDefinition();
       const boss = campaign.bossStatus();
@@ -767,276 +706,6 @@ export class App {
   // Per-frame UI updates
   // ---------------------------------------------------------------------------
 
-  // ---------------------------------------------------------------------------
-  // Single-player campaign
-  // ---------------------------------------------------------------------------
-
-  /**
-   * The campaign's persistence: local first, with a fire-and-forget sync of
-   * rare high-level events towards the server when one is reachable. Nothing
-   * in the campaign ever waits for it.
-   */
-  private campaignSaveStore(): SaveStore {
-    if (!this.campaignSave) {
-      const httpBase = clientConfig.serverUrl.replace(/^ws/, "http");
-      this.campaignSave = new SaveStore(new HttpCampaignSync(httpBase));
-    }
-    return this.campaignSave;
-  }
-
-  private openCampaignSelect(): void {
-    const save = this.campaignSaveStore();
-    const chain = campaignChain();
-    const checkpoint = chain.map((level) => save.loadCheckpoint(level.id)).find(Boolean) ?? null;
-    this.campaignUi.populate(chain, save.loadProgress(), checkpoint?.levelId ?? null);
-    this.ui.showScreen("campaign");
-  }
-
-  private startCampaign(levelId: string, difficulty: CampaignDifficultyId, resume: boolean): void {
-    const level = CAMPAIGN_LEVELS.find((candidate) => candidate.id === levelId);
-    const arena = level ? getCampaignArena(level.arenaId) : null;
-    if (!level || !arena) return;
-
-    // The whole simulation and every view reads the registry; single player
-    // plays the defaults plus the campaign overrides, offline.
-    loadGameConfig(buildCampaignConfig());
-
-    const save = this.campaignSaveStore();
-    const resumeSave = resume ? save.loadCheckpoint(levelId) : null;
-    if (!resume) save.clearCheckpoint();
-
-    const director = new CampaignDirector(level, arena, difficulty, { saveStore: save });
-    this.campaign = director;
-    this.lastCampaignRun = { levelId, difficulty };
-    this.campaignDebug = false;
-
-    // A run spans the chain. Starting a level that is not the one the current
-    // run was heading for opens a fresh run -- picking a level from the menu
-    // is a new attempt, not a continuation of an abandoned one.
-    if (!this.campaignRun || this.campaignRun.difficulty !== difficulty) {
-      this.campaignRun = {
-        startedLevelId: levelId,
-        difficulty,
-        clearedLevelIds: [],
-        totalScore: 0,
-        weaponId: level.startingWeapon,
-        grenades: level.startingGrenades,
-      };
-    }
-    const run = this.campaignRun;
-
-    director.ui.on("message", ({ text, durationMs }) => this.campaignUi.toast(text, durationMs));
-    director.ui.on("objective", ({ text }) => this.campaignUi.setObjective(text));
-    director.ui.on("checkpoint", () => {
-      this.campaignUi.toast("CHECKPOINT", 1800);
-      this.audio.play(SoundId.UiClick);
-    });
-    director.ui.on("secretFound", ({ message }) => this.campaignUi.toast(message, 2500));
-    director.ui.on("playerDied", ({ respawnInMs, livesLeft }) => {
-      this.campaignUi.showDeath(livesLeft);
-      window.setTimeout(() => this.campaignUi.hideDeath(), respawnInMs + 200);
-    });
-    director.ui.on("levelCompleted", ({ result }) => {
-      // Fold the level into the run before anything is shown, so the results
-      // screen and the next level both read the same numbers.
-      const finishedWith = director.player();
-      run.clearedLevelIds.push(level.id);
-      run.totalScore += result.score;
-      run.weaponId = finishedWith?.weaponId ?? run.weaponId;
-      run.grenades = finishedWith?.grenades ?? run.grenades;
-
-      // Was this the player's own record for the level? Read before the save
-      // folds the new result in.
-      const previousBest = save.loadProgress().levels[level.id]?.bestScore ?? 0;
-      const next = level.nextLevelId ? getCampaignLevel(level.nextLevelId) : null;
-      this.campaignUi.setNewBest(result.score > previousBest);
-      this.campaignUi.setLayerActive(false);
-      this.hud.setVisible(false);
-      this.hud.setCampaignMode(false);
-      this.campaignUi.showResults(result);
-      this.campaignUi.setNextLevel(next?.name ?? null, run.clearedLevelIds.length > 1 ? run.totalScore : null);
-      this.ui.showScreen("campaign-results");
-    });
-    director.ui.on("levelFailed", () => {
-      this.campaignUi.setLayerActive(false);
-      this.hud.setVisible(false);
-      this.hud.setCampaignMode(false);
-      this.campaignUi.showResults(null);
-      // A failed level ends the run: there is no next level to offer.
-      this.campaignUi.setNextLevel(null, null);
-      this.campaignUi.setNewBest(false);
-      this.campaignRun = null;
-      this.ui.showScreen("campaign-results");
-    });
-
-    this.withCampaignScene((scene) => scene.begin(director, this.campaignSceneHooks()));
-    director.start(resumeSave, this.ui.getStoredName() || "You", {
-      weaponId: run.weaponId,
-      grenades: run.grenades,
-    });
-
-    this.ui.showScreen("none");
-    this.hud.setVisible(true);
-    this.hud.setCampaignMode(true);
-    this.campaignUi.setLayerActive(true);
-    void this.audio.resume();
-  }
-
-  /**
-   * Run something on the campaign scene, starting it first if it has never
-   * run. Phaser only auto-starts the first scene in the list, and a scene
-   * that has not started has no systems to build views with.
-   */
-  private withCampaignScene(callback: (scene: CampaignScene) => void): void {
-    const manager = this.game?.scene;
-    if (!manager) return;
-    const scene = manager.getScene(CAMPAIGN_SCENE_KEY) as CampaignScene;
-
-    if (manager.isActive(CAMPAIGN_SCENE_KEY)) {
-      callback(scene);
-      return;
-    }
-    if (manager.isSleeping(CAMPAIGN_SCENE_KEY)) {
-      manager.wake(CAMPAIGN_SCENE_KEY);
-      callback(scene);
-      return;
-    }
-    scene.events.once(Phaser.Scenes.Events.CREATE, () => callback(scene));
-    manager.run(CAMPAIGN_SCENE_KEY);
-  }
-
-  private campaignSceneHooks(): CampaignSceneEvents {
-    return {
-      onDamage: (payload) => {
-        if (payload.victimId === LOCAL_PLAYER_ID) this.hud.showDamageFlash();
-        else if (payload.attackerId === LOCAL_PLAYER_ID) this.hud.showHitmarker();
-        if (payload.fatal) this.audio.playAt(SoundId.Death, payload.x, payload.y);
-      },
-      onProjectileSpawned: (weaponId, x, y) => this.sound.localShot(weaponId, x, y),
-      onExplosion: (payload) => this.audio.playAt(SoundId.Explosion, payload.x, payload.y),
-      onPowerUpCollected: (payload) => {
-        if (payload.sessionId === LOCAL_PLAYER_ID) {
-          this.campaignUi.toast(payload.name.toUpperCase(), 1500);
-          this.audio.playAt(SoundId.PickupHealth, payload.x, payload.y);
-        }
-      },
-    };
-  }
-
-  /**
-   * Take the offered next level.
-   *
-   * The chain lives in the level data, so this only has to look up where the
-   * finished level points. A level that opens with an interlude gets its card
-   * first; one that does not begins straight away.
-   */
-  private advanceCampaign(): void {
-    const from = this.lastCampaignRun ? getCampaignLevel(this.lastCampaignRun.levelId) : null;
-    const next = from?.nextLevelId ? getCampaignLevel(from.nextLevelId) : null;
-    if (!next) return;
-
-    this.pendingLevelId = next.id;
-    if (next.interlude) {
-      // What the door lets through: only what this level's carryOver allows.
-      const run = this.campaignRun;
-      const chips: string[] = [];
-      if (run && next.carryOver?.weapon) chips.push(getWeapon(run.weaponId).name);
-      else chips.push(getWeapon(next.startingWeapon).name);
-      const grenades = run && next.carryOver?.grenades
-        ? Math.max(run.grenades, next.startingGrenades)
-        : next.startingGrenades;
-      chips.push(`${grenades} grenades`);
-      this.campaignUi.setBriefingLoadout(chips);
-
-      this.campaignUi.showInterlude(next.interlude, () => this.playPendingLevel());
-      this.ui.showScreen("campaign-briefing");
-      return;
-    }
-    this.playPendingLevel();
-  }
-
-  /** Start whichever level a briefing was introducing. */
-  private playPendingLevel(): void {
-    const levelId = this.pendingLevelId;
-    const difficulty = this.campaignRun?.difficulty ?? this.campaignUi.difficulty;
-    if (!levelId) return;
-    this.pendingLevelId = null;
-    this.startCampaign(levelId, difficulty, false);
-  }
-
-  /** Leave the level (or its results) and put multiplayer's menu back. */
-  private exitCampaign(): void {
-    const manager = this.game?.scene;
-    const scene = manager?.getScene(CAMPAIGN_SCENE_KEY) as CampaignScene | undefined;
-    scene?.end();
-    if (manager?.isActive(CAMPAIGN_SCENE_KEY)) manager.sleep(CAMPAIGN_SCENE_KEY);
-    this.campaign = null;
-    this.campaignRun = null;
-    this.pendingLevelId = null;
-    this.campaignUi.setLayerActive(false);
-    this.hud.setVisible(false);
-    this.hud.setCampaignMode(false);
-    this.ui.showScreen("menu");
-  }
-
-  /** Escape leaves; F9 arms the level-building debug keys. */
-  private bindCampaignKeys(): void {
-    window.addEventListener("keydown", (event) => {
-      if (!this.campaign) return;
-      // Escape belongs to `handleBack`, which pauses rather than quitting.
-      if (event.key === "F9") {
-        this.campaignDebug = !this.campaignDebug;
-        this.campaignUi.setDebugHint(this.campaignDebug);
-        const scene = this.game?.scene.getScene(CAMPAIGN_SCENE_KEY) as CampaignScene | undefined;
-        if (!this.campaignDebug) scene?.setDebugZones(false);
-        return;
-      }
-      if (!this.campaignDebug) return;
-
-      const scene = this.game?.scene.getScene(CAMPAIGN_SCENE_KEY) as CampaignScene | undefined;
-      const key = event.key.toLowerCase();
-      if (key === "g") {
-        this.campaign.debugSetGodMode(!this.campaign.match.godMode);
-        this.campaignUi.toast(this.campaign.match.godMode ? "GOD MODE ON" : "GOD MODE OFF", 1500);
-      } else if (key === "k") {
-        this.campaign.debugKillAllEnemies();
-        this.campaignUi.toast("ENEMIES CLEARED", 1500);
-      } else if (key === "z") {
-        scene?.setDebugZones(true);
-      } else if (key >= "1" && key <= "9") {
-        const checkpoint = this.campaign.levelDefinition().checkpoints[Number(key) - 1];
-        if (checkpoint) this.campaign.debugTeleport(checkpoint.x, checkpoint.y);
-      }
-    });
-  }
-
-  /** The campaign's share of the per-frame UI work. */
-  private updateCampaignHud(): void {
-    const director = this.campaign;
-    if (!director) return;
-
-    const player = director.player();
-    const state = director.match.state;
-    if (player) {
-      this.hud.update({
-        player: player as never,
-        matchState: state.matchState,
-        aliveCount: director.match.aliveEnemies().length,
-        totalPlayers: state.players.size - 1,
-        shrinkCountdownSeconds: 0,
-        shrinking: false,
-        gameModeId: "campaign",
-        matchClockSeconds: 0,
-        suddenDeath: false,
-        players: state.players as never,
-        localSessionId: LOCAL_PLAYER_ID,
-      });
-    }
-
-    this.campaignUi.setStats(director.currentScore(), director.currentKills(), director.livesRemaining());
-    this.campaignUi.setBoss(director.bossStatus());
-  }
-
   private onFrame(): void {
     const now = performance.now();
 
@@ -1058,22 +727,22 @@ export class App {
     // Menus own the keys only when a menu is what is on screen; during play
     // the arrows are the game's (and the spectator's).
     const playing =
-      (this.campaign !== null && !this.campaignPaused) ||
+      (this.campaignFlow.isRunning && !this.campaignFlow.isPaused) ||
       this.network.state?.matchState === MatchState.PLAYING;
     this.navigator.setEnabled(!playing || this.settings.isOpen || this.ui.isConfirming);
     this.navigator.pollGamepad(now);
 
     // The backdrop belongs to the menus: it runs when one is on screen and
     // stops the moment a match does, so it never costs the game a frame.
-    const onMenu = !this.campaign && this.ui.currentScreen !== "none";
+    const onMenu = !this.campaignFlow.isRunning && this.ui.currentScreen !== "none";
     if (onMenu) this.backdrop.start();
     else this.backdrop.stop();
 
     if (now - this.lastHudUpdate < HUD_UPDATE_INTERVAL_MS) return;
     this.lastHudUpdate = now;
 
-    if (this.campaign) {
-      this.updateCampaignHud();
+    if (this.campaignFlow.isRunning) {
+      this.campaignFlow.updateHud();
       return;
     }
 
@@ -1085,12 +754,9 @@ export class App {
 
   /** The pointer's screen position, every frame -- see the comment in `onFrame`. */
   private updateCrosshair(): void {
-    if (this.campaign) {
-      const scene = this.game?.scene.getScene(CAMPAIGN_SCENE_KEY) as CampaignScene | undefined;
-      if (scene?.scene.isActive()) {
-        const pointer = scene.getPointerScreenPosition();
-        this.hud.setCrosshairPosition(pointer.x, pointer.y);
-      }
+    if (this.campaignFlow.isRunning) {
+      const pointer = this.campaignFlow.pointerScreenPosition();
+      if (pointer) this.hud.setCrosshairPosition(pointer.x, pointer.y);
       return;
     }
     const scene = this.getGameScene();
@@ -1109,8 +775,9 @@ export class App {
    */
   private updateCursorVisibility(): void {
     const needsPointer = this.settings.isOpen || this.debugConsole.isOpen;
-    const hidden = this.campaign
-      ? !needsPointer && !this.campaign.isOver()
+    const campaign = this.campaignFlow.current;
+    const hidden = campaign
+      ? !needsPointer && !campaign.isOver()
       : shouldHideCursor(this.network.state?.matchState, needsPointer);
     toggleClass(document.body, "hide-cursor", hidden);
   }

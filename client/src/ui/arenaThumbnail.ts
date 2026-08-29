@@ -9,7 +9,7 @@
  * Kept out of the game's rendering entirely -- this is a 2D canvas in the DOM
  * layer, not a Phaser scene, so a menu can show a map it is not playing.
  */
-import { SurfaceType, type ArenaDefinition } from "@deathmatch/shared";
+import { clamp, SurfaceType, type ArenaDefinition } from "@deathmatch/shared";
 
 /** Ink for each kind of surface, so the shape of a level reads immediately. */
 const INK: Record<string, string> = {
@@ -56,9 +56,14 @@ export function drawArenaThumbnail(canvas: HTMLCanvasElement, arena: ArenaDefini
   const start = arena.playerSpawns.find((point) => point.enabled) ?? arena.playerSpawns[0];
   const focusX = start ? start.x : arena.width / 2;
   const focusY = start ? start.y : arena.height / 2;
-  // Keep the crop inside the arena, so no edge of empty space is shown.
-  const offsetX = clamp(width / 2 - focusX * scale, width - arena.width * scale, 0);
-  const offsetY = clamp(height / 2 - focusY * scale, height - arena.height * scale, 0);
+  /*
+   * Keep the crop inside the arena, so no edge of empty space is shown. The
+   * range is reversed for an arena smaller than the box, which `clamp` would
+   * resolve to the wrong end -- centre it instead, which is what the caller
+   * wanted anyway.
+   */
+  const offsetX = fit(width / 2 - focusX * scale, width - arena.width * scale, 0);
+  const offsetY = fit(height / 2 - focusY * scale, height - arena.height * scale, 0);
   const place = (x: number, y: number, w: number, h: number) => ({
     x: offsetX + x * scale,
     y: offsetY + y * scale,
@@ -90,8 +95,8 @@ export function drawArenaThumbnail(canvas: HTMLCanvasElement, arena: ArenaDefini
   }
 }
 
-/** Clamp that tolerates a reversed range, which a small arena produces. */
-function clamp(value: number, min: number, max: number): number {
+/** `clamp`, but a reversed range centres rather than snapping to an end. */
+function fit(value: number, min: number, max: number): number {
   if (min > max) return (min + max) / 2;
-  return Math.min(max, Math.max(min, value));
+  return clamp(value, min, max);
 }

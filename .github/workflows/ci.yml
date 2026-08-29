@@ -31,6 +31,9 @@ jobs:
 
       - run: npm ci
 
+      - name: Lint
+        run: npm run lint
+
       - name: Typecheck
         run: npm run typecheck
 
@@ -41,3 +44,12 @@ jobs:
       # the client's is a multi-page Vite build and the server's is esbuild.
       - name: Build
         run: npm run build
+
+      # The suite above runs the simulation in Node, which is why it could not
+      # see a modal that swallowed no clicks or a pause menu that closed while
+      # leaving the game frozen. This drives the built game in a real browser.
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Smoke
+        run: npm run smoke

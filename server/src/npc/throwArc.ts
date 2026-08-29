@@ -58,7 +58,7 @@ export function throwClearance(
   const offset = PLAYER_HALF_WIDTH + config.radius + 2;
   let x = fromX + Math.cos(aimAngle) * offset;
   let y = fromY + PLAYER.AIM_ORIGIN_Y + Math.sin(aimAngle) * offset;
-  let velocityX = Math.cos(aimAngle) * speed;
+  const velocityX = Math.cos(aimAngle) * speed;
   let velocityY = Math.sin(aimAngle) * speed;
 
   for (let elapsed = 0; elapsed < HORIZON_SEC; elapsed += STEP_SEC) {

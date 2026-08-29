@@ -20,13 +20,20 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && npm run typecheck --workspaces --if-present",
     "clean": "rm -rf node_modules */node_modules server/build client/dist",
     "test": "tsx --test tests/*.test.ts",
-    "simulate": "tsx tools/simulate.ts"
+    "simulate": "tsx tools/simulate.ts",
+    "smoke": "node tools/smoke.mjs",
+    "lint": "eslint .",
+    "format": "prettier --write ."
   },
   "devDependencies": {
     "@colyseus/sdk": "^0.17.43",
     "concurrently": "^9.1.2",
+    "eslint": "^9.39.5",
+    "playwright": "^1.49.1",
+    "prettier": "^3.9.6",
+    "tsx": "^4.23.12",
     "typescript": "^5.7.3",
-    "tsx": "^4.23.12"
+    "typescript-eslint": "^8.68.0"
   },
   "engines": {
     "node": ">=20"

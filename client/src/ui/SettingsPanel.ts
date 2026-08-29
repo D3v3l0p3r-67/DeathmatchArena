@@ -200,6 +200,7 @@ export class SettingsPanel {
     setValueLabel("setting-combat-value", this.settings.audio.combat);
     setValueLabel("setting-world-value", this.settings.audio.world);
     setValueLabel("setting-interface-value", this.settings.audio.interface);
+    setValueLabel("setting-music-value", this.settings.audio.music);
     setValueLabel("setting-particles-value", this.settings.effects.particleIntensity);
     setValueLabel("setting-shake-value", this.settings.effects.screenShake);
 

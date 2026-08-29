@@ -1,3 +1,4 @@
+import { clamp, clamp01 } from "@deathmatch/shared";
 import { SoundChannel, getSound, type SoundChannelValue, type SoundDefinition } from "./sounds.js";
 import { SoundThrottle } from "./SoundThrottle.js";
 
@@ -301,13 +302,9 @@ export class AudioEngine {
   }
 }
 
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
-}
 
-function clamp01(value: number): number {
-  return clamp(value, 0, 1);
-}
+
+
 
 function loadSettings(): Partial<AudioSettings> {
   try {

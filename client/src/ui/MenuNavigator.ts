@@ -87,6 +87,25 @@ export class MenuNavigator {
       return;
     }
 
+    /*
+     * Tab must not walk out of an open dialog and start pressing things behind
+     * it. Wrapping at the ends keeps the whole dialog reachable while the rest
+     * of the page stays out of reach until it closes.
+     */
+    if (event.key === "Tab" && this.isModalOpen()) {
+      const container = this.activeContainer();
+      const items = container ? this.items(container) : [];
+      if (items.length > 0) {
+        const current = items.indexOf(document.activeElement as HTMLElement);
+        const atEnd = event.shiftKey ? current <= 0 : current === items.length - 1;
+        if (atEnd || current === -1) {
+          event.preventDefault();
+          items[event.shiftKey ? items.length - 1 : 0]?.focus();
+        }
+      }
+      return;
+    }
+
     if (!this.enabled) return;
 
     const container = this.activeContainer();
@@ -166,6 +185,10 @@ export class MenuNavigator {
    * screen. A modal being on top is the whole reason this is not just
    * "the active screen".
    */
+  private isModalOpen(): boolean {
+    return document.querySelector(".modal.is-active") !== null;
+  }
+
   private activeContainer(): HTMLElement | null {
     const modals = Array.from(document.querySelectorAll<HTMLElement>(".modal.is-active"));
     if (modals.length > 0) return modals[modals.length - 1]!;
