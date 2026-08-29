@@ -40,16 +40,15 @@ import { GameState } from "../../../../server/src/rooms/schema/GameState.js";
 import { PlayerState } from "../../../../server/src/rooms/schema/PlayerState.js";
 import { PlayerRuntime } from "../../../../server/src/rooms/PlayerRuntime.js";
 import type { RoomContext } from "../../../../server/src/rooms/RoomContext.js";
-import { CollisionSystem } from "../../../../server/src/systems/CollisionSystem.js";
-import { ProjectileSystem } from "../../../../server/src/systems/ProjectileSystem.js";
-import { WeaponSystem } from "../../../../server/src/systems/WeaponSystem.js";
-import { PowerUpSystem } from "../../../../server/src/systems/PowerUpSystem.js";
-import { MatchManager } from "../../../../server/src/systems/MatchManager.js";
-import { ArenaShrinkSystem } from "../../../../server/src/systems/ArenaShrinkSystem.js";
-import { GrenadeSystem } from "../../../../server/src/systems/GrenadeSystem.js";
-import { TrapSystem } from "../../../../server/src/systems/TrapSystem.js";
-import { MovementSystem } from "../../../../server/src/systems/MovementSystem.js";
-import { NpcSystem } from "../../../../server/src/npc/NpcSystem.js";
+import type { ProjectileSystem } from "../../../../server/src/systems/ProjectileSystem.js";
+import type { WeaponSystem } from "../../../../server/src/systems/WeaponSystem.js";
+import type { PowerUpSystem } from "../../../../server/src/systems/PowerUpSystem.js";
+import type { MatchManager } from "../../../../server/src/systems/MatchManager.js";
+import type { GrenadeSystem } from "../../../../server/src/systems/GrenadeSystem.js";
+import type { TrapSystem } from "../../../../server/src/systems/TrapSystem.js";
+import type { MovementSystem } from "../../../../server/src/systems/MovementSystem.js";
+import type { NpcSystem } from "../../../../server/src/npc/NpcSystem.js";
+import { createSimulation } from "../../../../server/src/systems/createSimulation.js";
 import type { NpcAgent } from "../../../../server/src/npc/NpcAgent.js";
 import { Emitter } from "../../core/Emitter.js";
 
@@ -131,27 +130,15 @@ export class LocalMatch {
     this.state.shrinkRight = arena.width;
 
     const context = this.buildContext();
-    const collision = new CollisionSystem(this.world);
-    this.projectiles = new ProjectileSystem(context, collision);
-    this.weapons = new WeaponSystem(context, this.projectiles, collision);
-    const arenaShrink = new ArenaShrinkSystem(context);
-    this.grenades = new GrenadeSystem(context, () => arenaShrink.bounds);
-    this.powerUps = new PowerUpSystem(context, this.weapons, this.grenades);
-    this.traps = new TrapSystem(context);
-    this.matchManager = new MatchManager(
-      context,
-      this.weapons,
-      this.projectiles,
-      this.powerUps,
-      arenaShrink,
-      this.grenades,
-      this.traps,
-    );
-    this.movement = new MovementSystem(context, this.world, this.weapons, this.grenades, () => arenaShrink.bounds);
-    this.npcs = new NpcSystem(context, this.movement, this.rngState);
-    this.matchManager.setNpcSystem(this.npcs);
-    arenaShrink.reset();
-    this.traps.load(arena);
+    const simulation = createSimulation(context, { seed: this.rngState });
+    this.projectiles = simulation.projectiles;
+    this.weapons = simulation.weapons;
+    this.grenades = simulation.grenades;
+    this.powerUps = simulation.powerUps;
+    this.traps = simulation.traps;
+    this.matchManager = simulation.matchManager;
+    this.movement = simulation.movement;
+    this.npcs = simulation.npcs;
   }
 
   get config(): GameConfigView {

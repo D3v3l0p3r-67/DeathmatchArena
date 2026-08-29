@@ -55,6 +55,7 @@ import { MovementSystem } from "../systems/MovementSystem.js";
 import { PowerUpSystem } from "../systems/PowerUpSystem.js";
 import { ProjectileSystem } from "../systems/ProjectileSystem.js";
 import { WeaponSystem } from "../systems/WeaponSystem.js";
+import { createSimulation } from "../systems/createSimulation.js";
 import { playerStats } from "../stats/index.js";
 import { PlayerRuntime } from "./PlayerRuntime.js";
 import type { RoomContext } from "./RoomContext.js";
@@ -141,47 +142,25 @@ export class BattleRoom extends Room<{ state: GameState }> {
     this.state.maxPlayers = this.configView.getMatchConfig().maxPlayers;
 
     this.context = this.createContext();
-    this.collisionSystem = new CollisionSystem(this.world);
-    this.projectileSystem = new ProjectileSystem(this.context, this.collisionSystem);
-    this.weaponSystem = new WeaponSystem(this.context, this.projectileSystem, this.collisionSystem);
-    this.arenaShrinkSystem = new ArenaShrinkSystem(this.context);
-    this.trapSystem = new TrapSystem(this.context);
-    this.grenadeSystem = new GrenadeSystem(this.context, () => this.arenaShrinkSystem.bounds);
-    this.powerUpSystem = new PowerUpSystem(this.context, this.weaponSystem, this.grenadeSystem);
-    this.movementSystem = new MovementSystem(
-      this.context,
-      this.world,
-      this.weaponSystem,
-      this.grenadeSystem,
-      () => this.arenaShrinkSystem.bounds,
-    );
-    this.matchManager = new MatchManager(
-      this.context,
-      this.weaponSystem,
-      this.projectileSystem,
-      this.powerUpSystem,
-      this.arenaShrinkSystem,
-      this.grenadeSystem,
-      this.trapSystem,
-    );
-
-    // Bots feed the movement system the same input commands a browser sends, so
-    // they are created after it and go through no other door.
-    this.npcSystem = new NpcSystem(this.context, this.movementSystem, hashString(this.roomId), () => {
-      // A bot is a player: adding or removing one changes the room's headcount,
-      // and the lobby is showing that number.
-      this.matchManager.refreshCounters();
-      this.debugCommands?.refreshAll();
+    const simulation = createSimulation(this.context, {
+      seed: hashString(this.roomId),
+      onRosterChanged: () => {
+        // A bot is a player: adding or removing one changes the room's
+        // headcount, and the lobby is showing that number.
+        this.matchManager.refreshCounters();
+        this.debugCommands?.refreshAll();
+      },
     });
-    this.matchManager.setNpcSystem(this.npcSystem);
-
-    // Build the hazards this arena defines. An arena is data, so a room simply
-    // constructs whatever it was handed rather than knowing about any trap.
-    this.trapSystem.load(this.arena);
-
-    // The walls start at the arena's own edges, so clients have sane limits
-    // before a match ever begins.
-    this.arenaShrinkSystem.reset();
+    this.collisionSystem = simulation.collision;
+    this.projectileSystem = simulation.projectiles;
+    this.weaponSystem = simulation.weapons;
+    this.arenaShrinkSystem = simulation.arenaShrink;
+    this.trapSystem = simulation.traps;
+    this.grenadeSystem = simulation.grenades;
+    this.powerUpSystem = simulation.powerUps;
+    this.movementSystem = simulation.movement;
+    this.matchManager = simulation.matchManager;
+    this.npcSystem = simulation.npcs;
 
     this.debugAuthorization = new DebugAuthorizationService(
       new ConfiguredDebugPolicy(serverConfig.debug),

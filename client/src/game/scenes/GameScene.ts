@@ -49,6 +49,7 @@ import { FlagView } from "../entities/FlagView.js";
 import { PowerUpView } from "../entities/PowerUpView.js";
 import { ProjectileView } from "../entities/ProjectileView.js";
 import { TrapView } from "../entities/TrapView.js";
+import { ViewMap } from "../entities/ViewMap.js";
 
 export const GAME_SCENE_KEY = "GameScene";
 
@@ -114,8 +115,8 @@ export class GameScene extends Phaser.Scene {
   private readonly remoteAlive = new Map<string, boolean>();
   private readonly projectileViews = new Map<string, ProjectileView>();
   private readonly crateViews = new Map<string, CrateView>();
-  private readonly warningViews = new Map<string, CrateWarningView>();
-  private readonly trapViews = new Map<string, TrapView>();
+  private readonly warningViews = new ViewMap<SyncedPendingCrate, CrateWarningView>();
+  private readonly trapViews = new ViewMap<SyncedTrap, TrapView>();
   /** Last seen phase per trap, so the moment one goes off can be recognised. */
   private readonly trapPhases = new Map<string, string>();
   private readonly powerUpViews = new Map<string, PowerUpView>();
@@ -264,8 +265,7 @@ export class GameScene extends Phaser.Scene {
     this.shrinkWalls?.destroy();
     this.shrinkWalls = new ShrinkWallsView(this, arena);
 
-    for (const view of this.trapViews.values()) view.destroy();
-    this.trapViews.clear();
+    this.trapViews.destroyAll();
     this.trapPhases.clear();
 
     // Prediction steps against the world it was built with, so it needs a new
@@ -308,22 +308,15 @@ export class GameScene extends Phaser.Scene {
    * of creations to subscribe to, only positions and phases that change.
    */
   private syncTraps(state: SyncedGameState): void {
-    for (const [id, trap] of state.traps) {
-      let view = this.trapViews.get(id);
-      if (!view) {
-        view = new TrapView(this, trap);
-        this.trapViews.set(id, view);
-      }
-      view.refresh(trap);
-      this.reactToTrapPhase(id, trap);
-    }
-
-    for (const [id, view] of this.trapViews) {
-      if (state.traps.has(id)) continue;
-      view.destroy();
-      this.trapViews.delete(id);
-      this.trapPhases.delete(id);
-    }
+    this.trapViews.sync(
+      state.traps,
+      (trap) => new TrapView(this, trap),
+      (view, trap, id) => {
+        view.refresh(trap);
+        this.reactToTrapPhase(id, trap);
+      },
+      (id) => this.trapPhases.delete(id),
+    );
   }
 
   /**
@@ -335,21 +328,14 @@ export class GameScene extends Phaser.Scene {
    * effect takes over.
    */
   private syncWarnings(state: SyncedGameState): void {
-    for (const [id, warning] of state.pendingCrates) {
-      let view = this.warningViews.get(id);
-      if (!view) {
-        view = new CrateWarningView(this, warning);
-        this.warningViews.set(id, view);
+    this.warningViews.sync(
+      state.pendingCrates,
+      (warning) => {
         this.hooks.onCrateIncoming(warning);
-      }
-      view.refresh(warning);
-    }
-
-    for (const [id, view] of this.warningViews) {
-      if (state.pendingCrates.has(id)) continue;
-      view.destroy();
-      this.warningViews.delete(id);
-    }
+        return new CrateWarningView(this, warning);
+      },
+      (view, warning) => view.refresh(warning),
+    );
   }
 
   /** A burst and a shake the moment a trap actually goes off. */
@@ -1391,10 +1377,8 @@ export class GameScene extends Phaser.Scene {
     for (const view of this.projectileViews.values()) view.destroy();
     this.projectileViews.clear();
 
-    for (const view of this.warningViews.values()) view.destroy();
-    this.warningViews.clear();
-    for (const view of this.trapViews.values()) view.destroy();
-    this.trapViews.clear();
+    this.warningViews.destroyAll();
+    this.trapViews.destroyAll();
     this.trapPhases.clear();
     this.arenaRenderer?.destroy();
     this.accumulatorMs = 0;

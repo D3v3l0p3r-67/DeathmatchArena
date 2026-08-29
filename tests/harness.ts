@@ -29,16 +29,7 @@ import {
 const { PlayerState } = await import("../server/src/rooms/schema/PlayerState.js");
 const { GameState } = await import("../server/src/rooms/schema/GameState.js");
 const { PlayerRuntime } = await import("../server/src/rooms/PlayerRuntime.js");
-const { CollisionSystem } = await import("../server/src/systems/CollisionSystem.js");
-const { ProjectileSystem } = await import("../server/src/systems/ProjectileSystem.js");
-const { WeaponSystem } = await import("../server/src/systems/WeaponSystem.js");
-const { PowerUpSystem } = await import("../server/src/systems/PowerUpSystem.js");
-const { MatchManager } = await import("../server/src/systems/MatchManager.js");
-const { ArenaShrinkSystem } = await import("../server/src/systems/ArenaShrinkSystem.js");
-const { GrenadeSystem } = await import("../server/src/systems/GrenadeSystem.js");
-const { TrapSystem } = await import("../server/src/systems/TrapSystem.js");
-const { MovementSystem } = await import("../server/src/systems/MovementSystem.js");
-const { NpcSystem } = await import("../server/src/npc/NpcSystem.js");
+const { createSimulation } = await import("../server/src/systems/createSimulation.js");
 
 type RoomContext = import("../server/src/rooms/RoomContext.js").RoomContext;
 
@@ -57,19 +48,12 @@ export interface DamageRecord {
   weaponId: string;
 }
 
-export interface Harness {
+type Simulation = import("../server/src/systems/createSimulation.js").Simulation;
+
+/** The wired engine plus the recorders and steppers a test drives it with. */
+export interface Harness extends Simulation {
   context: RoomContext;
   state: InstanceType<typeof GameState>;
-  collision: InstanceType<typeof CollisionSystem>;
-  projectiles: InstanceType<typeof ProjectileSystem>;
-  weapons: InstanceType<typeof WeaponSystem>;
-  powerUps: InstanceType<typeof PowerUpSystem>;
-  arenaShrink: InstanceType<typeof ArenaShrinkSystem>;
-  grenades: InstanceType<typeof GrenadeSystem>;
-  traps: InstanceType<typeof TrapSystem>;
-  movement: InstanceType<typeof MovementSystem>;
-  npcs: InstanceType<typeof NpcSystem>;
-  matchManager: InstanceType<typeof MatchManager>;
   runtimes: Map<string, InstanceType<typeof PlayerRuntime>>;
   damage: DamageRecord[];
   broadcasts: BroadcastRecord[];
@@ -193,34 +177,17 @@ export function createHarness(arenaOverride?: ArenaDefinition, seed = 12345): Ha
     },
   } as unknown as RoomContext;
 
-  const collision = new CollisionSystem(world);
-
-  const projectiles = new ProjectileSystem(context, collision);
-  const weapons = new WeaponSystem(context, projectiles, collision);
-  const arenaShrink = new ArenaShrinkSystem(context);
-  const grenadeSystem = new GrenadeSystem(context, () => arenaShrink.bounds);
-  const powerUps = new PowerUpSystem(context, weapons, grenadeSystem);
-  const trapSystem = new TrapSystem(context);
-  const matchManager = new MatchManager(
-    context,
-    weapons,
-    projectiles,
-    powerUps,
-    arenaShrink,
-    grenadeSystem,
-    trapSystem,
-  );
-
-  const movement = new MovementSystem(context, world, weapons, grenadeSystem, () => arenaShrink.bounds);
-  // Seeded, so a test is reproducible -- and settable, so a simulation can play
-  // a hundred *different* matches rather than the same one a hundred times.
-  const npcs = new NpcSystem(context, movement, seed);
-  matchManager.setNpcSystem(npcs);
-  arenaShrink.reset();
-  // The arena's own traps, exactly as a room loads them at startup. A harness
-  // that quietly left them out made every measurement of how bots handle
-  // hazards meaningless: there were none to handle.
-  trapSystem.load(arena);
+  /*
+   * The same factory the room and the campaign call, so what the tests measure
+   * is the wiring the game actually runs -- traps loaded, walls at the arena's
+   * edges. Seeded, so a test is reproducible -- and settable, so a simulation
+   * can play a hundred *different* matches rather than the same one a hundred
+   * times.
+   */
+  const simulation = createSimulation(context, { seed });
+  const { collision, projectiles, weapons, arenaShrink, powerUps, movement, npcs, matchManager } = simulation;
+  const grenadeSystem = simulation.grenades;
+  const trapSystem = simulation.traps;
 
   return {
     context,

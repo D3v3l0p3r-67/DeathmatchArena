@@ -575,6 +575,18 @@ campaign: linear levels played start to finish, with encounters, checkpoints,
 secrets, scripted events and a multi-phase boss. Reach it from the menu's
 **Campaign** button.
 
+### One wiring for the whole engine
+
+The simulation is nine systems with a specific dependency graph, and that graph
+used to be hand-built in three places: the multiplayer room, the campaign's
+in-browser match, and the test harness. All three had to agree — the whole point
+of the campaign running the server's own systems, and of the tests meaning
+anything, is that the wiring is *identical* — but nothing enforced it beyond
+diligence. `server/src/systems/createSimulation.ts` now builds the graph once,
+loads the arena's traps and puts the shrink walls at the arena's edges, and all
+three callers use it. A new system or a changed constructor is one edit, and the
+campaign and the tests cannot quietly drift from the room again.
+
 ### The same engine, run locally
 
 The campaign is deliberately not a second engine. Movement, weapons,
@@ -604,6 +616,19 @@ carried, pausing, the scene lifecycle, the save and the debug keys -- lives in
 `client/src/campaign/CampaignFlow.ts`, not in `App.ts`. It was in `App.ts` for a
 while, and by the time the level chain existed roughly two thirds of the shell
 was campaign code, which made both harder to read than either deserved.
+
+### One idiom for keeping views alive
+
+Drawing an entity kind is always the same three motions: make a view when an id
+first appears, update it while the id lives, destroy it when the id is gone.
+Written out by hand that is a dozen lines per kind, and the campaign scene alone
+repeated it six times — with the prune loop being exactly the part that gets
+forgotten, which is how crates once stayed drawn where the simulation no longer
+had them. `client/src/game/entities/ViewMap.ts` is that pattern once; the
+campaign scene's whole `syncViews` and the multiplayer scene's trap and
+crate-warning sync sit on it. The multiplayer scene's other entities stay
+event-driven on purpose — adds and removals arrive as events there, and each
+removal has its own twist (a flag sparkles, a warning hands over to the crate).
 
 ### Data-driven levels
 

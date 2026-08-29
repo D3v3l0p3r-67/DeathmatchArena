@@ -16,6 +16,7 @@ import {
   MatchState,
   ServerMessage,
   damp,
+  CAMPAIGN_ENEMIES,
   getCampaignEnemy,
   getGrenadeConfig,
   getPowerUp,
@@ -26,6 +27,12 @@ import {
   type KillPayload,
   type MeleeSwingPayload,
   type PowerUpCollectedPayload,
+  type SyncedCrate,
+  type SyncedGrenade,
+  type SyncedPlayer,
+  type SyncedPowerUp,
+  type SyncedProjectile,
+  type SyncedTrap,
 } from "@deathmatch/shared";
 import { ArenaRenderer } from "../../game/ArenaRenderer.js";
 import { CameraController } from "../../game/CameraController.js";
@@ -35,6 +42,7 @@ import { generateWeaponTextures } from "../../game/TextureFactory.js";
 import { CrateView } from "../../game/entities/CrateView.js";
 import { GrenadeView } from "../../game/entities/GrenadeView.js";
 import { PlayerView } from "../../game/entities/PlayerView.js";
+import { ViewMap } from "../../game/entities/ViewMap.js";
 import { PowerUpView } from "../../game/entities/PowerUpView.js";
 import { ProjectileView } from "../../game/entities/ProjectileView.js";
 import { TrapView } from "../../game/entities/TrapView.js";
@@ -68,12 +76,12 @@ export class CampaignScene extends Phaser.Scene {
   private inputController?: InputController;
   private effects?: EffectsSystem;
 
-  private readonly playerViews = new Map<string, PlayerView>();
-  private readonly projectileViews = new Map<string, ProjectileView>();
-  private readonly crateViews = new Map<string, CrateView>();
-  private readonly powerUpViews = new Map<string, PowerUpView>();
-  private readonly grenadeViews = new Map<string, GrenadeView>();
-  private readonly trapViews = new Map<string, TrapView>();
+  private readonly playerViews = new ViewMap<SyncedPlayer, PlayerView>();
+  private readonly projectileViews = new ViewMap<SyncedProjectile, ProjectileView>();
+  private readonly crateViews = new ViewMap<SyncedCrate, CrateView>();
+  private readonly powerUpViews = new ViewMap<SyncedPowerUp, PowerUpView>();
+  private readonly grenadeViews = new ViewMap<SyncedGrenade, GrenadeView>();
+  private readonly trapViews = new ViewMap<SyncedTrap, TrapView>();
 
   private readonly unsubscribes: (() => void)[] = [];
   /** Real time of the last update; Phaser's smoothed delta under-reports on a
@@ -138,9 +146,8 @@ export class CampaignScene extends Phaser.Scene {
       this.powerUpViews,
       this.grenadeViews,
       this.trapViews,
-    ] as Map<string, { destroy(): void }>[]) {
-      for (const view of views.values()) view.destroy();
-      views.clear();
+    ]) {
+      views.destroyAll();
     }
 
     this.zoneOverlay?.destroy();
@@ -267,139 +274,107 @@ export class CampaignScene extends Phaser.Scene {
     const director = this.director!;
     const state = director.match.state;
     const now = performance.now();
+    const deltaSeconds = this.game.loop.delta / 1000;
 
     // Players (the local one and every enemy).
-    for (const [sessionId, player] of state.players) {
-      let view = this.playerViews.get(sessionId);
-      if (!view) {
+    this.playerViews.sync(
+      state.players,
+      (player, sessionId) => {
         const isLocal = sessionId === LOCAL_PLAYER_ID;
         const enemyType = isLocal ? null : this.enemyTypeFor(player.name);
-        view = new PlayerView(this, sessionId, player.name, isLocal, enemyType?.color);
+        const view = new PlayerView(this, sessionId, player.name, isLocal, enemyType?.color);
         // Read from state rather than from the definition: the size the shot
         // test uses is the size that gets drawn, by construction.
         if (player.bodyScale !== 1) view.setBodyScale(player.bodyScale);
-        this.playerViews.set(sessionId, view);
-      }
-      view.setName(player.name);
-      view.apply(
-        {
-          x: player.x,
-          y: player.y,
-          aimAngle: player.aimAngle,
-          facing: player.facing as 1 | -1,
-          alive: player.alive && player.inMatch,
-          onGround: player.onGround,
-          health: player.health,
-          maxHealth: player.maxHealth,
-          speedX: player.velocityX,
-          matchLive: state.matchState === MatchState.PLAYING,
-          ammo: player.ammo,
-          reloading: player.reloading,
-          weaponId: player.weaponId,
-          grenades: player.grenades,
-        },
-        this.game.loop.delta / 1000,
-      );
+        return view;
+      },
+      (view, player, sessionId) => {
+        view.setName(player.name);
+        view.apply(
+          {
+            x: player.x,
+            y: player.y,
+            aimAngle: player.aimAngle,
+            facing: player.facing as 1 | -1,
+            alive: player.alive && player.inMatch,
+            onGround: player.onGround,
+            health: player.health,
+            maxHealth: player.maxHealth,
+            speedX: player.velocityX,
+            matchLive: state.matchState === MatchState.PLAYING,
+            ammo: player.ammo,
+            reloading: player.reloading,
+            weaponId: player.weaponId,
+            grenades: player.grenades,
+          },
+          deltaSeconds,
+        );
 
-      /*
-       * The wind-up indicator, the same arrow multiplayer draws and for the
-       * same reason: a grenade you cannot aim is a grenade you throw at the
-       * ceiling. Read from this client's own button rather than from the
-       * simulation, so it grows at frame rate -- and here that is not even a
-       * shortcut, because in single player this client *is* the simulation.
-       */
-      if (sessionId === LOCAL_PLAYER_ID) {
-        view.setThrowCharge(this.inputController?.chargeProgress(getGrenadeConfig().maxChargeMs) ?? 0);
-      }
-    }
-    for (const [sessionId, view] of this.playerViews) {
-      if (state.players.has(sessionId)) continue;
-      view.destroy();
-      this.playerViews.delete(sessionId);
-    }
+        /*
+         * The wind-up indicator, the same arrow multiplayer draws and for the
+         * same reason: a grenade you cannot aim is a grenade you throw at the
+         * ceiling. Read from this client's own button rather than from the
+         * simulation, so it grows at frame rate -- and here that is not even a
+         * shortcut, because in single player this client *is* the simulation.
+         */
+        if (sessionId === LOCAL_PLAYER_ID) {
+          view.setThrowCharge(this.inputController?.chargeProgress(getGrenadeConfig().maxChargeMs) ?? 0);
+        }
+      },
+    );
 
     // Projectiles: fed the live object, rendered at it exactly.
-    for (const [id, projectile] of state.projectiles) {
-      let view = this.projectileViews.get(id);
-      if (!view) {
-        view = new ProjectileView(this, projectile, now);
-        this.projectileViews.set(id, view);
+    this.projectileViews.sync(
+      state.projectiles,
+      (projectile) => {
         this.hooks?.onProjectileSpawned(
           projectile.weaponId,
           projectile.x,
           projectile.y,
           projectile.ownerId === LOCAL_PLAYER_ID,
         );
-      }
-      view.syncFromServer(now);
-      view.render(now);
-    }
-    for (const [id, view] of this.projectileViews) {
-      if (state.projectiles.has(id)) continue;
-      view.destroy();
-      this.projectileViews.delete(id);
-    }
+        return new ProjectileView(this, projectile, now);
+      },
+      (view) => {
+        view.syncFromServer(now);
+        view.render(now);
+      },
+    );
 
     // Crates. `refresh` only aims the view at the authoritative position --
     // `render` is what actually moves it, and without that call a crate stayed
     // drawn wherever it first appeared while the simulation carried it off:
     // shots then flew through the picture of a crate that was no longer there.
-    const deltaSeconds = this.game.loop.delta / 1000;
-    for (const [id, crate] of state.crates) {
-      let view = this.crateViews.get(id);
-      if (!view) {
-        view = new CrateView(this, crate);
-        this.crateViews.set(id, view);
-      }
-      view.refresh(crate);
-      view.render(deltaSeconds);
-    }
-    for (const [id, view] of this.crateViews) {
-      if (state.crates.has(id)) continue;
-      view.destroy();
-      this.crateViews.delete(id);
-    }
+    this.crateViews.sync(
+      state.crates,
+      (crate) => new CrateView(this, crate),
+      (view, crate) => {
+        view.refresh(crate);
+        view.render(deltaSeconds);
+      },
+    );
 
     // Revealed power-ups.
-    for (const [id, powerUp] of state.powerUps) {
-      let view = this.powerUpViews.get(id);
-      if (!view) {
-        view = new PowerUpView(this, powerUp);
-        this.powerUpViews.set(id, view);
-      }
-      view.refresh(powerUp);
-    }
-    for (const [id, view] of this.powerUpViews) {
-      if (state.powerUps.has(id)) continue;
-      view.destroy();
-      this.powerUpViews.delete(id);
-    }
+    this.powerUpViews.sync(
+      state.powerUps,
+      (powerUp) => new PowerUpView(this, powerUp),
+      (view, powerUp) => view.refresh(powerUp),
+    );
 
-    // Grenades.
-    for (const [id, grenade] of state.grenades) {
-      let view = this.grenadeViews.get(id);
-      if (!view) {
-        view = new GrenadeView(this, grenade, now);
-        this.grenadeViews.set(id, view);
-      }
-      view.syncFromServer(grenade, now);
-      view.render(now, this.game.loop.delta / 1000, grenade.fuseSeconds);
-    }
-    for (const [id, view] of this.grenadeViews) {
-      if (state.grenades.has(id)) continue;
-      view.destroy();
-      this.grenadeViews.delete(id);
-    }
+    this.grenadeViews.sync(
+      state.grenades,
+      (grenade) => new GrenadeView(this, grenade, now),
+      (view, grenade) => {
+        view.syncFromServer(grenade, now);
+        view.render(now, deltaSeconds, grenade.fuseSeconds);
+      },
+    );
 
-    // Traps.
-    for (const [id, trap] of state.traps) {
-      let view = this.trapViews.get(id);
-      if (!view) {
-        view = new TrapView(this, trap);
-        this.trapViews.set(id, view);
-      }
-      view.refresh(trap);
-    }
+    this.trapViews.sync(
+      state.traps,
+      (trap) => new TrapView(this, trap),
+      (view, trap) => view.refresh(trap),
+    );
   }
 
   /** Enemy display names map back to their catalogue entry for colours. */
@@ -408,12 +383,9 @@ export class CampaignScene extends Phaser.Scene {
     if (type) return type;
     const boss = this.director?.levelDefinition().boss;
     if (boss && name === boss.name) return getCampaignEnemy(boss.enemyType);
-    // Catalogue names are capitalised versions of their ids.
-    return (
-      [...["soldier", "runner", "sniper", "grenadier", "heavy", "turret"]]
-        .map((id) => getCampaignEnemy(id))
-        .find((entry) => entry?.name === name) ?? null
-    );
+    // The catalogue itself, not a copy of its ids: a list written here would
+    // quietly stop matching the day an enemy type is added.
+    return CAMPAIGN_ENEMIES.find((entry) => entry.name === name) ?? null;
   }
 
   // -------------------------------------------------------------------------
