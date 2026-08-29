@@ -193,6 +193,9 @@ export const REFINERY_LEVEL: CampaignLevelDefinition = {
     ],
   },
 
+  // A working plant under pressure: faster and more driving than the outpost.
+  musicTrackId: "arena",
+
   parTimeMs: 6 * 60 * 1000,
   respawnRule: { kind: "checkpoint" },
 

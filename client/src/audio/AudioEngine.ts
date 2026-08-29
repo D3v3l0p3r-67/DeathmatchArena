@@ -8,6 +8,7 @@ export interface AudioSettings {
   combat: number;
   world: number;
   interface: number;
+  music: number;
 }
 
 export const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
@@ -16,6 +17,9 @@ export const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
   combat: 1,
   world: 1,
   interface: 1,
+  // Under the rest by default: a score is meant to sit behind the game, and a
+  // player who wants it forward has a slider.
+  music: 0.45,
 };
 
 /** How a positional sound fades with distance from the listener. */
@@ -154,6 +158,27 @@ export class AudioEngine {
     this.channelGains.get(SoundChannel.COMBAT)!.gain.value = clamp01(this.settings.combat);
     this.channelGains.get(SoundChannel.WORLD)!.gain.value = clamp01(this.settings.world);
     this.channelGains.get(SoundChannel.INTERFACE)!.gain.value = clamp01(this.settings.interface);
+    this.channelGains.get(SoundChannel.MUSIC)!.gain.value = clamp01(this.settings.music);
+  }
+
+  /**
+   * The nodes a continuous source needs to play into.
+   *
+   * Everything else here fires one short sound and forgets it; the score has
+   * to schedule itself ahead of time, so it is handed the context and its own
+   * channel rather than being squeezed through `play`. Null until a user
+   * gesture has started the context -- see `resume`.
+   */
+  /** The shared noise buffer, for percussion the music schedules itself. */
+  noise(): AudioBuffer | null {
+    return this.noiseBuffer;
+  }
+
+  musicOutput(): { context: AudioContext; destination: GainNode } | null {
+    const context = this.context;
+    const destination = this.channelGains.get(SoundChannel.MUSIC);
+    if (!context || !destination) return null;
+    return { context, destination };
   }
 
   // -------------------------------------------------------------------------

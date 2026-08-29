@@ -2042,6 +2042,34 @@ pickup, a kill you scored — play unpositioned at full volume, so they cut thro
 no messages at all: jumps, landings, reloads and a ticking fuse are simply visible
 in the synchronised state, so they become audible without costing bandwidth.
 
+### The score is synthesised too
+
+There are no music files either. `client/src/audio/music.ts` describes each
+track the same way `sounds.ts` describes a gunshot — a tempo, a scale, a chord
+progression and a handful of voices playing patterns over it — and
+`MusicPlayer` renders it with oscillators at runtime. Patterns are written in
+**scale degrees**, not semitones or Hz: 0 is the chord's root, `null` is a rest,
+so every voice follows the progression without any of them naming a key.
+
+Five placeholder tracks ship: `menu`, `arena`, `campaign`, `boss` and
+`victory`. Which one plays is decided by the situation — menus, a live
+multiplayer match, a campaign level, a boss appearing, a level cleared — and a
+campaign level may name its own with `musicTrackId` / `bossMusicTrackId`, which
+is how Refinery sounds harder than Outpost without a line of code. Voices carry
+a `fromIntensity`, so the same track thickens as a level gets busier: a quiet
+corridor is the bass and pad, a firefight adds the percussion and the lead.
+
+The scheduler books notes **ahead** of the audio clock rather than starting them
+from the render loop, so the loop is seamless whatever the frame rate is doing,
+and switching tracks cross-fades rather than cuts. The audio context starts on
+the first click or key — browsers refuse to run one before a gesture — and the
+player's **Music** slider does not merely turn the volume down: at zero nothing
+is scheduled at all.
+
+Real music, when it arrives, is one field: a track carrying a `url` is streamed
+instead of synthesised, and everything that asks for a track by id — selection,
+volume, cross-fades, the level data — is unchanged.
+
 ### Effects are data too
 
 `client/src/game/fx/effects.ts` holds every burst and camera shake as numbers

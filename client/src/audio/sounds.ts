@@ -20,6 +20,12 @@ export const SoundChannel = {
   WORLD: "world",
   /** Menus, countdowns, notifications. */
   INTERFACE: "interface",
+  /**
+   * The score. Its own channel because it is the one sound that plays
+   * continuously: it needs a volume of its own, and it must duck out of the
+   * way of everything else rather than compete with it.
+   */
+  MUSIC: "music",
 } as const;
 
 export type SoundChannelValue = (typeof SoundChannel)[keyof typeof SoundChannel];

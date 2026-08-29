@@ -354,6 +354,16 @@ export interface CampaignLevelDefinition {
   nextLevelId?: string;
   /** Shown on the way *in* to this level. */
   interlude?: CampaignInterlude;
+
+  /**
+   * The score this level plays, and the one its boss brings with it.
+   *
+   * Ids from the client's music catalogue. Omitted, a level gets the
+   * campaign's default track -- so naming one is how a level sounds different,
+   * not a thing every level must remember to do.
+   */
+  musicTrackId?: string;
+  bossMusicTrackId?: string;
   /** What survives the door into this level. Nothing, by default. */
   carryOver?: CampaignCarryOver;
 }

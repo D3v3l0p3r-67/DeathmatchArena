@@ -14,6 +14,8 @@ import {
 import { AudioEngine, DEFAULT_AUDIO_SETTINGS } from "./audio/AudioEngine.js";
 import { SoundController } from "./audio/SoundController.js";
 import { SoundId } from "./audio/sounds.js";
+import { MusicPlayer } from "./audio/MusicPlayer.js";
+import { MusicId } from "./audio/music.js";
 import { clientConfig } from "./config.js";
 import { DEFAULT_EFFECTS_SETTINGS, FINALE } from "./game/fx/effects.js";
 import { SettingsPanel, loadEffectsSettings } from "./ui/SettingsPanel.js";
@@ -143,6 +145,7 @@ export class App {
   private readonly minimap = new Minimap();
   private readonly killFeed: KillFeed;
   private readonly audio = new AudioEngine();
+  private readonly music = new MusicPlayer(this.audio);
   private readonly sound: SoundController;
   private readonly settings: SettingsPanel;
 
@@ -271,7 +274,26 @@ export class App {
     this.sound.attach();
     this.bindDebugConsoleKey();
     this.bindSettingsButton();
+    this.bindFirstGesture();
     this.applySettings(this.settings.getSettings());
+  }
+
+  /**
+   * Start the audio context on the first gesture, whatever it is.
+   *
+   * Browsers refuse to run one before a user has interacted, which is why the
+   * menu was silent until a level began: nothing before that happened to call
+   * `resume`. Listening once, on the first click or key, means the score is
+   * playing behind the main menu the way it should be.
+   */
+  private bindFirstGesture(): void {
+    const start = () => {
+      void this.audio.resume();
+      window.removeEventListener("pointerdown", start);
+      window.removeEventListener("keydown", start);
+    };
+    window.addEventListener("pointerdown", start);
+    window.addEventListener("keydown", start);
   }
 
   private bindSettingsButton(): void {
@@ -287,7 +309,51 @@ export class App {
   /** Push preferences into the systems that act on them. */
   private applySettings(settings: ReturnType<SettingsPanel["getSettings"]>): void {
     this.audio.updateSettings(settings.audio);
+    // Silenced music is not merely turned down: nothing is scheduled at all,
+    // so a player who does not want a score pays nothing for it.
+    this.music.setEnabled(!settings.audio.muted && settings.audio.music > 0);
     this.getGameScene()?.applyEffectsSettings(settings.effects);
+  }
+
+  /**
+   * Say what the music *should* be for the current situation.
+   *
+   * Called every frame and idempotent -- asking for the track already playing
+   * does nothing -- so this can simply describe the state of the world rather
+   * than track transitions itself.
+   */
+  private updateMusic(): void {
+    this.music.update();
+
+    const campaign = this.campaign;
+    if (campaign) {
+      const level = campaign.levelDefinition();
+      const boss = campaign.bossStatus();
+      this.music.play(
+        boss ? level.bossMusicTrackId ?? MusicId.Boss : level.musicTrackId ?? MusicId.Campaign,
+      );
+      // Thicker arrangement the busier the level gets: the voices that join
+      // late are exactly the ones a firefight wants.
+      const pressure = Math.min(1, campaign.match.aliveEnemies().length / 4);
+      this.music.setIntensity(boss ? 1 : 0.35 + pressure * 0.65);
+      return;
+    }
+
+    const screen = this.ui.currentScreen;
+    if (screen === "campaign-results") {
+      this.music.play(MusicId.Victory);
+      return;
+    }
+
+    const matchState = this.network.state?.matchState;
+    if (matchState === MatchState.PLAYING) {
+      this.music.play(MusicId.Arena);
+      this.music.setIntensity(1);
+      return;
+    }
+
+    this.music.play(MusicId.Menu);
+    this.music.setIntensity(0.6);
   }
 
   start(): void {
@@ -873,6 +939,9 @@ export class App {
      */
     this.updateCrosshair();
     this.updateCursorVisibility();
+    // Ahead of the HUD's throttle: the scheduler must run often enough to keep
+    // its look-ahead window fed.
+    this.updateMusic();
 
     if (now - this.lastHudUpdate < HUD_UPDATE_INTERVAL_MS) return;
     this.lastHudUpdate = now;

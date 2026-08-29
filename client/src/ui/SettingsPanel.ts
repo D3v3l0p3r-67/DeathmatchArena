@@ -34,6 +34,7 @@ export class SettingsPanel {
     this.bindSlider("setting-combat", (value) => this.patchAudio({ combat: value }), true);
     this.bindSlider("setting-world", (value) => this.patchAudio({ world: value }), true);
     this.bindSlider("setting-interface", (value) => this.patchAudio({ interface: value }), true);
+    this.bindSlider("setting-music", (value) => this.patchAudio({ music: value }), false);
     this.bindSlider("setting-particles", (value) => this.patchEffects({ particleIntensity: value }), false);
     this.bindSlider("setting-shake", (value) => this.patchEffects({ screenShake: value }), false);
 
@@ -112,6 +113,7 @@ export class SettingsPanel {
     setSlider("setting-combat", this.settings.audio.combat);
     setSlider("setting-world", this.settings.audio.world);
     setSlider("setting-interface", this.settings.audio.interface);
+    setSlider("setting-music", this.settings.audio.music);
     setSlider("setting-particles", this.settings.effects.particleIntensity);
     setSlider("setting-shake", this.settings.effects.screenShake);
 
