@@ -76,6 +76,18 @@
         </div>
       </section>
 
+      <!-- ======================== CAMPAIGN BRIEFING ========================= -->
+      <section class="screen screen--campaign-briefing" data-screen="campaign-briefing">
+        <div class="panel panel--briefing">
+          <p class="results__eyebrow" id="brief-eyebrow">Sector</p>
+          <h2 class="panel__title brief__title" id="brief-title">Level</h2>
+          <div class="brief__lines" id="brief-lines"></div>
+          <div class="results__actions">
+            <button class="button button--primary" id="brief-begin" type="button">Begin</button>
+          </div>
+        </div>
+      </section>
+
       <!-- ======================== CAMPAIGN RESULTS ========================== -->
       <section class="screen screen--campaign-results" data-screen="campaign-results">
         <div class="panel panel--results">
@@ -91,8 +103,10 @@
               <tr><td>Accuracy</td><td id="camp-r-accuracy">0%</td></tr>
             </tbody>
           </table>
+          <p class="results__career" id="camp-run-total" hidden></p>
           <div class="results__actions">
-            <button class="button button--primary" id="camp-retry" type="button">Retry</button>
+            <button class="button button--primary" id="camp-next" type="button" hidden>Next level</button>
+            <button class="button button--ghost" id="camp-retry" type="button">Retry</button>
             <button class="button button--ghost" id="camp-to-menu" type="button">Main menu</button>
           </div>
         </div>

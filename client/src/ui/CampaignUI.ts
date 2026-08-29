@@ -12,6 +12,7 @@ import {
   type CampaignLevelResult,
   type CampaignProgress,
 } from "@deathmatch/shared";
+import type { CampaignInterlude } from "@deathmatch/shared";
 import type { BossStatus } from "../campaign/core/BossDirector.js";
 import { query, requireElement, setText, toggleClass } from "./dom.js";
 
@@ -20,6 +21,10 @@ export interface CampaignUiCallbacks {
   onBack(): void;
   onRetry(): void;
   onExitToMenu(): void;
+  /** The player accepted the next level from the results screen. */
+  onNextLevel(): void;
+  /** The briefing card was dismissed; play the level it introduced. */
+  onBriefingDone(): void;
 }
 
 export class CampaignUI {
@@ -44,6 +49,15 @@ export class CampaignUI {
 
   private readonly resultsEyebrow = requireElement("camp-results-eyebrow");
   private readonly resultsRank = requireElement("camp-results-rank");
+  private readonly nextButton = requireElement<HTMLButtonElement>("camp-next");
+  private readonly runTotal = requireElement("camp-run-total");
+
+  private readonly briefEyebrow = requireElement("brief-eyebrow");
+  private readonly briefTitle = requireElement("brief-title");
+  private readonly briefLines = requireElement("brief-lines");
+
+  /** Cancels a briefing's own auto-advance if the player is quicker. */
+  private briefTimer = 0;
 
   private selectedLevelId = "";
   private selectedDifficulty: CampaignDifficultyId = "normal";
@@ -59,6 +73,11 @@ export class CampaignUI {
     });
     requireElement("camp-retry").addEventListener("click", () => callbacks.onRetry());
     requireElement("camp-to-menu").addEventListener("click", () => callbacks.onExitToMenu());
+    this.nextButton.addEventListener("click", () => callbacks.onNextLevel());
+    requireElement("brief-begin").addEventListener("click", () => {
+      window.clearTimeout(this.briefTimer);
+      callbacks.onBriefingDone();
+    });
 
     this.buildDifficultyOptions();
   }
@@ -208,6 +227,41 @@ export class CampaignUI {
   }
 
   // -------------------------------------------------------------- results
+
+  /**
+   * Show a level's opening card.
+   *
+   * `kind` is switched on rather than assumed, so a later `cutscene` or `shop`
+   * interlude lands here as another branch instead of a rewrite.
+   */
+  showInterlude(interlude: CampaignInterlude, onAutoAdvance: () => void): void {
+    switch (interlude.kind) {
+      case "briefing": {
+        setText(this.briefEyebrow, interlude.eyebrow ?? "");
+        setText(this.briefTitle, interlude.title);
+        this.briefLines.replaceChildren();
+        for (const line of interlude.lines) {
+          const paragraph = document.createElement("p");
+          paragraph.textContent = line;
+          this.briefLines.appendChild(paragraph);
+        }
+        window.clearTimeout(this.briefTimer);
+        if (interlude.autoAdvanceMs && interlude.autoAdvanceMs > 0) {
+          this.briefTimer = window.setTimeout(onAutoAdvance, interlude.autoAdvanceMs);
+        }
+        return;
+      }
+    }
+  }
+
+  /** Offer the next level, and show what the run has scored so far. */
+  setNextLevel(name: string | null, runTotal: number | null): void {
+    this.nextButton.hidden = name === null;
+    if (name) setText(this.nextButton, `Next: ${name}`);
+
+    this.runTotal.hidden = runTotal === null;
+    if (runTotal !== null) setText(this.runTotal, `Run total: ${runTotal.toLocaleString()}`);
+  }
 
   showResults(result: CampaignLevelResult | null): void {
     if (result) {

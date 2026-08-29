@@ -207,6 +207,13 @@ export interface CampaignBossPhaseDefinition {
   speed?: number;
   skill?: number;
   profile?: string;
+  /**
+   * Whether the boss holds its ground in this phase.
+   *
+   * An emplacement that tears loose halfway through is a different fight in
+   * the same body -- the phase table can say so without a second boss type.
+   */
+  stationary?: boolean;
   message?: string;
   /** Reinforcements announced by the phase. */
   spawnAdds?: CampaignEnemySpawn[];
@@ -273,6 +280,45 @@ export type CampaignRespawnRule =
   | { kind: "oneLife" };
 
 // ---------------------------------------------------------------------------
+// Between levels
+// ---------------------------------------------------------------------------
+
+/**
+ * What the player keeps when the next level begins.
+ *
+ * A campaign that hands everything back at every door is a series of
+ * unrelated levels; one that carries a hard-won rocket launcher forward is a
+ * run. Each level states what *arriving* at it preserves, so the rule belongs
+ * to the level being entered rather than to the one being left -- a level can
+ * always guarantee the loadout it was designed around.
+ */
+export interface CampaignCarryOver {
+  /** Keep the weapon finished with, instead of the level's starting weapon. */
+  weapon?: boolean;
+  /** Keep grenades in hand, topped up to at least the level's own count. */
+  grenades?: boolean;
+}
+
+/**
+ * The card shown between levels.
+ *
+ * Deliberately a discriminated union rather than a fixed shape: `briefing` is
+ * the only kind today, and a later `cutscene`, `map` or `shop` is a new member
+ * plus one branch where interludes are presented -- no change to levels that
+ * do not use it, and none to the engine that runs them.
+ */
+export type CampaignInterlude = {
+  kind: "briefing";
+  /** Small line above the title, e.g. "Sector 2". */
+  eyebrow?: string;
+  title: string;
+  /** A few lines of situation. Rendered in order. */
+  lines: string[];
+  /** Skips itself after this long; 0 waits for the player. */
+  autoAdvanceMs?: number;
+};
+
+// ---------------------------------------------------------------------------
 // The level
 // ---------------------------------------------------------------------------
 
@@ -297,6 +343,19 @@ export interface CampaignLevelDefinition {
   triggers: CampaignTriggerDefinition[];
   secrets: CampaignSecretDefinition[];
   boss?: CampaignBossDefinition;
+
+  /**
+   * The level this one leads to. Absent means the campaign ends here.
+   *
+   * The chain lives in the content, not in an index: reordering the campaign,
+   * branching it, or dropping a level in the middle is an edit to these
+   * fields, and `CAMPAIGN_LEVELS` stays the mere catalogue of what exists.
+   */
+  nextLevelId?: string;
+  /** Shown on the way *in* to this level. */
+  interlude?: CampaignInterlude;
+  /** What survives the door into this level. Nothing, by default. */
+  carryOver?: CampaignCarryOver;
 }
 
 // ---------------------------------------------------------------------------
@@ -314,6 +373,25 @@ export interface CampaignLevelProgress {
 
 export interface CampaignProgress {
   levels: Record<string, CampaignLevelProgress>;
+  /** The best complete run through the chain, if one has been finished. */
+  bestRunScore?: number;
+}
+
+/**
+ * A playthrough in progress: what has been carried and scored since the run
+ * began, as distinct from the per-level records above.
+ */
+export interface CampaignRun {
+  /** Where the run started, so a finished chain can be recognised. */
+  startedLevelId: string;
+  difficulty: CampaignDifficultyId;
+  /** Levels cleared so far this run, in order. */
+  clearedLevelIds: string[];
+  /** Sum of their scores. */
+  totalScore: number;
+  /** Carried forward into the next level, when it asks for it. */
+  weaponId: string;
+  grenades: number;
 }
 
 /**

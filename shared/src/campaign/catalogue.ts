@@ -108,6 +108,50 @@ export const CAMPAIGN_ENEMIES: readonly CampaignEnemyDefinition[] = [
     color: 0x90a4ae,
   },
   {
+    // Closes to burning range and stays there: the answer is distance, and
+    // never letting it choose the distance.
+    id: "enforcer",
+    name: "Enforcer",
+    profile: "berserker",
+    skill: 3,
+    weapon: FLAMETHROWER_ID,
+    health: 130,
+    speed: 1.05,
+    grenades: 0,
+    points: 250,
+    color: 0xff8a3d,
+  },
+  {
+    // A rifle on a tripod: never moves, sees most of a hall, and makes a long
+    // straight run across one a bad idea.
+    id: "marksman",
+    name: "Marksman",
+    profile: "camper",
+    skill: 4,
+    weapon: SNIPER_ID,
+    health: 90,
+    speed: 0,
+    grenades: 0,
+    stationary: true,
+    detectionRange: 2000,
+    points: 300,
+    color: 0x7fd4ff,
+  },
+  {
+    // Area denial: hangs back and puts rockets where you were going.
+    id: "zealot",
+    name: "Zealot",
+    profile: "defensive",
+    skill: 3,
+    weapon: ROCKET_LAUNCHER_ID,
+    health: 140,
+    speed: 0.8,
+    grenades: 2,
+    detectionRange: 1500,
+    points: 350,
+    color: 0xd08bff,
+  },
+  {
     // The boss chassis; the level's phase table does the rest.
     id: "warden",
     name: "Warden",
@@ -121,6 +165,22 @@ export const CAMPAIGN_ENEMIES: readonly CampaignEnemyDefinition[] = [
     points: 1500,
     color: 0xff5f6d,
     bodyScale: 1.35,
+  },
+  {
+    // The refinery's boss: an emplaced gun that eventually tears loose.
+    id: "foreman",
+    name: "Foreman",
+    profile: "camper",
+    skill: 4,
+    weapon: ROCKET_LAUNCHER_ID,
+    health: 1100,
+    speed: 0.5,
+    grenades: 0,
+    stationary: true,
+    detectionRange: 2200,
+    points: 1800,
+    color: 0xffb347,
+    bodyScale: 1.4,
   },
 ] as const;
 

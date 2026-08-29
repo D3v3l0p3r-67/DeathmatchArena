@@ -13,9 +13,19 @@ import type { CampaignEnemySpawn, CampaignLevelDefinition } from "./types.js";
 export function validateCampaignLevel(
   level: CampaignLevelDefinition,
   arena: ArenaDefinition,
+  /** Ids the campaign knows about, so `nextLevelId` can be checked too. */
+  knownLevelIds?: Iterable<string>,
 ): string[] {
   const issues: string[] = [];
   const say = (message: string) => issues.push(message);
+
+  if (level.nextLevelId !== undefined && knownLevelIds) {
+    const known = new Set(knownLevelIds);
+    if (!known.has(level.nextLevelId)) {
+      say(`level ${level.id} leads to unknown level ${level.nextLevelId}`);
+    }
+    if (level.nextLevelId === level.id) say(`level ${level.id} leads to itself`);
+  }
 
   if (level.arenaId !== arena.id) say(`level ${level.id} names arena ${level.arenaId}, got ${arena.id}`);
 

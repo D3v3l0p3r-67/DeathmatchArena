@@ -137,16 +137,35 @@ export class CampaignDirector {
   // Lifecycle
   // -------------------------------------------------------------------------
 
-  start(resume: CheckpointSave | null = null, playerName = "You"): void {
+  /**
+   * Begin the level.
+   *
+   * `carried` is what the previous level was finished with. Whether any of it
+   * survives is the *arriving* level's decision (`carryOver`), so a level can
+   * always guarantee the loadout it was designed around -- and a resume from a
+   * checkpoint outranks both, because that save already recorded what was in
+   * hand at the time.
+   */
+  start(
+    resume: CheckpointSave | null = null,
+    playerName = "You",
+    carried: { weaponId?: string; grenades?: number } = {},
+  ): void {
     const level = this.level;
     const spawn = resume ? this.checkpointById(resume.checkpointId) ?? level.playerSpawn : level.playerSpawn;
+
+    const carriedWeapon = level.carryOver?.weapon ? carried.weaponId : undefined;
+    const carriedGrenades =
+      level.carryOver?.grenades && carried.grenades !== undefined
+        ? Math.max(carried.grenades, level.startingGrenades)
+        : undefined;
 
     this.match.addLocalPlayer(
       playerName,
       spawn.x,
       spawn.y,
-      resume?.weaponId ?? level.startingWeapon,
-      resume?.grenades ?? level.startingGrenades,
+      resume?.weaponId ?? carriedWeapon ?? level.startingWeapon,
+      resume?.grenades ?? carriedGrenades ?? level.startingGrenades,
     );
 
     // Level furniture: every placed crate, up front. Sections activate their

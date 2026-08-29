@@ -578,18 +578,59 @@ achievable. Progress and the checkpoint resume save live in `localStorage`
 first; respawn rules (checkpoint / limited lives / one life) are level
 configuration, not player code.
 
-The vertical slice ships one level, **Outpost** (`level-01`): a patrol,
-a turret tower, a destructible barrier with a scripted alarm ambush behind it,
-a camera-locked two-wave yard encounter that breaches its own exit, a sniper
-stretch, two secrets, three checkpoints and a three-phase Warden boss.
-Playtime is around 3-5 minutes; the engine has never heard its name.
+### The levels, and the chain between them
+
+**Outpost** (`level-01`) is a yard fight on open ground: a patrol, a turret
+tower, a destructible barrier with a scripted alarm ambush behind it, a
+camera-locked two-wave encounter that breaches its own exit, a sniper stretch,
+two secrets, three checkpoints and a three-phase Warden boss.
+
+**Refinery** (`level-02`) is a working plant where the hazards are half the
+opposition: a saw patrols the catwalk that shortcuts the first hall, three
+crushers and a spike bed make the gauntlet a timing problem, a marksman
+emplacement watches the long approach, the pump floor is an enclosed two-wave
+fight whose exit is a crate wedged under an arch, and a jump pad offers the way
+over a floor a second saw owns. Its boss, the **Foreman**, opens as a mounted
+gun and tears loose from its rail at 60% -- the phase table says
+`stationary: false`, so one chassis is two fights. It fields three enemy types
+Outpost never had: the flamethrower **Enforcer**, the emplaced long-range
+**Marksman**, and the rocket-lobbing **Zealot**.
+
+The order of a playthrough is content, not an index: each level names its
+`nextLevelId`, so reordering, branching or dropping a level in the middle is an
+edit to the data and `CAMPAIGN_LEVELS` stays the mere catalogue of what exists.
+Finishing a level offers the next one, and what happens in between is data too:
+an `interlude` -- today a `briefing` card, tomorrow a `cutscene` or a `shop`
+as another member of the union and one branch where interludes are shown.
+A level also declares its own `carryOver`, so the weapon and grenades a run
+earned survive the door *when the arriving level says they may*: the rule
+belongs to the level being entered, which is what lets a level guarantee the
+loadout it was designed around. A resumed checkpoint outranks both, because
+that save already recorded what was in hand.
+
+The result is a run: levels cleared, a running total across the chain, and the
+loadout carried forward — all tracked for the playthrough rather than per
+level, and abandoned the moment a level is chosen by hand from the menu.
+
+Playtime is around 3-5 minutes a level; the engine has never heard either name.
 
 While in a level, `F9` arms the level-building debug keys: `G` god mode,
 `K` clear enemies, `Z` draw trigger/checkpoint/secret/camera zones,
-`1`-`3` teleport between checkpoints. Known limits of the slice: the arena
-editor does not yet place campaign objects (levels are authored as
-configuration in `shared/src/campaign/levels/`), and flying/shield enemy
-archetypes are future entries in the catalogue.
+`1`-`3` teleport between checkpoints.
+
+Two figures every level must be authored against, both measured rather than
+assumed: a single jump rises **91px** and a double **159px**, so nothing on a
+route may be taller; and crates rest at *floor - 22* and **never stack** --
+crate physics collides with the world, not with other crates, so a crate placed
+on a crate falls through it. A wall that reaches the floor blocks the level
+outright; the arches and doorways stop short and a crate in the gap is what
+closes them. `validateCampaignLevel` rejects a crate spawned inside solid
+geometry and a `nextLevelId` pointing nowhere, and a test walks each level from
+spawn to finish using only movement, jumps and gunfire.
+
+Known limits: the arena editor does not yet place campaign objects (levels are
+authored as configuration in `shared/src/campaign/levels/`), and flying/shield
+enemy archetypes are still future entries in the catalogue.
 
 ## NPCs
 

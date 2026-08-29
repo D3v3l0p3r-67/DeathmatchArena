@@ -20,9 +20,12 @@ import { SettingsPanel, loadEffectsSettings } from "./ui/SettingsPanel.js";
 import { NetworkManager } from "./net/NetworkManager.js";
 import {
   CAMPAIGN_LEVELS,
+  campaignChain,
   getCampaignArena,
+  getCampaignLevel,
   loadGameConfig,
   type CampaignDifficultyId,
+  type CampaignRun,
 } from "@deathmatch/shared";
 import { CampaignDirector } from "./campaign/core/CampaignDirector.js";
 import { HttpCampaignSync, SaveStore } from "./campaign/core/SaveStore.js";
@@ -172,6 +175,10 @@ export class App {
   private campaignUi!: CampaignUI;
   private campaignSave: SaveStore | null = null;
   private lastCampaignRun: { levelId: string; difficulty: CampaignDifficultyId } | null = null;
+  /** The playthrough in progress: what has been cleared, scored and carried. */
+  private campaignRun: CampaignRun | null = null;
+  /** The level a briefing card is introducing, played when it is dismissed. */
+  private pendingLevelId: string | null = null;
   private campaignDebug = false;
 
   private joining = false;
@@ -234,14 +241,21 @@ export class App {
     });
 
     this.campaignUi = new CampaignUI({
-      onStart: (levelId, difficulty, resume) => this.startCampaign(levelId, difficulty, resume),
+      onStart: (levelId, difficulty, resume) => {
+        // Choosing a level by hand starts a new run; only taking the offered
+        // next level continues the one in progress.
+        this.campaignRun = null;
+        this.startCampaign(levelId, difficulty, resume);
+      },
       onBack: () => this.ui.showScreen("menu"),
       onRetry: () => {
-        if (this.lastCampaignRun) {
-          this.startCampaign(this.lastCampaignRun.levelId, this.lastCampaignRun.difficulty, false);
-        }
+        if (!this.lastCampaignRun) return;
+        this.campaignRun = null;
+        this.startCampaign(this.lastCampaignRun.levelId, this.lastCampaignRun.difficulty, false);
       },
       onExitToMenu: () => this.exitCampaign(),
+      onNextLevel: () => this.advanceCampaign(),
+      onBriefingDone: () => this.playPendingLevel(),
     });
     this.bindCampaignKeys();
 
@@ -607,8 +621,9 @@ export class App {
 
   private openCampaignSelect(): void {
     const save = this.campaignSaveStore();
-    const checkpoint = CAMPAIGN_LEVELS.map((level) => save.loadCheckpoint(level.id)).find(Boolean) ?? null;
-    this.campaignUi.populate(CAMPAIGN_LEVELS, save.loadProgress(), checkpoint?.levelId ?? null);
+    const chain = campaignChain();
+    const checkpoint = chain.map((level) => save.loadCheckpoint(level.id)).find(Boolean) ?? null;
+    this.campaignUi.populate(chain, save.loadProgress(), checkpoint?.levelId ?? null);
     this.ui.showScreen("campaign");
   }
 
@@ -630,6 +645,21 @@ export class App {
     this.lastCampaignRun = { levelId, difficulty };
     this.campaignDebug = false;
 
+    // A run spans the chain. Starting a level that is not the one the current
+    // run was heading for opens a fresh run -- picking a level from the menu
+    // is a new attempt, not a continuation of an abandoned one.
+    if (!this.campaignRun || this.campaignRun.difficulty !== difficulty) {
+      this.campaignRun = {
+        startedLevelId: levelId,
+        difficulty,
+        clearedLevelIds: [],
+        totalScore: 0,
+        weaponId: level.startingWeapon,
+        grenades: level.startingGrenades,
+      };
+    }
+    const run = this.campaignRun;
+
     director.ui.on("message", ({ text, durationMs }) => this.campaignUi.toast(text, durationMs));
     director.ui.on("objective", ({ text }) => this.campaignUi.setObjective(text));
     director.ui.on("checkpoint", () => {
@@ -642,20 +672,38 @@ export class App {
       window.setTimeout(() => this.campaignUi.hideDeath(), respawnInMs + 200);
     });
     director.ui.on("levelCompleted", ({ result }) => {
+      // Fold the level into the run before anything is shown, so the results
+      // screen and the next level both read the same numbers.
+      const finishedWith = director.player();
+      run.clearedLevelIds.push(level.id);
+      run.totalScore += result.score;
+      run.weaponId = finishedWith?.weaponId ?? run.weaponId;
+      run.grenades = finishedWith?.grenades ?? run.grenades;
+
+      const next = level.nextLevelId ? getCampaignLevel(level.nextLevelId) : null;
       this.campaignUi.setLayerActive(false);
       this.hud.setVisible(false);
+      this.hud.setCampaignMode(false);
       this.campaignUi.showResults(result);
+      this.campaignUi.setNextLevel(next?.name ?? null, run.clearedLevelIds.length > 1 ? run.totalScore : null);
       this.ui.showScreen("campaign-results");
     });
     director.ui.on("levelFailed", () => {
       this.campaignUi.setLayerActive(false);
       this.hud.setVisible(false);
+      this.hud.setCampaignMode(false);
       this.campaignUi.showResults(null);
+      // A failed level ends the run: there is no next level to offer.
+      this.campaignUi.setNextLevel(null, null);
+      this.campaignRun = null;
       this.ui.showScreen("campaign-results");
     });
 
     this.withCampaignScene((scene) => scene.begin(director, this.campaignSceneHooks()));
-    director.start(resumeSave, this.ui.getStoredName() || "You");
+    director.start(resumeSave, this.ui.getStoredName() || "You", {
+      weaponId: run.weaponId,
+      grenades: run.grenades,
+    });
 
     this.ui.showScreen("none");
     this.hud.setVisible(true);
@@ -705,6 +753,36 @@ export class App {
     };
   }
 
+  /**
+   * Take the offered next level.
+   *
+   * The chain lives in the level data, so this only has to look up where the
+   * finished level points. A level that opens with an interlude gets its card
+   * first; one that does not begins straight away.
+   */
+  private advanceCampaign(): void {
+    const from = this.lastCampaignRun ? getCampaignLevel(this.lastCampaignRun.levelId) : null;
+    const next = from?.nextLevelId ? getCampaignLevel(from.nextLevelId) : null;
+    if (!next) return;
+
+    this.pendingLevelId = next.id;
+    if (next.interlude) {
+      this.campaignUi.showInterlude(next.interlude, () => this.playPendingLevel());
+      this.ui.showScreen("campaign-briefing");
+      return;
+    }
+    this.playPendingLevel();
+  }
+
+  /** Start whichever level a briefing was introducing. */
+  private playPendingLevel(): void {
+    const levelId = this.pendingLevelId;
+    const difficulty = this.campaignRun?.difficulty ?? this.campaignUi.difficulty;
+    if (!levelId) return;
+    this.pendingLevelId = null;
+    this.startCampaign(levelId, difficulty, false);
+  }
+
   /** Leave the level (or its results) and put multiplayer's menu back. */
   private exitCampaign(): void {
     const manager = this.game?.scene;
@@ -712,6 +790,8 @@ export class App {
     scene?.end();
     if (manager?.isActive(CAMPAIGN_SCENE_KEY)) manager.sleep(CAMPAIGN_SCENE_KEY);
     this.campaign = null;
+    this.campaignRun = null;
+    this.pendingLevelId = null;
     this.campaignUi.setLayerActive(false);
     this.hud.setVisible(false);
     this.hud.setCampaignMode(false);

@@ -156,6 +156,7 @@ export class BossDirector {
     if (phase.skill !== undefined) {
       agent.setDifficulty(clamp(phase.skill, MIN_BOT_DIFFICULTY, MAX_BOT_DIFFICULTY));
     }
+    if (phase.stationary !== undefined) agent.stationary = phase.stationary;
     if (phase.spawnAdds && phase.spawnAdds.length > 0) {
       this.roster.spawnGroup(BOSS_ADDS_GROUP, phase.spawnAdds);
     }

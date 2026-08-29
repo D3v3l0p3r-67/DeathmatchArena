@@ -166,6 +166,10 @@ export const OUTPOST_LEVEL: CampaignLevelDefinition = {
   parTimeMs: 5 * 60 * 1000,
   respawnRule: { kind: "checkpoint" },
 
+  /** Clearing the outpost opens the refinery. */
+  nextLevelId: "level-02",
+
+
   checkpoints: [
     { id: "cp1", x: 3600, y: 1100, zone: { x: 3560, y: 0, width: 140, height: 1200 } },
     { id: "cp2", x: 6080, y: 1100, zone: { x: 6040, y: 0, width: 140, height: 1200 } },

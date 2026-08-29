@@ -7,10 +7,17 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  CAMPAIGN_LEVELS,
   CAMPAIGN_SCORING,
   OUTPOST_ARENA,
   OUTPOST_LEVEL,
+  REFINERY_ARENA,
+  REFINERY_LEVEL,
+  campaignChain,
+  getCampaignArena,
+  getCampaignLevel,
   validateCampaignLevel,
+  type ArenaDefinition,
   type CampaignLevelDefinition,
   type CampaignLevelResult,
 } from "@deathmatch/shared";
@@ -33,15 +40,46 @@ const clock = { now: 0 };
 function makeDirector(
   difficulty: "easy" | "normal" | "hard" | "extreme" = "normal",
   level: CampaignLevelDefinition = OUTPOST_LEVEL,
+  arena: ArenaDefinition = OUTPOST_ARENA,
 ) {
   clock.now = 0;
   storage.clear();
-  const director = new CampaignDirector(level, OUTPOST_ARENA, difficulty, {
+  const director = new CampaignDirector(level, arena, difficulty, {
     seed: 4242,
     now: () => clock.now,
   });
   director.start();
   return director;
+}
+
+/** Walk right, double-jump when stalled, shoot what blocks the way. */
+function walkToTheEnd(director: CampaignDirector, finishX: number): number {
+  const player = director.player()!;
+  let lastX = player.x;
+  let stalledFrames = 0;
+
+  for (let frame = 0; frame < 60 * 240; frame++) {
+    const stalled = Math.abs(player.x - lastX) < 0.4;
+    if (stalled) stalledFrames++;
+    else {
+      stalledFrames = 0;
+      lastX = player.x;
+    }
+    const phase = frame % 60;
+    director.match.applyInput({
+      moveLeft: false,
+      moveRight: true,
+      jump: stalled && (phase < 6 || (phase >= 12 && phase < 18)),
+      fire: stalled,
+      reload: false,
+      chargeGrenade: false,
+      aimAngle: 0,
+    });
+    tick(director, 16.7);
+    if (player.x > finishX) break;
+  }
+  void stalledFrames;
+  return player.x;
 }
 
 /** Advance wall time and the simulation together, in room-sized slices. */
@@ -363,45 +401,15 @@ describe("campaign: respawn rules", () => {
 
 describe("campaign: the level is actually playable", () => {
   it("can be walked from the spawn to the finish line", () => {
+    /*
+     * Nothing here teleports: this is the test that would have caught a 240px
+     * wall standing on the only route, which three debug-teleported
+     * playthroughs happily jumped straight over.
+     */
     const director = makeDirector();
     director.debugSetGodMode(true);
-    const player = director.player()!;
-
-    /*
-     * Walk right, double-jump when progress stalls, and shoot whatever is in
-     * the way -- everything a player has. Nothing here teleports: this is the
-     * test that would have caught a 240px wall standing on the only route,
-     * which three debug-teleported playthroughs happily jumped straight over.
-     */
-    let lastX = player.x;
-    let stalledFrames = 0;
-    for (let frame = 0; frame < 60 * 200; frame++) {
-      const stalled = Math.abs(player.x - lastX) < 0.4;
-      if (stalled) stalledFrames++;
-      else {
-        stalledFrames = 0;
-        lastX = player.x;
-      }
-
-      const phase = frame % 60;
-      director.match.applyInput({
-        moveLeft: false,
-        moveRight: true,
-        jump: stalled && (phase < 6 || (phase >= 12 && phase < 18)),
-        fire: stalled,
-        reload: false,
-        chargeGrenade: false,
-        aimAngle: 0,
-      });
-      tick(director, 16.7);
-      if (player.x > 8800) break;
-    }
-
-    assert.ok(
-      player.x > 8760,
-      `the player should reach the finish zone on foot, got stuck at ${Math.round(player.x)} ` +
-        `(stalled ${stalledFrames} frames)`,
-    );
+    const reached = walkToTheEnd(director, 8800);
+    assert.ok(reached > 8760, `should reach the finish zone on foot, stopped at ${Math.round(reached)}`);
   });
 
   it("places no crate inside solid geometry", () => {
@@ -445,6 +453,111 @@ describe("campaign: the level is actually playable", () => {
         `crate ${crate.id} drifted ${Math.round(drift)}px from where the level put it`,
       );
     }
+  });
+});
+
+describe("campaign: level 2 and the chain", () => {
+  it("every shipped level validates against its own arena", () => {
+    const ids = CAMPAIGN_LEVELS.map((level) => level.id);
+    for (const level of CAMPAIGN_LEVELS) {
+      const arena = getCampaignArena(level.arenaId);
+      assert.ok(arena, `level ${level.id} names an arena the campaign cannot load`);
+      assert.deepEqual(validateCampaignLevel(level, arena, ids), [], `level ${level.id} has content issues`);
+    }
+  });
+
+  it("chains Outpost into Refinery, and the chain terminates", () => {
+    const chain = campaignChain();
+    assert.deepEqual(chain.map((level) => level.id), ["level-01", "level-02"]);
+    assert.equal(chain.at(-1)!.nextLevelId, undefined, "the last level leads nowhere");
+  });
+
+  it("walks Refinery from the spawn to its finish line", () => {
+    const director = makeDirector("normal", REFINERY_LEVEL, REFINERY_ARENA);
+    director.debugSetGodMode(true);
+    const reached = walkToTheEnd(director, 9450);
+    assert.ok(reached > 9380, `should reach Refinery's finish on foot, stopped at ${Math.round(reached)}`);
+  });
+
+  it("fights the Foreman through a mounted phase and a mobile one", () => {
+    const director = makeDirector("normal", REFINERY_LEVEL, REFINERY_ARENA);
+    director.debugSetGodMode(true);
+    director.debugTeleport(8290, 1290);
+    tick(director, 200);
+
+    const boss = Array.from(director.match.state.players.values()).find(
+      (player) => player.name === "The Foreman",
+    );
+    assert.ok(boss, "the gate trigger spawns the Foreman");
+
+    // Phase one: an emplacement. It holds its ground.
+    const agent = director.match.npcs.get(boss.sessionId)!;
+    assert.equal(agent.stationary, true, "the Foreman starts mounted");
+
+    // Past 60%: it tears loose, changes weapon and brings help.
+    hitEnemy(director, boss.sessionId, 500);
+    tick(director, 200);
+    assert.equal(agent.stationary, false, "the second phase tears it off its mount");
+    assert.equal(boss.weaponId, "flamethrower");
+    assert.ok(
+      aliveEnemies(director).some((enemy) => enemy.name === "Enforcer"),
+      "the second phase calls Enforcers",
+    );
+  });
+
+  it("carries the weapon forward only when the arriving level asks for it", () => {
+    // Refinery asks; a copy that does not must get its own starting weapon.
+    clock.now = 0;
+    storage.clear();
+    const carrying = new CampaignDirector(REFINERY_LEVEL, REFINERY_ARENA, "normal", {
+      seed: 7,
+      now: () => clock.now,
+    });
+    carrying.start(null, "You", { weaponId: "rocket-launcher", grenades: 5 });
+    assert.equal(carrying.player()!.weaponId, "rocket-launcher");
+    assert.equal(carrying.player()!.grenades, 5, "grenades carry, topped up to the level's own count");
+
+    const noCarry: CampaignLevelDefinition = { ...REFINERY_LEVEL, carryOver: undefined };
+    clock.now = 0;
+    storage.clear();
+    const fresh = new CampaignDirector(noCarry, REFINERY_ARENA, "normal", { seed: 7, now: () => clock.now });
+    fresh.start(null, "You", { weaponId: "rocket-launcher", grenades: 5 });
+    assert.equal(fresh.player()!.weaponId, REFINERY_LEVEL.startingWeapon);
+    assert.equal(fresh.player()!.grenades, REFINERY_LEVEL.startingGrenades);
+  });
+
+  it("a resumed checkpoint outranks anything carried in", () => {
+    const director = makeDirector("normal", REFINERY_LEVEL, REFINERY_ARENA);
+    director.debugSetGodMode(true);
+    director.debugTeleport(2700, 1290);
+    tick(director, 200);
+
+    const saved = JSON.parse(storage.get("deathmatch-campaign-checkpoint")!);
+    assert.equal(saved.checkpointId, "cp1");
+
+    clock.now = 0;
+    const resumed = new CampaignDirector(REFINERY_LEVEL, REFINERY_ARENA, "normal", {
+      seed: 7,
+      now: () => clock.now,
+    });
+    resumed.start(saved, "You", { weaponId: "laser", grenades: 9 });
+    assert.equal(resumed.player()!.weaponId, saved.weaponId, "the save's own loadout wins");
+  });
+
+  it("level 2 uses enemies level 1 never had", () => {
+    const spawnedTypes = new Set<string>();
+    for (const trigger of REFINERY_LEVEL.triggers) {
+      for (const action of trigger.actions) {
+        if (action.kind === "spawnEnemies") for (const spawn of action.enemies) spawnedTypes.add(spawn.type);
+      }
+    }
+    for (const encounter of REFINERY_LEVEL.encounters) {
+      for (const wave of encounter.waves) for (const spawn of wave.enemies) spawnedTypes.add(spawn.type);
+    }
+    for (const fresh of ["enforcer", "marksman", "zealot"]) {
+      assert.ok(spawnedTypes.has(fresh), `Refinery should field the ${fresh}`);
+    }
+    assert.equal(getCampaignLevel("level-02")!.boss!.enemyType, "foreman");
   });
 });
 

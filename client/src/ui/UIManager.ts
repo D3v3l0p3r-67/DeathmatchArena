@@ -18,6 +18,7 @@ export type ScreenName =
   | "countdown"
   | "results"
   | "campaign"
+  | "campaign-briefing"
   | "campaign-results"
   | "none";
 

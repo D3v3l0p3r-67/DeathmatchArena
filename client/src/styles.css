@@ -1227,6 +1227,30 @@ kbd {
   padding: 3px 12px;
 }
 
+/* The card between levels. */
+.brief__title {
+  font-size: 34px;
+  letter-spacing: 0.04em;
+}
+
+.brief__lines {
+  display: grid;
+  gap: 10px;
+  margin: 18px 0 22px;
+  max-width: 46ch;
+  text-align: left;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+.brief__lines p {
+  margin: 0;
+}
+
+.brief__lines p:first-child {
+  color: #e8eefc;
+}
+
 /* The rank letter, writ large on the results panel. */
 .campaign-rank {
   font-size: 64px;
