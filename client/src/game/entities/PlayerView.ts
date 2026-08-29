@@ -3,7 +3,6 @@ import {
   PLAYER,
   clamp,
   getGaugesConfig,
-  getPlayerConfig,
   getReloadDurationMs,
   getWeapon,
   lerpAngle,
@@ -40,6 +39,8 @@ export interface PlayerViewState {
   alive: boolean;
   onGround: boolean;
   health: number;
+  /** What a full bar means for this figure; a player's config max, or a boss's own. */
+  maxHealth: number;
   speedX: number;
   /** Rounds left in the magazine, and whether one is being put in. */
   ammo: number;
@@ -102,6 +103,7 @@ export class PlayerView {
   private beltCount = -1;
   /** What the bar last drew, so a full-health crowd costs no redraws. */
   private drawnHealth = -1;
+  private drawnMaxHealth = -1;
   /** What the ammo bar last drew, or null when it drew nothing. */
   private drawnAmmo: string | null = null;
   /** The local clock for the reload sweep; -1 when no reload is running. */
@@ -305,7 +307,7 @@ export class PlayerView {
     this.updateWalkCycle(state, deltaSeconds);
     this.updateShadow(state);
     this.drawBelt(state.grenades, aimingLeft);
-    this.drawHealthBar(state.health);
+    this.drawHealthBar(state.health, state.maxHealth);
     this.drawAmmoBar(state);
   }
 
@@ -347,6 +349,7 @@ export class PlayerView {
     // back is not a path anything travelled.
     this.trail.clear();
     this.drawnHealth = -1;
+    this.drawnMaxHealth = -1;
     this.container.setVisible(true);
     this.container.setAlpha(1);
     this.body.setRotation(0);
@@ -694,15 +697,22 @@ export class PlayerView {
     this.shadow.setAlpha(state.onGround ? 0.35 : 0);
   }
 
-  private drawHealthBar(health: number): void {
+  private drawHealthBar(health: number, maxHealth: number): void {
     // Redrawing a Graphics object means re-tessellating it; health changes on
-    // hits, not on frames, so a bar that has not changed is not redrawn.
-    if (health === this.drawnHealth) return;
+    // hits, not on frames, so a bar that has not changed is not redrawn. The
+    // maximum is part of the key because a config reload can move it.
+    if (health === this.drawnHealth && maxHealth === this.drawnMaxHealth) return;
     this.drawnHealth = health;
+    this.drawnMaxHealth = maxHealth;
 
     const width = 34;
     const height = 4;
-    const ratio = clamp(health / getPlayerConfig().maxHealth, 0, 1);
+    /*
+     * Against this figure's own maximum, not a player's. Dividing a 900-health
+     * boss by a player's 100 clamped to 1, so the bar stood full and green
+     * through the first 89% of the fight and then emptied in the last eleven.
+     */
+    const ratio = clamp(health / Math.max(1, maxHealth), 0, 1);
 
     const x = -width / 2;
     const y = PLAYER.NAME_LABEL_OFFSET_Y + 4;

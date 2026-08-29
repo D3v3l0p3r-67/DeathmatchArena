@@ -290,6 +290,7 @@ export class CampaignScene extends Phaser.Scene {
           alive: player.alive && player.inMatch,
           onGround: player.onGround,
           health: player.health,
+          maxHealth: player.maxHealth,
           speedX: player.velocityX,
           matchLive: state.matchState === MatchState.PLAYING,
           ammo: player.ammo,

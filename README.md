@@ -45,7 +45,7 @@ Useful server endpoints in development:
 ### Other commands
 
 ```bash
-npm test           # 538 tests: physics, combat, grenades, power-ups, traps, arenas, configuration,
+npm test           # 540 tests: physics, combat, grenades, power-ups, traps, arenas, configuration,
                    #            administration, NPC brains, campaign, music, presentation, debug
                    #            access, protocol, and real networked matches
 npm run smoke      # 21 checks in a real browser: menus, pickers, a campaign level, pause, settings
@@ -681,6 +681,23 @@ construction rather than by both being told the same number.
 Movement is deliberately *not* scaled: a boss still walks the gaps its level was
 drawn around, so the physics box stays a player's. Only what hurts is measured
 against the silhouette.
+
+### Full health is not always a hundred
+
+The bar over an enemy's head divided by the *player's* configured maximum. For a
+player that is right; for the Warden, which has 900, `health / 100` clamped to a
+full bar — so it stood full and green through the first 89% of the fight and
+drained in the last eleven. Together with the hit box above, that is the whole of
+"the boss doesn't seem to lose health".
+
+The same divisor was in the bots' perception, so a boss on its last legs still
+measured itself as untouched and never acted hurt, and in the health pickup,
+where `health >= 100` meant a boss could never take one.
+
+`maxHealth` is now part of a figure's state, set beside `health` everywhere
+health is set, and everything that wants a fraction divides by it. Measured in
+the client afterwards: 900/900 draws 1.00, 396/900 draws 0.44, 81/900 draws 0.09.
+Before, the same three drew 1.00, 1.00 and 0.81.
 
 ### Aiming a grenade
 

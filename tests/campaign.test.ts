@@ -339,6 +339,38 @@ describe("campaign: the boss", () => {
     assert.equal(boss.weaponId, "laser", "phase three overcharges");
   });
 
+  it("carries its own full-health mark, so a bar can read against it", () => {
+    const director = makeDirector();
+    const boss = startBoss(director);
+    assert.equal(boss.maxHealth, 900, "the Warden's own maximum, not a player's 100");
+    assert.equal(director.player()!.maxHealth, 100, "the player keeps the configured maximum");
+
+    /*
+     * The bar divides by this. Dividing by a player's 100 instead clamped to a
+     * full bar all the way down to the Warden's last hundred points, which is
+     * what "the boss doesn't lose health when I shoot it" actually was.
+     */
+    hitEnemy(director, boss.sessionId, 450);
+    tick(director, 100);
+    const ratio = boss.health / boss.maxHealth;
+    assert.ok(ratio > 0.4 && ratio < 0.6, `about half a bar, got ${ratio.toFixed(2)}`);
+    assert.equal(Math.min(1, boss.health / 100), 1, "against a player's maximum it would still read full");
+  });
+
+  it("scales the boss's full-health mark with the difficulty", () => {
+    for (const [difficulty, expected] of [
+      ["easy", 675],
+      ["normal", 900],
+      ["hard", 1080],
+      ["extreme", 1305],
+    ] as const) {
+      const director = makeDirector(difficulty);
+      const boss = startBoss(director);
+      assert.equal(boss.maxHealth, expected, `${difficulty} boss maximum`);
+      assert.equal(boss.health, expected, "and it spawns at it");
+    }
+  });
+
   it("defeat opens the finish, and the finish ends the level with a result", () => {
     const director = makeDirector();
     const boss = startBoss(director);

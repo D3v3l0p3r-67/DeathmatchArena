@@ -213,6 +213,9 @@ export class LocalMatch {
 
     const healthScale = getCampaignDifficulty(request.difficulty).enemyHealthScale;
     player.health = request.health ?? Math.round(definition.health * healthScale);
+    // Full health, for this enemy: what its bar divides by and what its own
+    // brain measures itself against.
+    player.maxHealth = Math.round(definition.health * healthScale);
     player.grenades = definition.grenades;
 
     runtime.baseSpeedMultiplier = Math.max(0, definition.speed);
@@ -323,7 +326,8 @@ export class LocalMatch {
     player.onGround = false;
     player.facing = 1;
     player.aimAngle = 0;
-    player.health = playerConfig.maxHealth;
+    player.maxHealth = playerConfig.maxHealth;
+    player.health = player.maxHealth;
     player.alive = true;
     player.inMatch = true;
     player.lastProcessedInput = 0;

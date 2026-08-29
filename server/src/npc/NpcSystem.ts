@@ -187,7 +187,8 @@ export class NpcSystem {
     player.connected = true;
     player.alive = false;
     player.inMatch = false;
-    player.health = this.context.config.getPlayerConfig().maxHealth;
+    player.maxHealth = this.context.config.getPlayerConfig().maxHealth;
+    player.health = player.maxHealth;
 
     this.context.state.players.set(sessionId, player);
     this.context.runtimes.set(sessionId, new PlayerRuntime(this.context.now()));

@@ -46,6 +46,8 @@ export interface SyncedPlayer {
   readonly speedMultiplier: number;
   /** Drawn and shot-at size relative to a player; 1 for everyone but a boss. */
   readonly bodyScale: number;
+  /** What full health means for this figure: a player's config max, or a boss's own. */
+  readonly maxHealth: number;
   /** Seconds left of the window in which a shove decays on its own terms. */
   readonly knockbackTimer: number;
   /**

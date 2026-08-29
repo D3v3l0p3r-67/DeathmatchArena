@@ -72,6 +72,18 @@ export class PlayerState extends Schema implements SyncedPlayer {
    * nothing; a setting the game silently mangles is not.
    */
   @type("uint16") health: number = getPlayerConfig().maxHealth;
+
+  /**
+   * What full health means *for this figure*.
+   *
+   * Everything used to divide by the player's configured maximum, which is
+   * right for a player and wrong for everything else: the Warden has 900, so
+   * `health / 100` clamped to 1 and its bar sat full and green for the first
+   * 89% of the fight, then drained in the last eleven. It reads exactly like a
+   * boss that shrugs off gunfire -- and the bots read it the same way, so a
+   * boss on its last legs still thought of itself as untouched.
+   */
+  @type("uint16") maxHealth: number = getPlayerConfig().maxHealth;
   @type("boolean") alive = false;
   @type("boolean") onGround = false;
 

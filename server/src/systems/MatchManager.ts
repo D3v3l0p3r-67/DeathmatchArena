@@ -358,7 +358,8 @@ export class MatchManager {
       const runtime = this.context.runtimes.get(player.sessionId);
       player.alive = false;
       player.inMatch = false;
-      player.health = this.context.config.getPlayerConfig().maxHealth;
+      player.maxHealth = this.context.config.getPlayerConfig().maxHealth;
+      player.health = player.maxHealth;
       player.kills = 0;
       player.deaths = 0;
       player.placement = 0;
@@ -430,7 +431,8 @@ export class MatchManager {
     player.onGround = false;
     player.facing = position.x < this.context.arena.width / 2 ? 1 : -1;
     player.aimAngle = player.facing > 0 ? 0 : Math.PI;
-    player.health = player0.maxHealth;
+    player.maxHealth = player0.maxHealth;
+    player.health = player.maxHealth;
     player.alive = true;
     player.inMatch = true;
     if (fresh) {

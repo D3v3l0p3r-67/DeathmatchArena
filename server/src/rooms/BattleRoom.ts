@@ -224,7 +224,8 @@ export class BattleRoom extends Room<{ state: GameState }> {
     player.connected = true;
     player.alive = false;
     player.inMatch = false;
-    player.health = this.configView.getPlayerConfig().maxHealth;
+    player.maxHealth = this.configView.getPlayerConfig().maxHealth;
+    player.health = player.maxHealth;
     this.state.players.set(client.sessionId, player);
 
     if (!validation.valid) {

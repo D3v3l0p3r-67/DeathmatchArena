@@ -125,7 +125,9 @@ export class PowerUpSystem {
 
       [PowerUpType.HEALTH]: (powerUp, player) => {
         if (powerUp.type !== PowerUpType.HEALTH) return false;
-        const maxHealth = this.context.config.getPlayerConfig().maxHealth;
+        // The picker's own maximum, not a player's: a boss is not at full
+        // health merely for having more than a player's worth of it.
+        const maxHealth = player.maxHealth || this.context.config.getPlayerConfig().maxHealth;
         if (player.health >= maxHealth) return false;
         player.health = applyHealthRestore(player.health, maxHealth, powerUp);
         return true;

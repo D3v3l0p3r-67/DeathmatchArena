@@ -229,7 +229,9 @@ export class Perception {
     target.velocityY = runtime.movement.velocityY;
     target.onGround = runtime.movement.onGround;
     target.jumpsRemaining = runtime.movement.jumpsRemaining;
-    target.health = clamp01(self.health / Math.max(1, maxHealth));
+    // Its own maximum: a boss with 900 was reading itself as untouched right
+    // down to its last hundred, and so never acted hurt.
+    target.health = clamp01(self.health / Math.max(1, self.maxHealth || maxHealth));
     // A weapon with no magazine is never short of ammunition, so it reports
     // full rather than empty -- otherwise a chainsaw would look desperate.
     target.ammo = usesAmmo(weapon) ? clamp01(self.ammo / Math.max(1, weapon.magazineSize)) : 1;
@@ -296,7 +298,7 @@ export class Perception {
         y: other.y,
         velocityX: other.velocityX,
         velocityY: other.velocityY,
-        health: clamp01(other.health / Math.max(1, maxHealth)),
+        health: clamp01(other.health / Math.max(1, other.maxHealth || maxHealth)),
         weaponId: other.weaponId,
         distance,
         angle,
