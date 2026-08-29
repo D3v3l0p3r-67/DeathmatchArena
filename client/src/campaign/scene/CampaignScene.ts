@@ -91,6 +91,8 @@ export class CampaignScene extends Phaser.Scene {
   private readonly targetBounds = { x: 0, y: 0, width: 0, height: 0 };
   private zoneOverlay: Phaser.GameObjects.Graphics | null = null;
   private debugZones = false;
+  /** While paused the world is frozen but still drawn. */
+  private paused = false;
 
   constructor() {
     super({ key: CAMPAIGN_SCENE_KEY });
@@ -162,6 +164,14 @@ export class CampaignScene extends Phaser.Scene {
     const deltaMs = this.lastUpdateAt === 0 ? 1000 / 60 : Math.min(250, nowMs - this.lastUpdateAt);
     this.lastUpdateAt = nowMs;
 
+    // Paused: keep drawing what is there, advance nothing. The clock is
+    // re-based above, so unpausing does not hand the simulation the whole
+    // time the menu was open.
+    if (this.paused) {
+      this.syncViews();
+      return;
+    }
+
     // Buttons in, one tick of the world out -- once per fixed step, so a slow
     // frame that simulates several ticks still moves at full speed.
     director.update(deltaMs, () => {
@@ -227,6 +237,11 @@ export class CampaignScene extends Phaser.Scene {
       x: (pointer.x / scale.gameSize.width) * scale.displaySize.width + scale.canvasBounds.x,
       y: (pointer.y / scale.gameSize.height) * scale.displaySize.height + scale.canvasBounds.y,
     };
+  }
+
+  setPaused(paused: boolean): void {
+    this.paused = paused;
+    this.inputController?.setEnabled(!paused);
   }
 
   setDebugZones(enabled: boolean): void {

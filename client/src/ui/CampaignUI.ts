@@ -12,7 +12,8 @@ import {
   type CampaignLevelResult,
   type CampaignProgress,
 } from "@deathmatch/shared";
-import type { CampaignInterlude } from "@deathmatch/shared";
+import { getCampaignArena, type CampaignInterlude } from "@deathmatch/shared";
+import { drawArenaThumbnail } from "./arenaThumbnail.js";
 import type { BossStatus } from "../campaign/core/BossDirector.js";
 import { query, requireElement, setText, toggleClass } from "./dom.js";
 
@@ -52,7 +53,11 @@ export class CampaignUI {
   private readonly nextButton = requireElement<HTMLButtonElement>("camp-next");
   private readonly runTotal = requireElement("camp-run-total");
 
+  private readonly difficultyNote = requireElement("campaign-difficulty-note");
+  private readonly rankScale = requireElement("camp-rank-scale");
   private readonly briefEyebrow = requireElement("brief-eyebrow");
+  private readonly briefLoadout = requireElement("brief-loadout");
+  private readonly newBest = requireElement("camp-new-best");
   private readonly briefTitle = requireElement("brief-title");
   private readonly briefLines = requireElement("brief-lines");
 
@@ -80,6 +85,19 @@ export class CampaignUI {
     });
 
     this.buildDifficultyOptions();
+    this.describeDifficulty();
+    this.buildRankScale();
+  }
+
+  /** The S-A-B-C-D ladder, so a rank means something at a glance. */
+  private buildRankScale(): void {
+    this.rankScale.replaceChildren();
+    for (const rank of ["S", "A", "B", "C", "D"]) {
+      const item = document.createElement("li");
+      item.textContent = rank;
+      item.dataset.rank = rank;
+      this.rankScale.appendChild(item);
+    }
   }
 
   // ----------------------------------------------------------- level select
@@ -104,6 +122,18 @@ export class CampaignUI {
       const row = document.createElement("li");
       row.className = "campaign-levels__row";
       if (!unlocked) row.classList.add("is-locked");
+      // Focusable, so the whole list is reachable from a keyboard or a pad.
+      if (unlocked) row.tabIndex = 0;
+
+      const thumb = document.createElement("canvas");
+      thumb.className = "campaign-levels__thumb";
+      thumb.width = 120;
+      thumb.height = 44;
+      const arena = getCampaignArena(level.arenaId);
+      if (arena) drawArenaThumbnail(thumb, arena);
+
+      const text = document.createElement("div");
+      text.className = "campaign-levels__text";
 
       const name = document.createElement("span");
       name.className = "campaign-levels__name";
@@ -111,23 +141,41 @@ export class CampaignUI {
 
       const recordText = document.createElement("span");
       recordText.className = "campaign-levels__record";
-      recordText.textContent = record?.completed
-        ? `best ${record.bestScore.toLocaleString()}`
-        : unlocked
-          ? "available"
-          : "locked";
+      if (!unlocked) {
+        recordText.textContent = "Locked — finish the level before it";
+      } else if (record?.completed) {
+        // What the player actually did here, rather than the word "completed".
+        const parts = [`Best ${record.bestScore.toLocaleString()}`];
+        parts.push(`${record.secretsFound}/${level.secrets.length} secrets`);
+        if (record.completedDifficulties.length > 0) {
+          parts.push(record.completedDifficulties.join(", "));
+        }
+        recordText.textContent = parts.join(" · ");
+      } else {
+        const par = Math.round(level.parTimeMs / 60000);
+        recordText.textContent = `Not yet cleared · par ${par} min · ${level.secrets.length} secrets`;
+      }
+
+      text.append(name, recordText);
 
       const rank = document.createElement("span");
       rank.className = "campaign-levels__rank";
-      rank.textContent = record?.bestRank ?? "";
+      rank.textContent = record?.bestRank ?? (unlocked ? "" : "🔒");
 
-      row.append(name, recordText, rank);
+      row.append(thumb, text, rank);
       if (unlocked) {
-        row.addEventListener("click", () => {
+        const choose = () => {
           this.selectedLevelId = level.id;
           for (const sibling of this.levelList.children) sibling.classList.remove("is-selected");
           row.classList.add("is-selected");
           this.continueButton.hidden = resumableLevelId !== level.id;
+        };
+        row.addEventListener("click", choose);
+        row.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            choose();
+          }
         });
         if (this.selectedLevelId === "" || this.selectedLevelId === level.id) {
           this.selectedLevelId = level.id;
@@ -140,21 +188,39 @@ export class CampaignUI {
     this.continueButton.hidden = resumableLevelId !== this.selectedLevelId;
   }
 
+  /** One line saying what the chosen difficulty actually changes. */
+  private describeDifficulty(): void {
+    const difficulty = CAMPAIGN_DIFFICULTIES.find((entry) => entry.id === this.selectedDifficulty);
+    if (!difficulty) return;
+    const skill =
+      difficulty.skillShift === 0
+        ? "enemies at their standard skill"
+        : difficulty.skillShift > 0
+          ? `enemies ${difficulty.skillShift} rung${difficulty.skillShift === 1 ? "" : "s"} sharper`
+          : `enemies ${-difficulty.skillShift} rung${difficulty.skillShift === -1 ? "" : "s"} duller`;
+    setText(
+      this.difficultyNote,
+      `${skill} · ${Math.round(difficulty.enemyHealthScale * 100)}% health · ` +
+        `${Math.round(difficulty.scoreScale * 100)}% score`,
+    );
+  }
+
   private buildDifficultyOptions(): void {
     this.difficultyOptions.replaceChildren();
     for (const difficulty of CAMPAIGN_DIFFICULTIES) {
       const button = document.createElement("button");
       button.type = "button";
-      button.className = "difficulty-option";
-      if (difficulty.id === this.selectedDifficulty) button.classList.add("is-preferred");
+      button.className = "difficulty-option difficulty-option--segment";
+      if (difficulty.id === this.selectedDifficulty) button.classList.add("is-selected");
 
       const label = document.createElement("span");
       label.textContent = difficulty.name;
       button.append(label);
       button.addEventListener("click", () => {
         this.selectedDifficulty = difficulty.id;
-        for (const sibling of this.difficultyOptions.children) sibling.classList.remove("is-preferred");
-        button.classList.add("is-preferred");
+        for (const sibling of this.difficultyOptions.children) sibling.classList.remove("is-selected");
+        button.classList.add("is-selected");
+        this.describeDifficulty();
       });
       this.difficultyOptions.appendChild(button);
     }
@@ -234,6 +300,16 @@ export class CampaignUI {
    * `kind` is switched on rather than assumed, so a later `cutscene` or `shop`
    * interlude lands here as another branch instead of a rewrite.
    */
+  /** What the player walks in carrying, shown on the briefing card. */
+  setBriefingLoadout(entries: readonly string[]): void {
+    this.briefLoadout.replaceChildren();
+    for (const entry of entries) {
+      const chip = document.createElement("span");
+      chip.textContent = entry;
+      this.briefLoadout.appendChild(chip);
+    }
+  }
+
   showInterlude(interlude: CampaignInterlude, onAutoAdvance: () => void): void {
     switch (interlude.kind) {
       case "briefing": {
@@ -254,6 +330,11 @@ export class CampaignUI {
     }
   }
 
+  /** Say so when the score just beaten was the player's own record. */
+  setNewBest(isBest: boolean): void {
+    this.newBest.hidden = !isBest;
+  }
+
   /** Offer the next level, and show what the run has scored so far. */
   setNextLevel(name: string | null, runTotal: number | null): void {
     this.nextButton.hidden = name === null;
@@ -263,10 +344,19 @@ export class CampaignUI {
     if (runTotal !== null) setText(this.runTotal, `Run total: ${runTotal.toLocaleString()}`);
   }
 
+  private lightRankScale(earned: string | null): void {
+    for (const item of this.rankScale.children) {
+      const element = item as HTMLElement;
+      element.classList.toggle("is-earned", earned !== null && element.dataset.rank === earned);
+    }
+  }
+
   showResults(result: CampaignLevelResult | null): void {
     if (result) {
       setText(this.resultsEyebrow, "Level complete");
       setText(this.resultsRank, result.rank);
+      toggleClass(this.resultsRank, "is-failed", false);
+      this.lightRankScale(result.rank);
       setText(requireElement("camp-r-score"), result.score.toLocaleString());
       setText(requireElement("camp-r-kills"), String(result.kills));
       setText(requireElement("camp-r-deaths"), String(result.deaths));
@@ -280,6 +370,8 @@ export class CampaignUI {
     } else {
       setText(this.resultsEyebrow, "Level failed");
       setText(this.resultsRank, "✕");
+      toggleClass(this.resultsRank, "is-failed", true);
+      this.lightRankScale(null);
       for (const id of ["camp-r-score", "camp-r-kills", "camp-r-deaths", "camp-r-secrets", "camp-r-time", "camp-r-accuracy"]) {
         setText(requireElement(id), "—");
       }

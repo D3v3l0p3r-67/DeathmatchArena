@@ -20,7 +20,7 @@
             <span class="title__death">DEATHMATCH</span>
             <span class="title__arena">ARENA</span>
           </h1>
-          <p class="tagline">Last player standing wins. No respawns.</p>
+          <p class="tagline">Arena deathmatch, flag hunt, and a single-player campaign.</p>
 
           <form class="form" id="join-form" autocomplete="off">
             <label class="label" for="name-input">Display name</label>
@@ -63,9 +63,10 @@
 
           <ul class="campaign-levels" id="campaign-levels"></ul>
 
-          <div class="difficulty-picker is-active difficulty-picker--inline">
-            <p class="difficulty-picker__title">Difficulty</p>
-            <div class="difficulty-picker__options" id="campaign-difficulty"></div>
+          <div class="segment">
+            <p class="segment__title">Difficulty</p>
+            <div class="segment__options" id="campaign-difficulty"></div>
+            <p class="segment__note" id="campaign-difficulty-note"></p>
           </div>
 
           <div class="results__actions">
@@ -82,6 +83,7 @@
           <p class="results__eyebrow" id="brief-eyebrow">Sector</p>
           <h2 class="panel__title brief__title" id="brief-title">Level</h2>
           <div class="brief__lines" id="brief-lines"></div>
+          <div class="brief__loadout" id="brief-loadout"></div>
           <div class="results__actions">
             <button class="button button--primary" id="brief-begin" type="button">Begin</button>
           </div>
@@ -92,7 +94,10 @@
       <section class="screen screen--campaign-results" data-screen="campaign-results">
         <div class="panel panel--results">
           <p class="results__eyebrow" id="camp-results-eyebrow">Level complete</p>
-          <h2 class="results__winner campaign-rank" id="camp-results-rank">A</h2>
+          <div class="rank" id="camp-results-rank-wrap">
+            <h2 class="rank__letter" id="camp-results-rank">A</h2>
+            <ol class="rank__scale" id="camp-rank-scale" aria-hidden="true"></ol>
+          </div>
           <table class="standings campaign-standings">
             <tbody>
               <tr><td>Score</td><td id="camp-r-score">0</td></tr>
@@ -103,6 +108,7 @@
               <tr><td>Accuracy</td><td id="camp-r-accuracy">0%</td></tr>
             </tbody>
           </table>
+          <p class="results__best" id="camp-new-best" hidden>New personal best</p>
           <p class="results__career" id="camp-run-total" hidden></p>
           <div class="results__actions">
             <button class="button button--primary" id="camp-next" type="button" hidden>Next level</button>
@@ -129,18 +135,23 @@
                distinguishes this lobby from any other. -->
           <h2 class="panel__title" id="lobby-room-name">Room</h2>
           <p class="panel__eyebrow">Waiting for players</p>
-          <p class="counter" id="lobby-count">Players: 0 / 10</p>
+          <p class="lobby__meta"><span id="lobby-count">Players: 0 / 10</span></p>
 
           <!-- What will be played. The host can change it; everyone can see it. -->
+          <p class="lobby__code">Room code <b id="lobby-code">—</b></p>
+
           <div class="lobby__map">
+            <canvas class="lobby__map-thumb" id="lobby-map-thumb" width="96" height="36"></canvas>
             <span class="lobby__map-label">Map</span>
             <span class="lobby__map-name" id="lobby-map-name">-</span>
             <button class="button button--ghost lobby__map-change" id="change-map" type="button">Change</button>
           </div>
-          <div class="difficulty-picker" id="map-picker">
-            <p class="difficulty-picker__title">Map</p>
-            <div class="difficulty-picker__options" id="map-picker-options"></div>
-            <button class="button button--ghost" id="map-picker-cancel" type="button">Cancel</button>
+          <div class="modal" id="map-picker" role="dialog" aria-modal="true" aria-label="Choose a map">
+            <div class="modal__card">
+              <p class="modal__title">Map</p>
+              <div class="modal__options" id="map-picker-options"></div>
+              <button class="button button--ghost" id="map-picker-cancel" type="button">Cancel</button>
+            </div>
           </div>
 
           <!-- Which rules will be played. Same shape as the map row: the host
@@ -150,10 +161,12 @@
             <span class="lobby__map-name" id="lobby-mode-name">-</span>
             <button class="button button--ghost lobby__map-change" id="change-mode" type="button">Change</button>
           </div>
-          <div class="difficulty-picker" id="mode-picker">
-            <p class="difficulty-picker__title">Game mode</p>
-            <div class="difficulty-picker__options" id="mode-picker-options"></div>
-            <button class="button button--ghost" id="mode-picker-cancel" type="button">Cancel</button>
+          <div class="modal" id="mode-picker" role="dialog" aria-modal="true" aria-label="Choose a game mode">
+            <div class="modal__card">
+              <p class="modal__title">Game mode</p>
+              <div class="modal__options" id="mode-picker-options"></div>
+              <button class="button button--ghost" id="mode-picker-cancel" type="button">Cancel</button>
+            </div>
           </div>
 
           <ul class="player-list" id="lobby-players"></ul>
@@ -163,12 +176,15 @@
 
           <!-- The difficulty picker, shown when "add bot" is pressed. Choosing a
                rung adds the bot; there is no separate confirmation. -->
-          <div class="difficulty-picker" id="bot-picker">
-            <p class="difficulty-picker__title">Bot difficulty</p>
-            <div class="difficulty-picker__options" id="bot-picker-options"></div>
-            <button class="button button--ghost" id="bot-picker-cancel" type="button">Cancel</button>
+          <div class="modal" id="bot-picker" role="dialog" aria-modal="true" aria-label="Choose a bot difficulty">
+            <div class="modal__card">
+              <p class="modal__title">Bot difficulty</p>
+              <div class="modal__options" id="bot-picker-options"></div>
+              <button class="button button--ghost" id="bot-picker-cancel" type="button">Cancel</button>
+            </div>
           </div>
 
+          <p class="lobby__blocker" id="start-blocker" hidden></p>
           <div class="lobby__actions">
             <button class="button button--ghost" id="leave-lobby" type="button">Leave</button>
             <button class="button button--primary" id="start-match" type="button">Start</button>
@@ -364,6 +380,32 @@
         </div>
       </section>
 
+      <!-- ============================== PAUSE ================================ -->
+      <div class="modal" id="pause-menu" role="dialog" aria-modal="true" aria-label="Paused">
+        <div class="modal__card">
+          <p class="modal__title">Paused</p>
+          <p class="modal__subtitle" id="pause-level">Level</p>
+          <div class="modal__stack">
+            <button class="button button--primary" id="pause-resume" type="button">Resume</button>
+            <button class="button button--ghost" id="pause-settings" type="button">Settings</button>
+            <button class="button button--ghost" id="pause-restart" type="button">Restart from checkpoint</button>
+            <button class="button button--ghost" id="pause-quit" type="button">Quit to menu</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================= CONFIRM =============================== -->
+      <div class="modal" id="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+        <div class="modal__card">
+          <p class="modal__title" id="confirm-title">Are you sure?</p>
+          <p class="modal__subtitle" id="confirm-body"></p>
+          <div class="modal__row">
+            <button class="button button--ghost" id="confirm-cancel" type="button">Cancel</button>
+            <button class="button button--primary" id="confirm-accept" type="button">Confirm</button>
+          </div>
+        </div>
+      </div>
+
       <!-- ============================ NOTIFICATIONS ========================== -->
       <div class="notices" id="notices" role="status"></div>
 
@@ -398,8 +440,14 @@
           <button type="button" class="settings__close" data-settings-close aria-label="Close">x</button>
         </header>
 
+        <nav class="settings__tabs" role="tablist">
+          <button class="settings__tab is-selected" type="button" data-tab="audio" role="tab">Audio</button>
+          <button class="settings__tab" type="button" data-tab="effects" role="tab">Effects</button>
+          <button class="settings__tab" type="button" data-tab="controls" role="tab">Controls</button>
+        </nav>
+
         <div class="settings__body">
-          <section class="settings__group">
+          <section class="settings__group" data-tab-panel="audio">
             <h3>Audio</h3>
             <label class="setting setting--toggle">
               <span class="setting__label">Mute all</span>
@@ -432,7 +480,7 @@
             </label>
           </section>
 
-          <section class="settings__group">
+          <section class="settings__group" data-tab-panel="effects">
             <h3>Effects</h3>
             <label class="setting">
               <span class="setting__label">Particles</span>
@@ -449,8 +497,18 @@
               <input type="checkbox" id="setting-damage-numbers" />
             </label>
           </section>
+
+          <!-- What the keys do. Read from one table so the menu and the game
+               can never drift apart. -->
+          <section class="settings__group" data-tab-panel="controls" hidden>
+            <h3>Controls</h3>
+            <dl class="controls" id="controls-list"></dl>
+          </section>
         </div>
 
+        <div class="settings__footer">
+          <button class="button button--ghost" id="settings-reset" type="button">Reset to defaults</button>
+        </div>
         <p class="settings__hint">O opens this panel &middot; Esc closes it</p>
       </div>
 

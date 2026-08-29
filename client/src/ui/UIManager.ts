@@ -1,5 +1,7 @@
 import {
   GAME_MODES,
+  getArena,
+  getMatchConfig,
   MAX_BOT_DIFFICULTY,
   type PlayerCareer,
   MIN_BOT_DIFFICULTY,
@@ -10,6 +12,8 @@ import {
   type SyncedGameState,
 } from "@deathmatch/shared";
 import { query, requireElement, setText, toggleClass } from "./dom.js";
+import { drawArenaThumbnail } from "./arenaThumbnail.js";
+import { getPlayerColor } from "../game/TextureFactory.js";
 
 export type ScreenName =
   | "menu"
@@ -59,6 +63,8 @@ export class UIManager {
   private readonly matchmakingStatus = requireElement("matchmaking-status");
   private readonly lobbyCount = requireElement("lobby-count");
   private readonly mapName = requireElement("lobby-map-name");
+  private readonly mapThumb = requireElement<HTMLCanvasElement>("lobby-map-thumb");
+  private readonly roomCode = requireElement("lobby-code");
   private readonly changeMapButton = requireElement("change-map") as HTMLButtonElement;
   private readonly mapPicker = requireElement("map-picker");
   private readonly mapPickerOptions = requireElement("map-picker-options");
@@ -73,11 +79,20 @@ export class UIManager {
   private readonly botPicker = requireElement("bot-picker");
   private readonly botPickerOptions = requireElement("bot-picker-options");
   private readonly startButton = requireElement<HTMLButtonElement>("start-match");
+  private readonly startBlocker = requireElement("start-blocker");
+  private readonly confirmDialog = requireElement("confirm-dialog");
+  private readonly confirmTitle = requireElement("confirm-title");
+  private readonly confirmBody = requireElement("confirm-body");
+  private readonly confirmAccept = requireElement<HTMLButtonElement>("confirm-accept");
+  private readonly confirmCancel = requireElement<HTMLButtonElement>("confirm-cancel");
 
   /** Whether this client owns the room, from the last patch. */
   private isHost = false;
   /** Arena id to display name, from the server's welcome. */
   private arenaNames = new Map<string, string>();
+  /** What the room is currently set to, so a picker can mark it. */
+  private selectedArenaId = "";
+  private selectedModeId = "";
 
   private readonly countdownValue = requireElement("countdown-value");
 
@@ -193,11 +208,31 @@ export class UIManager {
         this.callbacks.onSelectArena(arena.id);
       });
       this.mapPickerOptions.appendChild(button);
+      // Marked from the room's own state, so the list always agrees with the row above it.
+      button.classList.toggle("is-selected", arena.id === this.selectedArenaId);
     }
   }
 
   private toggleMapPicker(open: boolean): void {
+    if (open) this.markSelected(this.mapPickerOptions, "arena", this.selectedArenaId);
     toggleClass(this.mapPicker, "is-active", open);
+  }
+
+  /** Mark whichever option matches the room's current setting. */
+  /** Draw the room's map, once per change of map. */
+  private drawMapThumb(arenaId: string): void {
+    if (!arenaId || this.mapThumb.dataset.arena === arenaId) return;
+    const arena = getArena(arenaId);
+    if (!arena) return;
+    this.mapThumb.dataset.arena = arenaId;
+    drawArenaThumbnail(this.mapThumb, arena);
+  }
+
+  private markSelected(container: HTMLElement, dataKey: string, value: string): void {
+    for (const option of container.children) {
+      const element = option as HTMLElement;
+      element.classList.toggle("is-selected", element.dataset[dataKey] === value);
+    }
   }
 
   /**
@@ -223,10 +258,12 @@ export class UIManager {
         this.callbacks.onSelectMode(mode.id);
       });
       this.modePickerOptions.appendChild(button);
+      button.classList.toggle("is-selected", mode.id === this.selectedModeId);
     }
   }
 
   private toggleModePicker(open: boolean): void {
+    if (open) this.markSelected(this.modePickerOptions, "mode", this.selectedModeId);
     toggleClass(this.modePicker, "is-active", open);
   }
 
@@ -246,6 +283,52 @@ export class UIManager {
       const value = Number((option as HTMLElement).dataset.level);
       option.classList.toggle("is-preferred", value === level);
     }
+  }
+
+  // ----------------------------------------------------------------- confirm
+
+  /**
+   * Ask before something irreversible.
+   *
+   * Leaving a lobby or abandoning a run used to happen on the first click,
+   * which is how a run gets thrown away by a misplaced Escape. Resolves false
+   * on cancel, so a caller reads as `if (await confirm(...))`.
+   */
+  confirm(title: string, body: string, acceptLabel = "Confirm"): Promise<boolean> {
+    setText(this.confirmTitle, title);
+    setText(this.confirmBody, body);
+    setText(this.confirmAccept, acceptLabel);
+    toggleClass(this.confirmDialog, "is-active", true);
+    this.confirmAccept.focus();
+
+    return new Promise((resolve) => {
+      const finish = (accepted: boolean) => {
+        toggleClass(this.confirmDialog, "is-active", false);
+        this.confirmAccept.removeEventListener("click", onAccept);
+        this.confirmCancel.removeEventListener("click", onCancel);
+        resolve(accepted);
+      };
+      const onAccept = () => finish(true);
+      const onCancel = () => finish(false);
+      this.confirmAccept.addEventListener("click", onAccept);
+      this.confirmCancel.addEventListener("click", onCancel);
+    });
+  }
+
+  /** True while a dialog owns the screen, so Escape closes it first. */
+  get isConfirming(): boolean {
+    return this.confirmDialog.classList.contains("is-active");
+  }
+
+  /** Close whatever overlay is open. Returns true when there was one. */
+  closeTopOverlay(): boolean {
+    const open = Array.from(document.querySelectorAll<HTMLElement>(".modal.is-active"));
+    const top = open[open.length - 1];
+    if (!top) return false;
+    // A confirm resolves through its own buttons, so cancel it properly.
+    if (top === this.confirmDialog) this.confirmCancel.click();
+    else toggleClass(top, "is-active", false);
+    return true;
   }
 
   // ------------------------------------------------------------------ screens
@@ -303,6 +386,16 @@ export class UIManager {
 
   // ------------------------------------------------------------------ lobby
 
+  /**
+   * The room's own id, shown so a player can tell somebody where to find them.
+   *
+   * Set by the app rather than read from the state: it belongs to the
+   * connection, not to the match.
+   */
+  setRoomCode(code: string): void {
+    setText(this.roomCode, code || "—");
+  }
+
   updateLobby(state: SyncedGameState, localSessionId: string): void {
     this.isHost = state.hostId === localSessionId;
 
@@ -310,10 +403,13 @@ export class UIManager {
     setText(this.lobbyCount, `Players: ${state.playerCount} / ${state.maxPlayers}`);
 
     // The map being played, by name. The host may change it; everyone sees it.
+    this.selectedArenaId = state.arenaId ?? "";
     setText(this.mapName, this.arenaNames.get(state.arenaId) ?? state.arenaId ?? "-");
+    this.drawMapThumb(state.arenaId);
     this.changeMapButton.hidden = !this.isHost || this.arenaNames.size < 2;
 
     // The rules being played, by name. Same contract as the map row.
+    this.selectedModeId = state.gameModeId ?? "";
     const mode = GAME_MODES.find((candidate) => candidate.id === state.gameModeId);
     setText(this.modeName, mode?.name ?? state.gameModeId ?? "-");
     this.changeModeButton.hidden = !this.isHost || GAME_MODES.length < 2;
@@ -322,6 +418,23 @@ export class UIManager {
     this.addBotButton.hidden = !this.isHost;
     this.startButton.disabled = !this.isHost || !state.canStart;
     this.startButton.hidden = !this.isHost;
+
+    /*
+     * A greyed-out button that will not say why is the most annoying thing a
+     * lobby can do. The server publishes `canStart`; the reason it is false is
+     * almost always the same one, and saying it costs a line.
+     */
+    const blocked = this.isHost && !state.canStart;
+    this.startBlocker.hidden = !blocked;
+    if (blocked) {
+      const missing = Math.max(1, getMatchConfig().minPlayers - state.playerCount);
+      setText(
+        this.startBlocker,
+        state.playerCount >= state.maxPlayers
+          ? "The room is full."
+          : `Waiting for ${missing} more ${missing === 1 ? "player" : "players"} — or add a bot.`,
+      );
+    }
     if (!this.isHost) {
       this.toggleBotPicker(false);
       this.toggleMapPicker(false);
@@ -358,6 +471,11 @@ export class UIManager {
 
       const dot = document.createElement("span");
       dot.className = "dot";
+      // The very colour they will be in the arena, so the roster and the
+      // fight agree about who is who.
+      dot.style.background = `#${getPlayerColor(sessionId, sessionId === localSessionId)
+        .toString(16)
+        .padStart(6, "0")}`;
 
       const label = document.createElement("span");
       label.className = "player-name";

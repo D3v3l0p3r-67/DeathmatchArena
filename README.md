@@ -72,6 +72,48 @@ F3                  toggle the debug overlay
 
 ---
 
+## Menus
+
+Every screen is DOM over the canvas, driven by `UIManager` (multiplayer and
+shared chrome) and `CampaignUI` (single player). Four rules hold across all of
+them, because the alternative was fourteen screens that each behaved slightly
+differently:
+
+- **A choice looks like a choice.** `is-selected` is the current setting and is
+  filled with a tick; `is-preferred` is only *what you reached for last time*
+  and gets a dot. Conflating the two is what once made two rows of the
+  difficulty picker look chosen at once.
+- **Pickers are overlays.** They used to be inserted into the layout, which
+  pushed everything below them down — with five bot difficulties open, the
+  lobby's Start button ended up under the fold. A modal cannot move anything.
+  (`#ui-root` is `pointer-events: none`, so anything wanting clicks must opt
+  back in; a modal that forgets is visible and completely inert.)
+- **Nothing destructive happens on one click.** Leaving a room or abandoning a
+  run goes through `UIManager.confirm`.
+- **A disabled control says why.** The lobby's Start button carries the reason
+  it cannot be pressed.
+
+`MenuNavigator` gives every screen keyboard and gamepad traversal: arrows or
+the d-pad move focus, Enter or the south button activates, Escape or the east
+button goes back. It drives *native focus* rather than a selection model of its
+own, so activation, `:focus-visible` and screen readers all work for free.
+Escape is deliberately handled even while the game owns the keys — it is how a
+player reaches the pause menu, which freezes the campaign rather than quitting
+it. "Back" is resolved in one place, in priority order: settings, an open
+question, a paused campaign, any other overlay, then the screen's own notion of
+backwards.
+
+Maps are drawn, not named: `arenaThumbnail.ts` renders an `ArenaDefinition`
+into a small canvas — scaled to fill and cropped to the level's opening, since
+a 7.5:1 campaign level letterboxed into a 3:1 box is a smear rather than a
+picture. The same helper serves the campaign's level list and the lobby's map
+row, so a new arena has a thumbnail the moment it exists.
+
+`MenuBackdrop` drifts embers across three parallax planes behind the panels,
+and stops entirely the moment a match starts — a menu effect must cost a match
+nothing. It, and every screen transition, is disabled under
+`prefers-reduced-motion`.
+
 ## Repository layout
 
 ```

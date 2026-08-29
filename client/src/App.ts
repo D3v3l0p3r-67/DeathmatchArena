@@ -25,6 +25,7 @@ import {
   campaignChain,
   getCampaignArena,
   getCampaignLevel,
+  getWeapon,
   loadGameConfig,
   type CampaignDifficultyId,
   type CampaignRun,
@@ -34,6 +35,8 @@ import { HttpCampaignSync, SaveStore } from "./campaign/core/SaveStore.js";
 import { buildCampaignConfig, LOCAL_PLAYER_ID } from "./campaign/sim/LocalMatch.js";
 import { CampaignScene, CAMPAIGN_SCENE_KEY, type CampaignSceneEvents } from "./campaign/scene/CampaignScene.js";
 import { CampaignUI } from "./ui/CampaignUI.js";
+import { MenuNavigator } from "./ui/MenuNavigator.js";
+import { MenuBackdrop } from "./ui/MenuBackdrop.js";
 import { BootScene, BOOT_SCENE_KEY } from "./game/scenes/BootScene.js";
 import { GameScene, GAME_SCENE_KEY } from "./game/scenes/GameScene.js";
 import { DebugConsole } from "./ui/DebugConsole.js";
@@ -183,6 +186,10 @@ export class App {
   /** The level a briefing card is introducing, played when it is dismissed. */
   private pendingLevelId: string | null = null;
   private campaignDebug = false;
+  /** The campaign's pause menu is open and the world is frozen. */
+  private campaignPaused = false;
+  private readonly navigator = new MenuNavigator({ onBack: () => void this.handleBack() });
+  private readonly backdrop = new MenuBackdrop(document.body);
 
   private joining = false;
   private lastHudUpdate = 0;
@@ -222,7 +229,12 @@ export class App {
     this.ui = new UIManager({
       onPlay: (name) => void this.handlePlay(name),
       onCancelMatchmaking: () => void this.returnToMenu(),
-      onLeaveLobby: () => void this.returnToMenu(),
+      onLeaveLobby: () => {
+        void (async () => {
+          const leave = await this.ui.confirm("Leave the room?", "You will return to the main menu.", "Leave");
+          if (leave) void this.returnToMenu();
+        })();
+      },
       // Asking only. The server decides whether the lobby is in a state where
       // this means anything.
       onStartMatch: () => this.network.requestStart(),
@@ -275,6 +287,7 @@ export class App {
     this.bindDebugConsoleKey();
     this.bindSettingsButton();
     this.bindFirstGesture();
+    this.bindPauseMenu();
     this.applySettings(this.settings.getSettings());
   }
 
@@ -294,6 +307,92 @@ export class App {
     };
     window.addEventListener("pointerdown", start);
     window.addEventListener("keydown", start);
+  }
+
+  private bindPauseMenu(): void {
+    document.getElementById("pause-resume")?.addEventListener("click", () => this.setCampaignPaused(false));
+    document.getElementById("pause-settings")?.addEventListener("click", () => this.settings.setOpen(true));
+    document.getElementById("pause-restart")?.addEventListener("click", () => {
+      this.setCampaignPaused(false);
+      if (this.lastCampaignRun) {
+        this.startCampaign(this.lastCampaignRun.levelId, this.lastCampaignRun.difficulty, true);
+      }
+    });
+    document.getElementById("pause-quit")?.addEventListener("click", () => {
+      void (async () => {
+        const leave = await this.ui.confirm(
+          "Quit to menu?",
+          "The run ends here. Progress since your last checkpoint is lost.",
+          "Quit",
+        );
+        if (!leave) return;
+        this.setCampaignPaused(false);
+        this.exitCampaign();
+      })();
+    });
+  }
+
+  /**
+   * Freeze or resume the campaign.
+   *
+   * Escape used to drop the player straight out of a level with no warning,
+   * which is a fine way to lose a run to a stray key. It now opens this.
+   */
+  private setCampaignPaused(paused: boolean): void {
+    if (!this.campaign) return;
+    this.campaignPaused = paused;
+    this.withCampaignScene((scene) => scene.setPaused(paused));
+
+    const menu = document.getElementById("pause-menu");
+    if (menu) toggleClass(menu, "is-active", paused);
+    const level = document.getElementById("pause-level");
+    if (level && paused) level.textContent = this.campaign.levelDefinition().name;
+
+    this.navigator.setEnabled(paused);
+    if (paused) this.navigator.focusFirst();
+  }
+
+  /**
+   * One meaning for "back", wherever the player is.
+   *
+   * Overlays close first, then a paused campaign resumes, then a running
+   * campaign pauses; on a menu screen it walks one step towards the main menu.
+   */
+  private async handleBack(): Promise<void> {
+    if (this.settings.isOpen) {
+      this.settings.setOpen(false);
+      return;
+    }
+    // A question on screen is answered before anything else is dismissed.
+    if (this.ui.isConfirming) {
+      this.ui.closeTopOverlay();
+      return;
+    }
+    /*
+     * The pause menu is closed *through the pause state*, never as a generic
+     * overlay. Closing it as one left `campaignPaused` true with no menu on
+     * screen -- a frozen game and no way back into the menu that froze it.
+     */
+    if (this.campaign && this.campaignPaused) {
+      this.setCampaignPaused(false);
+      return;
+    }
+    if (this.ui.closeTopOverlay()) return;
+
+    if (this.campaign) {
+      this.setCampaignPaused(true);
+      return;
+    }
+
+    const screen = this.ui.currentScreen;
+    if (screen === "campaign" || screen === "campaign-results") {
+      this.ui.showScreen("menu");
+      return;
+    }
+    if (screen === "lobby") {
+      const leave = await this.ui.confirm("Leave the room?", "You will return to the main menu.", "Leave");
+      if (leave) void this.returnToMenu();
+    }
   }
 
   private bindSettingsButton(): void {
@@ -746,7 +845,11 @@ export class App {
       run.weaponId = finishedWith?.weaponId ?? run.weaponId;
       run.grenades = finishedWith?.grenades ?? run.grenades;
 
+      // Was this the player's own record for the level? Read before the save
+      // folds the new result in.
+      const previousBest = save.loadProgress().levels[level.id]?.bestScore ?? 0;
       const next = level.nextLevelId ? getCampaignLevel(level.nextLevelId) : null;
+      this.campaignUi.setNewBest(result.score > previousBest);
       this.campaignUi.setLayerActive(false);
       this.hud.setVisible(false);
       this.hud.setCampaignMode(false);
@@ -761,6 +864,7 @@ export class App {
       this.campaignUi.showResults(null);
       // A failed level ends the run: there is no next level to offer.
       this.campaignUi.setNextLevel(null, null);
+      this.campaignUi.setNewBest(false);
       this.campaignRun = null;
       this.ui.showScreen("campaign-results");
     });
@@ -833,6 +937,17 @@ export class App {
 
     this.pendingLevelId = next.id;
     if (next.interlude) {
+      // What the door lets through: only what this level's carryOver allows.
+      const run = this.campaignRun;
+      const chips: string[] = [];
+      if (run && next.carryOver?.weapon) chips.push(getWeapon(run.weaponId).name);
+      else chips.push(getWeapon(next.startingWeapon).name);
+      const grenades = run && next.carryOver?.grenades
+        ? Math.max(run.grenades, next.startingGrenades)
+        : next.startingGrenades;
+      chips.push(`${grenades} grenades`);
+      this.campaignUi.setBriefingLoadout(chips);
+
       this.campaignUi.showInterlude(next.interlude, () => this.playPendingLevel());
       this.ui.showScreen("campaign-briefing");
       return;
@@ -868,10 +983,7 @@ export class App {
   private bindCampaignKeys(): void {
     window.addEventListener("keydown", (event) => {
       if (!this.campaign) return;
-      if (event.key === "Escape") {
-        this.exitCampaign();
-        return;
-      }
+      // Escape belongs to `handleBack`, which pauses rather than quitting.
       if (event.key === "F9") {
         this.campaignDebug = !this.campaignDebug;
         this.campaignUi.setDebugHint(this.campaignDebug);
@@ -942,6 +1054,20 @@ export class App {
     // Ahead of the HUD's throttle: the scheduler must run often enough to keep
     // its look-ahead window fed.
     this.updateMusic();
+
+    // Menus own the keys only when a menu is what is on screen; during play
+    // the arrows are the game's (and the spectator's).
+    const playing =
+      (this.campaign !== null && !this.campaignPaused) ||
+      this.network.state?.matchState === MatchState.PLAYING;
+    this.navigator.setEnabled(!playing || this.settings.isOpen || this.ui.isConfirming);
+    this.navigator.pollGamepad(now);
+
+    // The backdrop belongs to the menus: it runs when one is on screen and
+    // stops the moment a match does, so it never costs the game a frame.
+    const onMenu = !this.campaign && this.ui.currentScreen !== "none";
+    if (onMenu) this.backdrop.start();
+    else this.backdrop.stop();
 
     if (now - this.lastHudUpdate < HUD_UPDATE_INTERVAL_MS) return;
     this.lastHudUpdate = now;
@@ -1050,6 +1176,7 @@ export class App {
     if (!state || this.ui.currentScreen !== "lobby") return;
 
     this.ui.updateLobby(state, this.network.sessionId);
+    this.ui.setRoomCode(this.network.roomId);
   }
 
   /**

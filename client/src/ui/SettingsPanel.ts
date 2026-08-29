@@ -1,5 +1,5 @@
-import type { AudioSettings } from "../audio/AudioEngine.js";
-import type { EffectsSettings } from "../game/fx/effects.js";
+import { DEFAULT_AUDIO_SETTINGS, type AudioSettings } from "../audio/AudioEngine.js";
+import { DEFAULT_EFFECTS_SETTINGS, type EffectsSettings } from "../game/fx/effects.js";
 import { query, toggleClass } from "./dom.js";
 
 export interface GameSettings {
@@ -56,7 +56,83 @@ export class SettingsPanel {
       }
     });
 
+    this.bindTabs();
+    this.bindReset();
+    this.renderControls();
     this.render();
+  }
+
+  /**
+   * One group visible at a time.
+   *
+   * Audio, effects and controls in one column made the panel a scroll; a
+   * player looking for the music slider should not have to hunt past screen
+   * shake to find it.
+   */
+  private bindTabs(): void {
+    const tabs = Array.from(document.querySelectorAll<HTMLElement>(".settings__tab"));
+    const panels = Array.from(document.querySelectorAll<HTMLElement>("[data-tab-panel]"));
+
+    const select = (wanted: string | undefined) => {
+      for (const other of tabs) other.classList.toggle("is-selected", other.dataset.tab === wanted);
+      for (const panel of panels) panel.hidden = panel.dataset.tabPanel !== wanted;
+    };
+
+    for (const tab of tabs) tab.addEventListener("click", () => select(tab.dataset.tab));
+    // The markup only marks the default tab; without applying it here the
+    // other panels stay visible underneath until something is clicked.
+    select(tabs.find((tab) => tab.classList.contains("is-selected"))?.dataset.tab ?? tabs[0]?.dataset.tab);
+  }
+
+  /** Put every preference back where it started, in one press. */
+  private bindReset(): void {
+    document.getElementById("settings-reset")?.addEventListener("click", () => {
+      this.settings = {
+        audio: { ...DEFAULT_AUDIO_SETTINGS },
+        effects: { ...DEFAULT_EFFECTS_SETTINGS },
+      };
+      saveEffectsSettings(this.settings.effects);
+      this.hooks.onChange(this.getSettings());
+      this.render();
+    });
+  }
+
+  /**
+   * The bindings, listed from one table.
+   *
+   * Written here rather than duplicated in the menu's hint line, so what the
+   * panel promises and what `InputController` listens for cannot drift.
+   */
+  private renderControls(): void {
+    const list = document.getElementById("controls-list");
+    if (!list) return;
+
+    const bindings: [string[], string][] = [
+      [["A", "D"], "Move left and right"],
+      [["Space", "W"], "Jump (twice to double jump)"],
+      [["Mouse"], "Aim"],
+      [["Left click"], "Fire"],
+      [["Right click"], "Hold to charge a grenade, release to throw"],
+      [["R"], "Reload"],
+      [["A", "D"], "Switch who you watch once eliminated"],
+      [["Esc"], "Pause a campaign level, or go back"],
+      [["O"], "Settings"],
+      [["F3"], "Performance overlay"],
+      [["F9"], "Campaign debug keys"],
+    ];
+
+    list.replaceChildren();
+    for (const [keys, description] of bindings) {
+      const term = document.createElement("dt");
+      for (const key of keys) {
+        const kbd = document.createElement("kbd");
+        kbd.textContent = key;
+        term.appendChild(kbd);
+      }
+      const detail = document.createElement("dd");
+      detail.textContent = description;
+      list.append(term, detail);
+    }
   }
 
   get isOpen(): boolean {
