@@ -392,18 +392,25 @@ export const OUTPOST_LEVEL: CampaignLevelDefinition = {
       {
         belowHealthPercent: 60,
         weapon: ROCKET_LAUNCHER_ID,
-        speed: 0.8,
+        speed: 0.7,
         message: "The Warden switches to rockets!",
+        /*
+         * Adds are hard-mode spice, and they join from the boss's side of the
+         * arena, never from the entrance: spawned at x=7500 one appeared on
+         * top of the player, and a chainsaw at contact range ended runs in
+         * under two seconds. On Easy and Normal the first boss is the rocket
+         * phase alone -- one thing to read at a time.
+         */
         spawnAdds: [
-          { type: "runner", x: 7500, y: 1080 },
           { type: "runner", x: 8700, y: 1080, difficulties: ["hard", "extreme"] },
+          { type: "runner", x: 8850, y: 1080, difficulties: ["hard", "extreme"] },
         ],
       },
       {
         belowHealthPercent: 30,
         weapon: LASER_ID,
-        speed: 1.05,
-        skill: 5,
+        speed: 0.9,
+        skill: 4,
         message: "The Warden overcharges!",
       },
     ],

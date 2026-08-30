@@ -45,7 +45,7 @@ Useful server endpoints in development:
 ### Other commands
 
 ```bash
-npm test           # 568 tests: physics, combat, grenades, power-ups, traps, arenas, configuration,
+npm test           # 569 tests: physics, combat, grenades, power-ups, traps, arenas, configuration,
                    #            administration, NPC brains, campaign, music, presentation, debug
                    #            access, protocol, and real networked matches
 npm run smoke      # 21 checks in a real browser: menus, pickers, a campaign level, pause, settings
@@ -808,7 +808,15 @@ all — this client *is* the simulation, and there is nothing to verify against.
 **Outpost** (`level-01`) is a yard fight on open ground: a patrol, a turret
 tower, a destructible barrier with a scripted alarm ambush behind it, a
 camera-locked two-wave encounter that breaches its own exit, a sniper stretch,
-two secrets, three checkpoints and a three-phase Warden boss.
+two secrets, three checkpoints and a three-phase Warden boss — tuned as a
+*first* boss: 750 health, skill 3, slightly slowed shots via its type-layer
+tuning, and on Easy and Normal the rocket phase comes alone. The chainsaw
+runners that used to join it are hard-mode spice now, and they enter from the
+boss's side of the arena rather than on top of the player — an add the player
+never saw coming was ending runs in under two seconds. Measured with a
+deliberately naive test player (never dodges a rocket): Easy 10/10 wins,
+Normal 5/10, Hard 3/10 — a human who retreats, uses the arena's health pack
+and has two lives sits well above that line.
 
 **Refinery** (`level-02`) is a working plant where the hazards are half the
 opposition: a saw patrols the catwalk that shortcuts the first hall, three

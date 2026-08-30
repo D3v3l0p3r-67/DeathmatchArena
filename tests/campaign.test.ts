@@ -541,28 +541,40 @@ describe("campaign: the boss", () => {
   it("spawns with scaled health and walks its phase table", () => {
     const director = makeDirector();
     const boss = startBoss(director);
-    assert.equal(boss.health, 900, "full boss health on normal");
+    assert.equal(boss.health, 750, "full boss health on normal");
     assert.equal(director.bossStatus()?.name, "The Warden");
 
-    // Into phase two: rockets, and adds.
-    hitEnemy(director, boss.sessionId, 400);
+    // Into phase two: rockets. On Normal the phase is the rockets alone --
+    // adds are hard-mode spice, so the first boss asks one question at a time.
+    hitEnemy(director, boss.sessionId, 350);
     tick(director, 100);
     assert.equal(boss.weaponId, "rocket-launcher", "phase two swaps the weapon");
     assert.ok(
-      aliveEnemies(director).some((enemy) => enemy.name === "Runner"),
-      "phase two calls adds",
+      !aliveEnemies(director).some((enemy) => enemy.name === "Runner"),
+      "no adds on Normal",
     );
 
     // Into phase three: the overcharge.
-    hitEnemy(director, boss.sessionId, 300);
+    hitEnemy(director, boss.sessionId, 250);
     tick(director, 100);
     assert.equal(boss.weaponId, "laser", "phase three overcharges");
+  });
+
+  it("hard mode gets the adds Normal is spared", () => {
+    const director = makeDirector("hard");
+    const boss = startBoss(director);
+    hitEnemy(director, boss.sessionId, Math.ceil(boss.maxHealth * 0.45));
+    tick(director, 100);
+    assert.ok(
+      aliveEnemies(director).some((enemy) => enemy.name === "Runner"),
+      "phase two calls adds on hard",
+    );
   });
 
   it("carries its own full-health mark, so a bar can read against it", () => {
     const director = makeDirector();
     const boss = startBoss(director);
-    assert.equal(boss.maxHealth, 900, "the Warden's own maximum, not a player's 100");
+    assert.equal(boss.maxHealth, 750, "the Warden's own maximum, not a player's 100");
     assert.equal(director.player()!.maxHealth, 100, "the player keeps the configured maximum");
 
     /*
@@ -570,7 +582,7 @@ describe("campaign: the boss", () => {
      * full bar all the way down to the Warden's last hundred points, which is
      * what "the boss doesn't lose health when I shoot it" actually was.
      */
-    hitEnemy(director, boss.sessionId, 450);
+    hitEnemy(director, boss.sessionId, 375);
     tick(director, 100);
     const ratio = boss.health / boss.maxHealth;
     assert.ok(ratio > 0.4 && ratio < 0.6, `about half a bar, got ${ratio.toFixed(2)}`);
@@ -579,10 +591,10 @@ describe("campaign: the boss", () => {
 
   it("scales the boss's full-health mark with the difficulty", () => {
     for (const [difficulty, expected] of [
-      ["easy", 675],
-      ["normal", 900],
-      ["hard", 1080],
-      ["extreme", 1305],
+      ["easy", 563],
+      ["normal", 750],
+      ["hard", 900],
+      ["extreme", 1088],
     ] as const) {
       const director = makeDirector(difficulty);
       const boss = startBoss(director);

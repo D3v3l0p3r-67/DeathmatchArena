@@ -156,12 +156,22 @@ export const CAMPAIGN_ENEMIES: readonly CampaignEnemyDefinition[] = [
     id: "warden",
     name: "Warden",
     profile: "aggressive",
-    skill: 4,
+    // Skill 3, down from 4: the first boss should telegraph, not snipe. Its
+    // menace is the phase table, not its aim.
+    skill: 3,
     weapon: SHOTGUN_ID,
-    health: 900,
+    // 750, down from 900. Measured with a plainly competent test player: at
+    // 900 the fight outlasted the player's margin for error; at 750 the boss
+    // still takes the better part of a magazine-cycle to fall.
+    health: 750,
     speed: 0.6,
-    grenades: 4,
+    grenades: 2,
     detectionRange: 1400,
+    // The type layer of the tuning hierarchy: an opening boss shoots a shade
+    // slower and notices a shade later than its profile would.
+    projectileSpeed: 0.9,
+    fireRate: 0.9,
+    reactionTime: 1.1,
     points: 1500,
     color: 0xff5f6d,
     bodyScale: 1.35,
