@@ -15,6 +15,7 @@ import {
   OUTPOST_LEVEL,
   REFINERY_ARENA,
   REFINERY_LEVEL,
+  ServerMessage,
   campaignChain,
   getCampaignArena,
   getCampaignDifficulty,
@@ -473,6 +474,57 @@ describe("campaign: the tuning hierarchy, applied", () => {
     const runtime = director.match.runtimes.get(LOCAL_PLAYER_ID)!;
     assert.equal(runtime.fireRateMultiplier, 1);
     assert.equal(runtime.projectileSpeedMultiplier, 1);
+  });
+});
+
+describe("campaign: enemies fight only the player", () => {
+  it("every spawned enemy shares one side; the player is on none", () => {
+    const director = makeDirector();
+    director.debugSetGodMode(true);
+    director.debugTeleport(2350, 1100);
+    tick(director, 300);
+
+    assert.equal(director.player()!.team, 0, "the human has no team: everyone's target");
+    const spawned = aliveEnemies(director);
+    assert.ok(spawned.length >= 2, "the trigger spawned a group");
+    for (const enemy of spawned) {
+      assert.equal(enemy.team, 1, `${enemy.name} fights on the enemies' side`);
+    }
+  });
+
+  it("one enemy cannot hurt another, however the damage arrives", () => {
+    const director = makeDirector();
+    director.debugSetGodMode(true);
+    director.debugTeleport(2350, 1100);
+    tick(director, 300);
+    const [first, second] = aliveEnemies(director);
+    assert.ok(first && second, "two enemies to test with");
+
+    director.match.matchManager.applyDamage(second!.sessionId, first!.sessionId, 500, second!.x, second!.y, "test");
+    assert.equal(second!.health, second!.maxHealth, "an allied hit is refused at the source");
+
+    director.match.matchManager.applyDamage(second!.sessionId, LOCAL_PLAYER_ID, 30, second!.x, second!.y, "test");
+    assert.ok(second!.health < second!.maxHealth, "the player's hit still lands");
+  });
+
+  it("left alone together, enemies never fire on one another", () => {
+    const director = makeDirector();
+    director.debugSetGodMode(true);
+    // Spawn the barrier group, then park the player far away and out of sight.
+    director.debugTeleport(2350, 1100);
+    tick(director, 200);
+    director.debugTeleport(200, 300);
+
+    const friendlyFire: string[] = [];
+    const enemyIds = new Set(aliveEnemies(director).map((enemy) => enemy.sessionId));
+    director.match.events.on(ServerMessage.DAMAGE as never, ((payload: { victimId: string; attackerId: string }) => {
+      if (enemyIds.has(payload.victimId) && enemyIds.has(payload.attackerId)) {
+        friendlyFire.push(`${payload.attackerId} hit ${payload.victimId}`);
+      }
+    }) as never);
+
+    tick(director, 8000);
+    assert.deepEqual(friendlyFire, [], "eight seconds together, not one shot between them");
   });
 });
 

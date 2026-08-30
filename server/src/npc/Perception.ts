@@ -1,4 +1,5 @@
 import {
+  areAllies,
   GameMode,
   MatchState,
   PLAYER,
@@ -281,6 +282,8 @@ export class Perception {
     for (const other of this.context.state.players.values()) {
       if (other.sessionId === self.sessionId) continue;
       if (!other.alive || !other.inMatch) continue;
+      // An ally is not an enemy: it is never targeted, led, or dodged.
+      if (areAllies(self.team, other.team)) continue;
 
       const distance = distanceBetween(self.x, self.y, other.x, other.y);
       if (distance > sightRange) continue;

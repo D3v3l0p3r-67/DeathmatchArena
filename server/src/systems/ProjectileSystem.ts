@@ -128,7 +128,8 @@ export class ProjectileSystem {
 
       // Players take priority: a bullet that would clip a wall behind a player
       // must still register the hit.
-      const playerHit = this.collision.raycastPlayers(fromX, fromY, toX, toY, players, state.ownerId);
+      const ownerTeam = this.context.state.players.get(state.ownerId)?.team ?? 0;
+      const playerHit = this.collision.raycastPlayers(fromX, fromY, toX, toY, players, state.ownerId, ownerTeam);
       const crateHit = this.collision.raycastCrates(fromX, fromY, toX, toY, crates);
       const worldHit = this.collision.raycastWorld(fromX, fromY, toX, toY);
 

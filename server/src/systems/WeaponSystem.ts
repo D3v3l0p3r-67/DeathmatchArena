@@ -1,4 +1,5 @@
 import {
+  areAllies,
   PLAYER,
   ServerMessage,
   getFireIntervalMs,
@@ -202,6 +203,8 @@ export class WeaponSystem {
     );
 
     for (const target of targets) {
+      // Damage would refuse this anyway; skipping here spares the knockback too.
+      if (areAllies(player.team, target.team)) continue;
       this.context.applyDamage(
         target.sessionId,
         player.sessionId,

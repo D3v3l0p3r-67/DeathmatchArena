@@ -62,6 +62,9 @@ import { Emitter } from "../../core/Emitter.js";
 
 export const LOCAL_PLAYER_ID = "player";
 
+/** Every campaign enemy fights on this side; the human stays on none (0). */
+export const CAMPAIGN_ENEMY_TEAM = 1;
+
 /** Broadcasts the simulation makes, re-emitted verbatim under their wire names. */
 export interface LocalMatchEvents {
   [type: string]: unknown;
@@ -217,6 +220,9 @@ export class LocalMatch {
     if (!player || !runtime) return null;
 
     player.name = request.name ?? definition.name;
+    // One side for everything the level throws at the player: enemies never
+    // target one another, and their fire passes through one another.
+    player.team = CAMPAIGN_ENEMY_TEAM;
     this.placeIntoWorld(player, request.x, request.y, definition.weapon);
 
     const healthScale = getCampaignDifficulty(request.difficulty).enemyHealthScale;

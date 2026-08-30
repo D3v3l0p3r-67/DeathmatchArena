@@ -45,7 +45,7 @@ Useful server endpoints in development:
 ### Other commands
 
 ```bash
-npm test           # 558 tests: physics, combat, grenades, power-ups, traps, arenas, configuration,
+npm test           # 568 tests: physics, combat, grenades, power-ups, traps, arenas, configuration,
                    #            administration, NPC brains, campaign, music, presentation, debug
                    #            access, protocol, and real networked matches
 npm run smoke      # 21 checks in a real browser: menus, pickers, a campaign level, pause, settings
@@ -681,6 +681,20 @@ whatever ended past a blocking edge is set back on it with the velocity into
 the wall zeroed. Movement inside the area is untouched, and it is not an input
 filter — an explosion cannot shove anyone through it either. A death that
 resets the encounter drops the walls with the camera.
+
+### Enemies fight only the player
+
+The engine has a minimal notion of sides: `team` on every combatant, where 0 —
+deathmatch's answer — is no side at all, hostile to everyone, and a shared
+non-zero team makes two combatants allies. Allies never target one another
+(perception filters them out before the brain ever sees them), their bullets
+pass straight through allied bodies on the way to you, an allied blast neither
+hurts nor shoves, and a blade skips them — with the damage check sitting in the
+one place health ever drops, so it covers every weapon there will be.
+
+The campaign puts everything a level throws at you on one team and leaves the
+human on none; multiplayer players and bots simply stay on team 0 and behave
+exactly as before, which the tests assert.
 
 ### Every enemy speed is a config value
 

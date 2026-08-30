@@ -84,6 +84,15 @@ export class PlayerState extends Schema implements SyncedPlayer {
    * boss on its last legs still thought of itself as untouched.
    */
   @type("uint16") maxHealth: number = getPlayerConfig().maxHealth;
+
+  /**
+   * Which side this combatant fights for. 0 -- deathmatch's answer -- is no
+   * side at all: hostile to everyone. Combatants sharing a non-zero team are
+   * allies: they do not target each other, their shots pass through each
+   * other, and their blasts and blades do not hurt each other. The campaign
+   * puts every enemy on one team and leaves the human on none.
+   */
+  @type("uint8") team = 0;
   @type("boolean") alive = false;
   @type("boolean") onGround = false;
 

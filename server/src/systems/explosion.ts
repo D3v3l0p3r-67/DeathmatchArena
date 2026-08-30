@@ -11,6 +11,7 @@
  * firing a launcher at somebody standing next to you a decision.
  */
 import {
+  areAllies,
   MatchState,
   hitHalfExtents,
   ServerMessage,
@@ -53,8 +54,13 @@ export function detonate(context: RoomContext, blast: Blast, now: number): void 
 
   if (context.state.matchState !== MatchState.PLAYING) return;
 
+  const ownerTeam = context.state.players.get(blast.ownerId)?.team ?? 0;
+
   for (const player of Array.from(context.state.players.values())) {
     if (!player.alive || !player.inMatch) continue;
+    // An allied blast neither hurts nor shoves: a grenadier cannot scatter
+    // its own patrol, and cannot rocket-jump its allies around either.
+    if (areAllies(ownerTeam, player.team)) continue;
 
     // Measured against what is drawn: a blast that clips a boss's shoulder
     // should hurt it for the same reason a bullet there should.

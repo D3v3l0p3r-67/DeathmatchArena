@@ -48,6 +48,8 @@ export interface SyncedPlayer {
   readonly bodyScale: number;
   /** What full health means for this figure: a player's config max, or a boss's own. */
   readonly maxHealth: number;
+  /** Side. 0 is deathmatch's "no side, hostile to all"; shared non-zero means allies. */
+  readonly team: number;
   /** Seconds left of the window in which a shove decays on its own terms. */
   readonly knockbackTimer: number;
   /**

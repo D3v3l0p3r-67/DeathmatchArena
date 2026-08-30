@@ -1,4 +1,5 @@
 import {
+  areAllies,
   MatchState,
   ServerMessage,
   clamp,
@@ -485,6 +486,10 @@ export class MatchManager {
     if (this.context.state.matchState !== MatchState.PLAYING) return;
 
     const attacker = attackerId ? this.context.state.players.get(attackerId) ?? null : null;
+
+    // Allies do not hurt allies -- checked in the one place health ever
+    // drops, so it covers every weapon there is and will be.
+    if (attacker && areAllies(attacker.team, victim.team)) return;
 
     /*
      * A bot's difficulty decides how much of a hit it takes and how much of one

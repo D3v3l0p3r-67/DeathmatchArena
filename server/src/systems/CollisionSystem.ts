@@ -1,4 +1,5 @@
 import {
+  areAllies,
   centeredBounds,
   hitBounds,
   segmentVsBounds,
@@ -49,11 +50,14 @@ export class CollisionSystem {
     y1: number,
     players: Iterable<PlayerState>,
     excludeId: string,
+    /** The shooter's team: allied bodies are transparent to the shot. */
+    excludeTeam = 0,
   ): PlayerHit | null {
     let closest: PlayerHit | null = null;
 
     for (const player of players) {
       if (!player.alive || player.sessionId === excludeId) continue;
+      if (areAllies(excludeTeam, player.team)) continue;
 
       const bounds = hitBounds(player);
       const hit = segmentVsBounds(x0, y0, x1, y1, bounds);
