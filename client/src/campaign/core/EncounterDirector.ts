@@ -6,11 +6,11 @@
  * fighting over one camera anyway. Completion is reported back through the
  * trigger engine, so what happens next is the level's business.
  */
-import type { CampaignEncounterDefinition } from "@deathmatch/shared";
+import type { CampaignBoundaryOptions, CampaignEncounterDefinition } from "@deathmatch/shared";
 import type { EnemyRoster } from "./EnemyRoster.js";
 
 export interface EncounterHost {
-  lockCamera(zoneId: string): void;
+  lockCamera(zoneId: string, boundary?: CampaignBoundaryOptions): void;
   unlockCamera(): void;
   encounterCompleted(encounterId: string): void;
 }
@@ -55,7 +55,7 @@ export class EncounterDirector {
     if (!definition) return;
 
     this.active = { definition, waveIndex: -1, startedBy };
-    if (definition.lockCameraZone) this.host.lockCamera(definition.lockCameraZone);
+    if (definition.lockCameraZone) this.host.lockCamera(definition.lockCameraZone, definition.boundary);
     this.advance();
   }
 

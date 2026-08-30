@@ -21,6 +21,7 @@ import type {
   ArenaShrinkConfig,
   BotDifficultyLevel,
   CrateConfig,
+  CampaignModeConfig,
   FlagHuntConfig,
   GameConfig,
   GaugesConfig,
@@ -155,6 +156,11 @@ export class GameConfigView {
 
   getFlagHuntConfig(): FlagHuntConfig {
     return this.config.flagHunt;
+  }
+
+  /** The campaign's game-mode tuning layer. Multiplayer never reads it. */
+  getCampaignModeConfig(): CampaignModeConfig {
+    return this.config.campaign;
   }
 
   getGrenadeConfig(): GrenadeConfig {
@@ -305,6 +311,10 @@ export function getGaugesConfig(): GaugesConfig {
 
 export function getFlagHuntConfig(): FlagHuntConfig {
   return current.getFlagHuntConfig();
+}
+
+export function getCampaignModeConfig(): CampaignModeConfig {
+  return current.getCampaignModeConfig();
 }
 
 export function getGrenadeConfig(): GrenadeConfig {

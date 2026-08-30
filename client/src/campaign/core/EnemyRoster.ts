@@ -52,6 +52,7 @@ export class EnemyRoster {
         x: spawn.x,
         y: spawn.y,
         difficulty: this.difficulty,
+        tuning: spawn.tuning,
       });
       if (!agent) continue;
 

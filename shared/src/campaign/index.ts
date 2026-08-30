@@ -1,5 +1,6 @@
 export * from "./types.js";
 export * from "./catalogue.js";
+export * from "./tuning.js";
 export * from "./validate.js";
 export { OUTPOST_ARENA, OUTPOST_LEVEL } from "./levels/outpost.js";
 export { REFINERY_ARENA, REFINERY_LEVEL } from "./levels/refinery.js";

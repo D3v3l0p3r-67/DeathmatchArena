@@ -142,7 +142,11 @@ export class GrenadeSystem {
 
     const heldMs = clamp(now - startedAt, 0, Math.max(1, config.maxChargeMs));
     const charge = config.maxChargeMs > 0 ? heldMs / config.maxChargeMs : 1;
-    const speed = config.minThrowSpeed + (config.maxThrowSpeed - config.minThrowSpeed) * charge;
+    // Scaled by the thrower's own pace -- 1 in multiplayer, the campaign's
+    // resolved tuning for its enemies -- so a slowed grenadier lobs slower.
+    const speed =
+      (config.minThrowSpeed + (config.maxThrowSpeed - config.minThrowSpeed) * charge) *
+      runtime.projectileSpeedMultiplier;
 
     player.grenades -= 1;
     this.spawn(player, aimAngle, speed, now, config);

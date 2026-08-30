@@ -194,11 +194,38 @@ export function getCampaignEnemy(id: string): CampaignEnemyDefinition | null {
  * prediction, decision quality, damage dealt and taken), and level content can
  * gate extra spawns per difficulty on top.
  */
+/*
+ * The difficulty layer of the tuning hierarchy (see `tuning.ts`). `skillShift`
+ * already makes enemies play *better* up the ladder; these make them faster.
+ * Hard is the reference point -- multipliers of 1 -- with the easier rungs
+ * slowed and Extreme pushed slightly past authored speed.
+ */
 export const CAMPAIGN_DIFFICULTIES: readonly CampaignDifficultyDefinition[] = [
-  { id: "easy", name: "Easy", skillShift: -1, enemyHealthScale: 0.75, scoreScale: 0.8 },
-  { id: "normal", name: "Normal", skillShift: 0, enemyHealthScale: 1, scoreScale: 1 },
+  {
+    id: "easy",
+    name: "Easy",
+    skillShift: -1,
+    enemyHealthScale: 0.75,
+    scoreScale: 0.8,
+    enemyTuning: { moveSpeed: 0.85, projectileSpeed: 0.8, fireRate: 0.85, reactionTime: 1.3 },
+  },
+  {
+    id: "normal",
+    name: "Normal",
+    skillShift: 0,
+    enemyHealthScale: 1,
+    scoreScale: 1,
+    enemyTuning: { moveSpeed: 0.95, projectileSpeed: 0.9, fireRate: 0.95, reactionTime: 1.1 },
+  },
   { id: "hard", name: "Hard", skillShift: 1, enemyHealthScale: 1.2, scoreScale: 1.15 },
-  { id: "extreme", name: "Extreme", skillShift: 2, enemyHealthScale: 1.45, scoreScale: 1.3 },
+  {
+    id: "extreme",
+    name: "Extreme",
+    skillShift: 2,
+    enemyHealthScale: 1.45,
+    scoreScale: 1.3,
+    enemyTuning: { moveSpeed: 1.05, projectileSpeed: 1.1, fireRate: 1.05, reactionTime: 0.85 },
+  },
 ] as const;
 
 export function getCampaignDifficulty(id: CampaignDifficultyId): CampaignDifficultyDefinition {

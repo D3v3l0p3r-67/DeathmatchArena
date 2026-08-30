@@ -45,7 +45,7 @@ Useful server endpoints in development:
 ### Other commands
 
 ```bash
-npm test           # 541 tests: physics, combat, grenades, power-ups, traps, arenas, configuration,
+npm test           # 558 tests: physics, combat, grenades, power-ups, traps, arenas, configuration,
                    #            administration, NPC brains, campaign, music, presentation, debug
                    #            access, protocol, and real networked matches
 npm run smoke      # 21 checks in a real browser: menus, pickers, a campaign level, pause, settings
@@ -658,6 +658,58 @@ bonus, with S-A-B-C-D ranks cut relative to what the played difficulty made
 achievable. Progress and the checkpoint resume save live in `localStorage`
 first; respawn rules (checkpoint / limited lives / one life) are level
 configuration, not player code.
+
+### A camera lock is a wall
+
+An encounter that locks the camera used to lock only the picture: the view
+stopped following, but the player could walk out of the fight and shoot it from
+off-screen. Locking now raises walls on the zone's edges in the same call that
+locks the camera, so the two can never disagree:
+
+```
+encounter starts → lock camera → raise the boundary walls
+encounter ends   → drop the walls → unlock the camera
+```
+
+The boundary (`EncounterBoundary`) is generic: bounds from the active camera
+zone, `restrictPlayer` and `restrictEnemies` flags, and per-side blocking — an
+encounter or a `lockCamera` trigger can override any of it
+(`boundary: { restrictEnemies: false, sides: { top: false } }`). Enforcement is
+a position clamp in the simulation after each physics step, exactly how the
+arena's own edges behave: walking, jumping and knockback resolve first, and
+whatever ended past a blocking edge is set back on it with the velocity into
+the wall zeroed. Movement inside the area is untouched, and it is not an input
+filter — an explosion cannot shove anyone through it either. A death that
+resets the encounter drops the walls with the camera.
+
+### Every enemy speed is a config value
+
+How fast a campaign enemy moves, how fast its shots fly, how often it fires and
+how long it takes to notice you are all resolved through one hierarchy
+(`shared/src/campaign/tuning.ts`):
+
+```
+final = base weapon/profile numbers
+      × game-mode layer   (GameConfig.campaign — editable in the admin panel)
+      × difficulty layer  (CAMPAIGN_DIFFICULTIES[..].enemyTuning)
+      × level layer       (level.enemyTuning)
+      × enemy-type layer  (speed / projectileSpeed / fireRate / reactionTime)
+      × instance layer    (a placed spawn's `tuning`, plus absolute detectionRange)
+```
+
+The systems never see any of it. They read three *generic* per-combatant
+scalars — `fireRateMultiplier` and `projectileSpeedMultiplier` on the runtime
+(next to the existing `baseSpeedMultiplier`), a `reactionTimeScale` on the
+agent — which default to 1 and are only set by the campaign's spawn path.
+Multiplayer runs at exactly 1 everywhere, asserted by test. A slowed bullet's
+lifetime stretches with it, so it still covers the weapon's full range.
+
+The campaign-wide layer lives in the game configuration, so the whole mode is
+rebalanced from the admin panel without touching a level; a level, a
+difficulty, an enemy type or one placed enemy each add their own layer in the
+campaign data. Level 1 is deliberately a lesson: on Normal its soldiers walk at
+about 0.65× and their bullets fly at about 0.58× of the weapon's listed speed,
+measured in the running client.
 
 ### Two lives, then the run is over
 

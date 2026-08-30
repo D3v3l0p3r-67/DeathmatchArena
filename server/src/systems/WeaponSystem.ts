@@ -134,7 +134,7 @@ export class WeaponSystem {
     }
 
     // Fire-rate is enforced against the server clock, not against anything the client sent.
-    if (now - runtime.lastShotAt < getFireIntervalMs(weapon)) return false;
+    if (now - runtime.lastShotAt < getFireIntervalMs(weapon) / runtime.fireRateMultiplier) return false;
 
     runtime.lastShotAt = now;
     if (ammoLimited) player.ammo -= 1;
@@ -185,7 +185,7 @@ export class WeaponSystem {
     aimAngle: number,
     now: number,
   ): boolean {
-    if (now - runtime.lastShotAt < getFireIntervalMs(weapon)) return false;
+    if (now - runtime.lastShotAt < getFireIntervalMs(weapon) / runtime.fireRateMultiplier) return false;
     runtime.lastShotAt = now;
 
     const origin = { x: player.x, y: player.y + PLAYER.AIM_ORIGIN_Y };

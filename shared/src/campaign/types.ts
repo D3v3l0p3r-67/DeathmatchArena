@@ -13,6 +13,8 @@
  */
 
 /** An axis-aligned area of the level, in world px. */
+import type { CampaignEnemyInstanceTuning, CampaignEnemyTuning } from "./tuning.js";
+
 export interface CampaignZone {
   x: number;
   y: number;
@@ -37,6 +39,8 @@ export interface CampaignDifficultyDefinition {
    * "the same enemies play better", not "the same enemies are spongier".
    */
   skillShift: number;
+  /** Difficulty-layer speed/timing multipliers. See `tuning.ts`. */
+  enemyTuning?: CampaignEnemyTuning;
   /** Multiplier on each enemy type's configured health. */
   enemyHealthScale: number;
   /** Multiplier on the final score, so harder runs are worth more. */
@@ -71,6 +75,12 @@ export interface CampaignEnemyDefinition {
   stationary?: boolean;
   /** Sight override in px; the global NPC sight range when omitted. */
   detectionRange?: number;
+  /** Type-layer multiplier on this enemy's projectile speed. See `tuning.ts`. */
+  projectileSpeed?: number;
+  /** Type-layer multiplier on shots per second. */
+  fireRate?: number;
+  /** Type-layer multiplier on time-to-notice; above 1 reacts slower. */
+  reactionTime?: number;
   /** Score for a kill. */
   points: number;
   /** Body tint, so the type reads at a glance. */
@@ -86,6 +96,8 @@ export interface CampaignEnemySpawn {
   y: number;
   /** Spawn only on these campaign difficulties; every difficulty when omitted. */
   difficulties?: CampaignDifficultyId[];
+  /** Instance-layer tuning: this one placed enemy, faster or slower than its type. */
+  tuning?: CampaignEnemyInstanceTuning;
 }
 
 // ---------------------------------------------------------------------------
@@ -109,7 +121,7 @@ export type CampaignTriggerAction =
   | { kind: "startEncounter"; encounterId: string }
   | { kind: "destroyObjects"; group: string }
   | { kind: "spawnCrate"; spawnPointId: string; powerUpId?: string; group?: string }
-  | { kind: "lockCamera"; zoneId: string }
+  | { kind: "lockCamera"; zoneId: string; boundary?: CampaignBoundaryOptions }
   | { kind: "unlockCamera" }
   | { kind: "shake"; intensity?: number }
   | { kind: "message"; text: string; durationMs?: number }
@@ -153,7 +165,64 @@ export interface CampaignEncounterDefinition {
   id: string;
   /** Camera zone to lock to while the fight runs; none locks nothing. */
   lockCameraZone?: string;
+  /** How the locked zone confines its combatants; sensible defaults when omitted. */
+  boundary?: CampaignBoundaryOptions;
   waves: CampaignEncounterWave[];
+}
+
+// ---------------------------------------------------------------------------
+// Encounter boundaries
+// ---------------------------------------------------------------------------
+
+/**
+ * A camera lock used to be only a camera lock: the picture stopped following
+ * you, but nothing stopped you walking out of it -- off-screen, still in the
+ * fight. Locking the camera now also raises walls on the zone's edges, and
+ * these options say how those walls behave for this particular lock.
+ */
+export interface CampaignBoundaryOptions {
+  /** The player cannot cross the zone's edges. Default true. */
+  restrictPlayer?: boolean;
+  /** Enemies cannot leave either -- a locked fight stays a fight. Default true. */
+  restrictEnemies?: boolean;
+  /** Which edges actually block. Every edge, when omitted. */
+  sides?: Partial<CampaignBoundarySides>;
+}
+
+export interface CampaignBoundarySides {
+  left: boolean;
+  right: boolean;
+  top: boolean;
+  bottom: boolean;
+}
+
+/** The resolved, active wall set the simulation enforces each step. */
+export interface EncounterBoundary {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  restrictPlayer: boolean;
+  restrictEnemies: boolean;
+  sides: CampaignBoundarySides;
+}
+
+/** A zone plus its options, made concrete. */
+export function resolveBoundary(zone: CampaignZone, options?: CampaignBoundaryOptions): EncounterBoundary {
+  return {
+    minX: zone.x,
+    maxX: zone.x + zone.width,
+    minY: zone.y,
+    maxY: zone.y + zone.height,
+    restrictPlayer: options?.restrictPlayer ?? true,
+    restrictEnemies: options?.restrictEnemies ?? true,
+    sides: {
+      left: options?.sides?.left ?? true,
+      right: options?.sides?.right ?? true,
+      top: options?.sides?.top ?? true,
+      bottom: options?.sides?.bottom ?? true,
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -375,6 +444,11 @@ export interface CampaignLevelDefinition {
    * not a thing every level must remember to do.
    */
   musicTrackId?: string;
+  /**
+   * Level-layer speed/timing multipliers for every enemy in this level.
+   * The knob that makes an opening level a lesson instead of a reflex test.
+   */
+  enemyTuning?: CampaignEnemyTuning;
   bossMusicTrackId?: string;
   /** What survives the door into this level. Nothing, by default. */
   carryOver?: CampaignCarryOver;

@@ -71,6 +71,13 @@ export class NpcAgent {
    */
   sightRangeOverride: number | null = null;
 
+  /**
+   * Per-agent scale on time-to-notice, applied after the difficulty ladder;
+   * 1 for every multiplayer bot. Above 1 reacts slower. The campaign's tuning
+   * hierarchy sets it so a tutorial's enemies telegraph before they punish.
+   */
+  reactionTimeScale = 1;
+
   /** The state machine label of whatever the current action is doing. */
   private actionState = "";
   private combatMode: CombatMode = { kind: "idle" };
@@ -164,7 +171,9 @@ export class NpcAgent {
     // difficulty says how well it manages any of it, and multiplying the two is
     // what gives five skill levels for every personality without a second
     // profile ever being written.
-    return applyBotDifficulty(base, this.difficulty);
+    const levelled = applyBotDifficulty(base, this.difficulty);
+    if (this.reactionTimeScale === 1) return levelled;
+    return { ...levelled, reactionTimeMs: Math.max(0, levelled.reactionTimeMs * this.reactionTimeScale) };
   }
 
   /** The profile after the situation has bent it. What actually scores. */

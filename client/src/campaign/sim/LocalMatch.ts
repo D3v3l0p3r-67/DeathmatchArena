@@ -14,6 +14,14 @@
  * network at all.
  */
 import {
+  PLAYER_HALF_HEIGHT,
+  PLAYER_HALF_WIDTH,
+  resolveEnemyTuning,
+  resolveEnvironmentTuning,
+  type CampaignEnemyInstanceTuning,
+  type CampaignEnemyTuning,
+  type EncounterBoundary,
+  type ResolvedEnemyTuning,
   FIXED_DELTA,
   MatchState,
   applyKnockback,
@@ -75,6 +83,8 @@ export interface EnemySpawnRequest {
   name?: string;
   /** Health override, already difficulty-scaled by the caller when set. */
   health?: number;
+  /** Instance-layer tuning from the placed spawn; the last word in the hierarchy. */
+  tuning?: CampaignEnemyInstanceTuning;
 }
 
 /** Build the configuration a campaign match plays under. */
@@ -110,6 +120,17 @@ export class LocalMatch {
 
   /** Debug: the local player shrugs everything off while set. */
   godMode = false;
+
+  /** The level layer of the enemy-tuning hierarchy; the director sets it. */
+  private levelEnemyTuning: CampaignEnemyTuning | null = null;
+
+  /**
+   * Walls raised around a locked encounter; null when nothing is locked.
+   * Enforced after every physics step, so it is a fact of the world rather
+   * than a filter on the input -- knockback cannot shove anyone through it
+   * either.
+   */
+  private boundary: EncounterBoundary | null = null;
 
   private readonly configView: GameConfigView;
   private readonly clock: () => number;
@@ -205,17 +226,76 @@ export class LocalMatch {
     player.maxHealth = Math.round(definition.health * healthScale);
     player.grenades = definition.grenades;
 
-    runtime.baseSpeedMultiplier = Math.max(0, definition.speed);
+    /*
+     * The whole tuning hierarchy, resolved once and applied to the generic
+     * per-combatant knobs. The systems that read these knobs know nothing of
+     * campaigns, levels or difficulties -- they see a combatant with a pace.
+     */
+    const tuning = this.resolveTuning(request.difficulty, definition, request.tuning);
+    runtime.baseSpeedMultiplier = tuning.moveSpeedMultiplier;
     runtime.movement.speedMultiplier = runtime.baseSpeedMultiplier;
     player.speedMultiplier = runtime.baseSpeedMultiplier;
+    runtime.fireRateMultiplier = tuning.fireRateMultiplier;
+    runtime.projectileSpeedMultiplier = tuning.projectileSpeedMultiplier;
+    agent.reactionTimeScale = tuning.reactionTimeMultiplier;
+    agent.sightRangeOverride = tuning.detectionRange;
 
     // The figure's size is simulation state, not a drawing detail: it decides
     // what a shot can hit as well as what the scene draws.
     player.bodyScale = definition.bodyScale ?? 1;
 
     agent.stationary = definition.stationary === true;
-    agent.sightRangeOverride = definition.detectionRange ?? null;
     return agent;
+  }
+
+  /** The director hands over the level's tuning layer when a level starts. */
+  setLevelEnemyTuning(tuning: CampaignEnemyTuning | null): void {
+    this.levelEnemyTuning = tuning;
+  }
+
+  /** Every layer of the hierarchy, for one enemy. */
+  private resolveTuning(
+    difficulty: CampaignDifficultyId,
+    definition: CampaignEnemyDefinition,
+    instance?: CampaignEnemyInstanceTuning,
+  ): ResolvedEnemyTuning {
+    return resolveEnemyTuning({
+      campaign: this.campaignModeTuning(),
+      difficulty: getCampaignDifficulty(difficulty).enemyTuning,
+      level: this.levelEnemyTuning ?? undefined,
+      type: {
+        moveSpeed: definition.speed,
+        projectileSpeed: definition.projectileSpeed,
+        fireRate: definition.fireRate,
+        reactionTime: definition.reactionTime,
+        detectionRange: definition.detectionRange,
+      },
+      instance,
+    });
+  }
+
+  /**
+   * The layers above the enemy type, for a caller that supplies its own type
+   * value -- a boss phase writes its own speed, but must still respect the
+   * campaign, difficulty and level layers or a slowed tutorial would hold a
+   * full-speed boss.
+   */
+  environmentTuning(difficulty: CampaignDifficultyId): ResolvedEnemyTuning {
+    return resolveEnvironmentTuning({
+      campaign: this.campaignModeTuning(),
+      difficulty: getCampaignDifficulty(difficulty).enemyTuning,
+      level: this.levelEnemyTuning ?? undefined,
+    });
+  }
+
+  private campaignModeTuning(): CampaignEnemyTuning {
+    const config = this.configView.getCampaignModeConfig();
+    return {
+      moveSpeed: config.enemyMoveSpeedMultiplier,
+      projectileSpeed: config.enemyProjectileSpeedMultiplier,
+      fireRate: config.enemyFireRateMultiplier,
+      reactionTime: config.enemyReactionTimeMultiplier,
+    };
   }
 
   /** Remove one enemy outright -- despawned corpses, debug clears, resets. */
@@ -266,12 +346,73 @@ export class LocalMatch {
       const now = this.now();
       this.npcs.update(FIXED_DELTA, now);
       this.movement.update(FIXED_DELTA, now);
+      this.enforceBoundary();
       this.projectiles.update(FIXED_DELTA, now);
       this.powerUps.update(now);
       this.traps.update(FIXED_DELTA, now);
       this.grenades.update(FIXED_DELTA, now);
     }
     if (steps === maxSteps) this.accumulatorMs = 0;
+  }
+
+  /** Raise or drop the walls around a locked encounter. */
+  setBoundary(boundary: EncounterBoundary | null): void {
+    this.boundary = boundary;
+  }
+
+  get activeBoundary(): EncounterBoundary | null {
+    return this.boundary;
+  }
+
+  /**
+   * Hold every restricted combatant inside the active boundary.
+   *
+   * A clamp on position after the physics step, not a filter on input: walking,
+   * jumping, knockback and explosions all resolve first, and whatever ended up
+   * past a blocking edge is placed back on it with the velocity into the wall
+   * zeroed -- exactly how the arena's own edges behave. Movement inside the
+   * area is untouched.
+   */
+  private enforceBoundary(): void {
+    const boundary = this.boundary;
+    if (!boundary) return;
+
+    for (const player of this.state.players.values()) {
+      if (!player.alive) continue;
+      const isLocal = player.sessionId === LOCAL_PLAYER_ID;
+      if (isLocal ? !boundary.restrictPlayer : !boundary.restrictEnemies) continue;
+
+      const runtime = this.runtimes.get(player.sessionId);
+      const minX = boundary.minX + PLAYER_HALF_WIDTH;
+      const maxX = boundary.maxX - PLAYER_HALF_WIDTH;
+      const minY = boundary.minY + PLAYER_HALF_HEIGHT;
+      const maxY = boundary.maxY - PLAYER_HALF_HEIGHT;
+
+      if (boundary.sides.left && player.x < minX) {
+        player.x = minX;
+        if (player.velocityX < 0) player.velocityX = 0;
+        if (runtime && runtime.movement.velocityX < 0) runtime.movement.velocityX = 0;
+        if (runtime) runtime.movement.x = player.x;
+      }
+      if (boundary.sides.right && player.x > maxX) {
+        player.x = maxX;
+        if (player.velocityX > 0) player.velocityX = 0;
+        if (runtime && runtime.movement.velocityX > 0) runtime.movement.velocityX = 0;
+        if (runtime) runtime.movement.x = player.x;
+      }
+      if (boundary.sides.top && player.y < minY) {
+        player.y = minY;
+        if (player.velocityY < 0) player.velocityY = 0;
+        if (runtime && runtime.movement.velocityY < 0) runtime.movement.velocityY = 0;
+        if (runtime) runtime.movement.y = player.y;
+      }
+      if (boundary.sides.bottom && player.y > maxY) {
+        player.y = maxY;
+        if (player.velocityY > 0) player.velocityY = 0;
+        if (runtime && runtime.movement.velocityY > 0) runtime.movement.velocityY = 0;
+        if (runtime) runtime.movement.y = player.y;
+      }
+    }
   }
 
   /** Place a level crate on a named arena spawn point. */

@@ -829,4 +829,26 @@ export interface GameConfig {
   minimap: MinimapConfig;
   gauges: GaugesConfig;
   flagHunt: FlagHuntConfig;
+  campaign: CampaignModeConfig;
+}
+
+/**
+ * The campaign's game-mode layer of enemy tuning.
+ *
+ * These multiply every campaign enemy's numbers before the difficulty, level,
+ * type and instance layers do -- the single set of knobs that rebalances the
+ * whole single-player mode from the admin panel, without touching a level or a
+ * line of code. Multiplayer never reads them.
+ *
+ * See `shared/src/campaign/tuning.ts` for the full hierarchy.
+ */
+export interface CampaignModeConfig {
+  /** Scales every enemy's walk/run speed. */
+  enemyMoveSpeedMultiplier: number;
+  /** Scales every enemy projectile: bullets, rockets, thrown grenades. */
+  enemyProjectileSpeedMultiplier: number;
+  /** Scales enemy shots per second. */
+  enemyFireRateMultiplier: number;
+  /** Scales enemy time-to-notice; above 1 reacts slower, i.e. easier. */
+  enemyReactionTimeMultiplier: number;
 }

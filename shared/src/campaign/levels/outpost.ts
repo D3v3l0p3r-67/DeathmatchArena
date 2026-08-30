@@ -167,6 +167,15 @@ export const OUTPOST_LEVEL: CampaignLevelDefinition = {
   parTimeMs: 5 * 60 * 1000,
   respawnRule: { kind: "lives", lives: CAMPAIGN_LIVES },
 
+  /*
+   * The opening level is a lesson, not a reflex test: the player is still
+   * learning to move, jump, shoot and read an incoming shot. Everything here
+   * multiplies on top of the campaign-wide and difficulty layers, so on Normal
+   * a soldier in this level walks at roughly two thirds of authored speed and
+   * its bullets fly at just over half of the weapon's listed velocity.
+   */
+  enemyTuning: { moveSpeed: 0.85, projectileSpeed: 0.8, fireRate: 0.9, reactionTime: 1.15 },
+
   /** Clearing the outpost opens the refinery. */
   nextLevelId: "level-02",
 

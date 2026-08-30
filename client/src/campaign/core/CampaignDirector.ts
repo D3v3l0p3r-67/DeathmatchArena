@@ -8,6 +8,8 @@
  * lets the whole campaign run headless in tests.
  */
 import {
+  resolveBoundary,
+  type CampaignBoundaryOptions,
   ServerMessage,
   getCampaignEnemy,
   CAMPAIGN_SCORING,
@@ -100,8 +102,8 @@ export class CampaignDirector {
 
     this.roster = new EnemyRoster(this.match, difficulty, (group) => this.onGroupCleared(group));
     this.encounters = new EncounterDirector(level.encounters, this.roster, {
-      lockCamera: (zoneId) => this.ui.emit("cameraLock", { zoneId }),
-      unlockCamera: () => this.ui.emit("cameraLock", { zoneId: null }),
+      lockCamera: (zoneId, boundary) => this.setCameraLock(zoneId, boundary),
+      unlockCamera: () => this.setCameraLock(null),
       encounterCompleted: (id) => this.triggers.notifyEncounterCompleted(id, this.match.now()),
     });
     this.boss = level.boss
@@ -124,6 +126,9 @@ export class CampaignDirector {
     });
 
     if (level.respawnRule.kind === "lives") this.livesLeft = level.respawnRule.lives;
+
+    // The level's own layer of the enemy-tuning hierarchy.
+    this.match.setLevelEnemyTuning(level.enemyTuning ?? null);
 
     this.match.events.on(ServerMessage.KILL, (payload) => this.onKill(payload as KillPayload));
     this.match.events.on(ServerMessage.DAMAGE, (payload) => this.onDamage(payload as DamagePayload));
@@ -283,10 +288,10 @@ export class CampaignDirector {
         return;
       }
       case "lockCamera":
-        this.ui.emit("cameraLock", { zoneId: action.zoneId });
+        this.setCameraLock(action.zoneId, action.boundary);
         return;
       case "unlockCamera":
-        this.ui.emit("cameraLock", { zoneId: null });
+        this.setCameraLock(null);
         return;
       case "shake":
         this.ui.emit("shake", { intensity: action.intensity ?? 0.006 });
@@ -383,6 +388,25 @@ export class CampaignDirector {
     }
   }
 
+  /**
+   * Lock or unlock the fight to a camera zone -- and this is the whole flow:
+   *
+   *     encounter starts -> lock camera -> raise the boundary walls
+   *     encounter ends   -> drop the walls -> unlock the camera
+   *
+   * A camera lock used to be only a picture: the view stopped following, but
+   * the player could walk out of the encounter and fight it from off-screen.
+   * Now the zone's edges also hold the combatants, physically, in the same
+   * step as the camera locks -- one call, so the two can never disagree.
+   */
+  private setCameraLock(zoneId: string | null, boundary?: CampaignBoundaryOptions): void {
+    const zone = zoneId
+      ? this.level.cameraZones.find((candidate) => candidate.id === zoneId)?.zone ?? null
+      : null;
+    this.match.setBoundary(zone ? resolveBoundary(zone, boundary) : null);
+    this.ui.emit("cameraLock", { zoneId: zone ? zoneId : null });
+  }
+
   private claimCheckpoint(checkpointId: string): void {
     const checkpoint = this.checkpointById(checkpointId);
     if (!checkpoint || this.claimedCheckpoints.has(checkpointId)) return;
@@ -463,7 +487,7 @@ export class CampaignDirector {
     if (bossReset) {
       this.score.deduct(bossReset.killedPoints, bossReset.killedCount);
       if (bossReset.startedBy) this.triggers.rearm(bossReset.startedBy);
-      this.ui.emit("cameraLock", { zoneId: null });
+      this.setCameraLock(null);
     }
 
     const player = this.player();

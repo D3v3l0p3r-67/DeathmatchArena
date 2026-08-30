@@ -17,6 +17,8 @@ import {
   REFINERY_LEVEL,
   campaignChain,
   getCampaignArena,
+  getCampaignDifficulty,
+  getCampaignEnemy,
   getCampaignLevel,
   validateCampaignLevel,
   type ArenaDefinition,
@@ -55,19 +57,36 @@ function makeDirector(
   return director;
 }
 
-/** Walk right, double-jump when stalled, shoot what blocks the way. */
+/**
+ * Walk right, double-jump when stalled, shoot what blocks the way.
+ *
+ * "What blocks the way" now includes a locked encounter: its boundary holds
+ * the walker inside until the waves fall, so a stalled walker aims at the
+ * nearest living enemy rather than blindly to the right -- still nothing but
+ * movement, jumps and gunfire.
+ */
 function walkToTheEnd(director: CampaignDirector, finishX: number): number {
   const player = director.player()!;
   let lastX = player.x;
-  let stalledFrames = 0;
 
   for (let frame = 0; frame < 60 * 240; frame++) {
     const stalled = Math.abs(player.x - lastX) < 0.4;
-    if (stalled) stalledFrames++;
-    else {
-      stalledFrames = 0;
-      lastX = player.x;
+    if (!stalled) lastX = player.x;
+
+    let aimAngle = 0;
+    if (stalled) {
+      let nearest: { x: number; y: number } | null = null;
+      let nearestDistance = Infinity;
+      for (const enemy of aliveEnemies(director)) {
+        const distance = Math.hypot(enemy.x - player.x, enemy.y - player.y);
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          nearest = enemy;
+        }
+      }
+      if (nearest) aimAngle = Math.atan2(nearest.y - player.y, nearest.x - player.x);
     }
+
     const phase = frame % 60;
     director.match.applyInput({
       moveLeft: false,
@@ -76,12 +95,11 @@ function walkToTheEnd(director: CampaignDirector, finishX: number): number {
       fire: stalled,
       reload: false,
       chargeGrenade: false,
-      aimAngle: 0,
+      aimAngle,
     });
     tick(director, 16.7);
     if (player.x > finishX) break;
   }
-  void stalledFrames;
   return player.x;
 }
 
@@ -305,6 +323,156 @@ describe("campaign: checkpoints and secrets", () => {
 
     assert.equal(found, 1);
     assert.equal(director.currentScore(), CAMPAIGN_SCORING.defaultSecretPoints);
+  });
+});
+
+describe("campaign: the encounter boundary", () => {
+  /*
+   * The yard encounter locks the camera to its zone (x 4700..5990). The lock
+   * used to be only a picture; now it is also a wall. These walk the player
+   * into it and try to leave.
+   */
+  function enterYard(director: CampaignDirector): void {
+    director.debugSetGodMode(true);
+    // The encounter's own start trigger sits at x 4850..4950.
+    director.debugTeleport(4900, 1100);
+    tick(director, 200);
+  }
+
+  function pressTowards(director: CampaignDirector, direction: -1 | 1, frames: number): void {
+    for (let frame = 0; frame < frames; frame++) {
+      director.match.applyInput({
+        moveLeft: direction < 0,
+        moveRight: direction > 0,
+        jump: false,
+        fire: false,
+        reload: false,
+        chargeGrenade: false,
+        aimAngle: 0,
+      });
+      tick(director, 16.7);
+    }
+  }
+
+  it("locks the player inside the zone while the fight runs", () => {
+    const director = makeDirector();
+    enterYard(director);
+    assert.ok(director.match.activeBoundary, "the lock raises the walls");
+
+    const player = director.player()!;
+    // Try to walk back out to the left for three seconds.
+    pressTowards(director, -1, 180);
+    assert.ok(player.x >= 4700, `held inside the zone, not at ${Math.round(player.x)}`);
+
+    // And out to the right, past the zone's far edge.
+    pressTowards(director, 1, 400);
+    assert.ok(player.x <= 5990, `held at the right edge, not at ${Math.round(player.x)}`);
+  });
+
+  it("holds the enemies inside too", () => {
+    const director = makeDirector();
+    enterYard(director);
+    tick(director, 3000);
+    for (const enemy of aliveEnemies(director)) {
+      assert.ok(
+        enemy.x >= 4700 - 1 && enemy.x <= 5990 + 1,
+        `${enemy.name} escaped the locked yard to x=${Math.round(enemy.x)}`,
+      );
+    }
+  });
+
+  it("movement inside the walls is untouched", () => {
+    const director = makeDirector();
+    enterYard(director);
+    const player = director.player()!;
+    const before = player.x;
+    pressTowards(director, 1, 30);
+    assert.ok(player.x > before + 50, "walking inside the zone still walks");
+  });
+
+  it("clearing the encounter drops the walls", () => {
+    const director = makeDirector();
+    enterYard(director);
+    for (let sweep = 0; sweep < 6 && aliveEnemies(director).length > 0; sweep++) {
+      for (const enemy of aliveEnemies(director)) killEnemy(director, enemy.sessionId);
+      tick(director, 600);
+    }
+    tick(director, 500);
+    assert.equal(director.match.activeBoundary, null, "the boundary lifts with the camera");
+
+    // And the player can actually leave.
+    const player = director.player()!;
+    pressTowards(director, 1, 300);
+    assert.ok(player.x > 5990, `free to walk out, got to ${Math.round(player.x)}`);
+  });
+
+  it("a death that resets the encounter also drops the walls", () => {
+    const director = makeDirector();
+    enterYard(director);
+    assert.ok(director.match.activeBoundary);
+
+    director.debugSetGodMode(false);
+    director.match.matchManager.applyDamage(LOCAL_PLAYER_ID, "", 1_000_000, 0, 0, "test");
+    tick(director, 3000);
+    assert.equal(director.match.activeBoundary, null, "no walls around a fight that reset");
+  });
+});
+
+describe("campaign: the tuning hierarchy, applied", () => {
+  it("a spawned soldier carries the product of every layer", () => {
+    const director = makeDirector();
+    director.debugSetGodMode(true);
+    // The barrier trigger spawns soldiers; walk into it.
+    director.debugTeleport(2350, 1100);
+    tick(director, 300);
+    const soldier = aliveEnemies(director).find((enemy) => enemy.name === "Soldier");
+    assert.ok(soldier, "a soldier spawned");
+
+    const runtime = director.match.runtimes.get(soldier!.sessionId)!;
+    const config = director.match.config.getCampaignModeConfig();
+    const difficulty = getCampaignDifficulty("normal");
+    const level = OUTPOST_LEVEL.enemyTuning!;
+    const type = getCampaignEnemy("soldier")!;
+
+    const expectMove =
+      config.enemyMoveSpeedMultiplier * difficulty.enemyTuning!.moveSpeed! * level.moveSpeed! * type.speed;
+    assert.ok(Math.abs(runtime.baseSpeedMultiplier - expectMove) < 1e-9, `move ${runtime.baseSpeedMultiplier}`);
+
+    const expectFire =
+      config.enemyFireRateMultiplier * difficulty.enemyTuning!.fireRate! * level.fireRate!;
+    assert.ok(Math.abs(runtime.fireRateMultiplier - expectFire) < 1e-9, `fire ${runtime.fireRateMultiplier}`);
+
+    const expectProjectile =
+      config.enemyProjectileSpeedMultiplier * difficulty.enemyTuning!.projectileSpeed! * level.projectileSpeed!;
+    assert.ok(
+      Math.abs(runtime.projectileSpeedMultiplier - expectProjectile) < 1e-9,
+      `projectile ${runtime.projectileSpeedMultiplier}`,
+    );
+  });
+
+  it("the level-1 soldier is meaningfully slower than its authored numbers", () => {
+    const director = makeDirector();
+    director.debugSetGodMode(true);
+    director.debugTeleport(2350, 1100);
+    tick(director, 300);
+    const soldier = aliveEnemies(director).find((enemy) => enemy.name === "Soldier")!;
+    const runtime = director.match.runtimes.get(soldier.sessionId)!;
+
+    // The teaching level: notably below the type's own 0.9 walk and with
+    // bullets at roughly three fifths of the weapon's listed speed.
+    assert.ok(runtime.baseSpeedMultiplier < 0.75, `walks at ${runtime.baseSpeedMultiplier.toFixed(2)}`);
+    assert.ok(
+      runtime.projectileSpeedMultiplier < 0.65,
+      `shoots at ${runtime.projectileSpeedMultiplier.toFixed(2)}`,
+    );
+    assert.ok(runtime.fireRateMultiplier < 0.85, `fires at ${runtime.fireRateMultiplier.toFixed(2)}`);
+  });
+
+  it("the local player is never tuned: the campaign slows enemies, not you", () => {
+    const director = makeDirector();
+    const runtime = director.match.runtimes.get(LOCAL_PLAYER_ID)!;
+    assert.equal(runtime.fireRateMultiplier, 1);
+    assert.equal(runtime.projectileSpeedMultiplier, 1);
   });
 });
 

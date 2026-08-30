@@ -79,6 +79,20 @@ export class PlayerRuntime {
    */
   baseSpeedMultiplier = 1;
 
+  /*
+   * Per-combatant combat pace, both defaulting to 1.
+   *
+   * The same idea as `baseSpeedMultiplier`: a *generic* per-player scalar the
+   * systems consult without knowing who set it or why. Multiplayer never sets
+   * either away from 1; the campaign's spawn path sets them from its resolved
+   * tuning so a tutorial's soldiers shoot slower, visibly, without a single
+   * mode check inside the weapon or projectile code.
+   */
+  /** Scales shots per second; the fire interval divides by it. */
+  fireRateMultiplier = 1;
+  /** Scales launch speed of bullets, rockets and thrown grenades. */
+  projectileSpeedMultiplier = 1;
+
   /**
    * Timestamp the current grenade wind-up began; 0 when not charging.
    *

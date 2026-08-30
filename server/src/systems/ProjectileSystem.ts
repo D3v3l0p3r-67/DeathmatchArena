@@ -62,14 +62,19 @@ export class ProjectileSystem {
     state.ownerId = ownerId;
     state.x = x;
     state.y = y;
-    const bulletSpeed = weapon.ranged?.bulletSpeed ?? 0;
+    // The owner's pace, not the weapon's alone: the same rifle in a slowed
+    // enemy's hands fires a slower bullet. 1 for everyone in multiplayer.
+    const speedScale = this.context.runtimes.get(ownerId)?.projectileSpeedMultiplier ?? 1;
+    const bulletSpeed = (weapon.ranged?.bulletSpeed ?? 0) * speedScale;
     state.velocityX = Math.cos(angle) * bulletSpeed;
     state.velocityY = Math.sin(angle) * bulletSpeed;
     state.damage = weapon.damage;
     state.createdAt = now;
     state.weaponId = weapon.id;
 
-    const lifetime = Math.min(getProjectileLifetimeMs(weapon), PROJECTILE.MAX_LIFETIME_MS);
+    // Lifetime covers the weapon's range at the *actual* speed, so a slowed
+    // bullet still reaches as far instead of dying early in the air.
+    const lifetime = Math.min(getProjectileLifetimeMs(weapon) / speedScale, PROJECTILE.MAX_LIFETIME_MS);
     this.runtimes.set(state.id, {
       state,
       expiresAt: now + lifetime,

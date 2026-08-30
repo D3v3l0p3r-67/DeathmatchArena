@@ -149,7 +149,11 @@ export class BossDirector {
 
     if (phase.weapon) this.match.weapons.equip(player, runtime, phase.weapon);
     if (phase.speed !== undefined) {
-      runtime.baseSpeedMultiplier = Math.max(0, phase.speed);
+      // The phase replaces the *type's* pace, not the whole hierarchy: the
+      // campaign, difficulty and level layers still apply, or a slowed-down
+      // tutorial would hold a full-speed boss.
+      const environment = this.match.environmentTuning(this.difficulty).moveSpeedMultiplier;
+      runtime.baseSpeedMultiplier = Math.max(0, phase.speed) * environment;
       runtime.movement.speedMultiplier = runtime.baseSpeedMultiplier;
       player.speedMultiplier = runtime.baseSpeedMultiplier;
     }

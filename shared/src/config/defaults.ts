@@ -61,6 +61,20 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
     gameMode: "deathmatch",
   },
 
+  campaign: {
+    /*
+     * The single-player baseline is deliberately gentler than multiplayer: an
+     * enemy tuned to challenge a human in a deathmatch is, in a side-scroller,
+     * a reaction-time test. Slower movement and visibly slower shots give the
+     * player time to see an attack and answer it; the difficulty and level
+     * layers then shade this up or down.
+     */
+    enemyMoveSpeedMultiplier: 0.9,
+    enemyProjectileSpeedMultiplier: 0.8,
+    enemyFireRateMultiplier: 0.9,
+    enemyReactionTimeMultiplier: 1.2,
+  },
+
   flagHunt: {
     timedMatch: true,
     // The mode is already time-limited, so the walls stay put.
