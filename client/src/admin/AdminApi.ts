@@ -1,6 +1,6 @@
 import type {
   ArenaDefinition,
-  CampaignOverrides,
+  CampaignLevelDefinition,
   ArenaIssue,
   ConfigFieldDefinition,
   ConfigValue,
@@ -37,6 +37,19 @@ export interface ConfigWriteResult {
   ok: boolean;
   issues: ValidationIssue[];
   fields: ConfigField[];
+}
+
+export interface CampaignLevelSummary {
+  id: string;
+  name: string;
+  arenaId: string;
+  edited: boolean;
+}
+
+export interface CampaignLevelWriteResult {
+  ok: boolean;
+  issues: string[];
+  level?: CampaignLevelDefinition;
 }
 
 export interface ArenaWriteResult {
@@ -107,14 +120,21 @@ export class AdminApi {
 
   // -- Campaign levels -------------------------------------------------------
 
-  async loadCampaignLevels(): Promise<CampaignOverrides> {
-    const result = await this.request<{ overrides: CampaignOverrides }>("GET", "/campaign-levels");
-    return result.overrides ?? {};
+  async listCampaignLevels(): Promise<CampaignLevelSummary[]> {
+    const result = await this.request<{ levels: CampaignLevelSummary[] }>("GET", "/campaign-levels");
+    return result.levels ?? [];
   }
 
-  async saveCampaignLevels(overrides: CampaignOverrides): Promise<CampaignOverrides> {
-    const result = await this.request<{ overrides: CampaignOverrides }>("PUT", "/campaign-levels", { overrides });
-    return result.overrides ?? {};
+  async getCampaignLevel(id: string): Promise<{ level: CampaignLevelDefinition; edited: boolean }> {
+    return this.request("GET", `/campaign-levels/${encodeURIComponent(id)}`);
+  }
+
+  async saveCampaignLevel(id: string, level: CampaignLevelDefinition): Promise<CampaignLevelWriteResult> {
+    return this.request("PUT", `/campaign-levels/${encodeURIComponent(id)}`, { level }, true);
+  }
+
+  async resetCampaignLevel(id: string): Promise<void> {
+    await this.request("DELETE", `/campaign-levels/${encodeURIComponent(id)}`);
   }
 
   // -- Configuration ---------------------------------------------------------

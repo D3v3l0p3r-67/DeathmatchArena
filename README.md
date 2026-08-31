@@ -45,7 +45,7 @@ Useful server endpoints in development:
 ### Other commands
 
 ```bash
-npm test           # 577 tests: physics, combat, grenades, power-ups, traps, arenas, configuration,
+npm test           # 579 tests: physics, combat, grenades, power-ups, traps, arenas, configuration,
                    #            administration, NPC brains, campaign, music, presentation, debug
                    #            access, protocol, and real networked matches
 npm run smoke      # 21 checks in a real browser: menus, pickers, a campaign level, pause, settings
@@ -661,27 +661,42 @@ configuration, not player code.
 
 ### The campaign level editor
 
-The administration interface has a third tab, **Campaign levels**: the balance
-overlay over the shipped campaign. Per level it edits the level-layer tuning
-multipliers (move, projectile, fire rate, reaction), the lives, the starting
-grenades and the par time. An empty field means the shipped value — shown
-greyed as the placeholder — and clearing a field is the reset, exactly the
-override discipline the game configuration uses: only deltas are stored
-(`data/campaign-levels.json`), so a future rebalance flows through every field
-nobody touched.
+The administration interface's **Campaign levels** tab is a real editor now,
+built the way the arena editor is built: a list of levels, then one level open
+at a time, edited as a whole document. Three views over one working copy:
 
-Deliberately *not* a second arena editor: a campaign level's structure —
-geometry, triggers, encounters, bosses — is content and ships with the game.
-What an operator retunes live is how hard the level is.
+- **Canvas** — the level drawn over its arena, with everything placeable
+  draggable: the player spawn, the boss, checkpoints (their claim zone follows
+  the respawn point), camera zones, secrets, trigger zones and every placed
+  enemy from triggers, encounter waves and boss-phase adds. Click selects
+  (points by their dot, zones by their area, smallest first), drag moves, the
+  wheel zooms, empty space pans. An inspector edits the selected object's
+  numbers, retypes an enemy, deletes what is safe to delete, and adds
+  checkpoints, camera zones and secrets.
+- **Level** — the scalar fields: name, starting weapon and grenades, lives,
+  par time, the tuning multipliers, the next level, the music.
+- **JSON** — the entire document, for the parts no visual tool reaches:
+  trigger actions, wave composition, boss phases. Apply parses and normalizes
+  before it touches the working copy.
 
-The campaign plays offline, so the overlay is never something a level waits
-for. Opening the campaign menu fires a best-effort fetch of
-`GET /api/campaign/overrides` (public: it is game content, as public as the
-level data in the bundle) into a local cache; starting a level applies
-whatever the cache holds. Writes go through `PUT /admin/api/campaign-levels`
-behind the same token check as everything else in the admin API, and both the
-store and the game cache only ever hold what passed the shared sanitizer — a
-typo can make a level easier or harder, never broken.
+Storage mirrors arenas: an edited level is stored whole
+(`data/campaign-levels.json`) and shadows the shipped one; **Reset to
+shipped** deletes the stored copy and the shipped level returns. Every write
+passes `normalizeCampaignLevel` — a full shape check of the document, every
+union tag against its members, every number clamped, everything dropped named
+in an issue — and then `validateCampaignLevel`, the same semantic gate the
+tests run; a document that fails either is refused with the issues listed, and
+the store is re-checked on every load so a hand-edited file is held to today's
+rules. The strongest guarantee is a test: every shipped level round-trips the
+normalizer byte-identical.
+
+The game fetches edited documents best-effort at the campaign menu
+(`GET /api/campaign/levels`, public: game content) into a local cache and
+plays the cached document when there is one, the shipped level otherwise — the
+campaign stays fully offline, and every cached document is re-normalized and
+re-validated before it is trusted, falling back to the shipped level rather
+than to a broken run. Editing `nextLevelId` reorders the chain the player
+actually sees.
 
 ### A camera lock is a wall
 

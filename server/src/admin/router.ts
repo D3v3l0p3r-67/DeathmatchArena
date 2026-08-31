@@ -75,19 +75,41 @@ export function createAdminRouter(
   // -- Campaign levels -------------------------------------------------------
 
   router.get("/campaign-levels", (_request, response) => {
-    response.json({ ok: true, overrides: getCampaignLevels().current() });
+    response.json({ ok: true, levels: getCampaignLevels().list() });
   });
 
-  router.put("/campaign-levels", (request, response) => {
+  router.get("/campaign-levels/:id", (request, response) => {
+    const level = getCampaignLevels().get(request.params.id);
+    if (!level) {
+      response.status(404).json({ ok: false, message: "No such level." });
+      return;
+    }
+    const edited = getCampaignLevels().list().find((entry) => entry.id === request.params.id)?.edited ?? false;
+    response.json({ ok: true, level, edited });
+  });
+
+  router.put("/campaign-levels/:id", (request, response) => {
     void (async () => {
-      const body = request.body as { overrides?: unknown } | undefined;
-      const overrides = await getCampaignLevels().replace(body?.overrides ?? {});
-      response.json({ ok: true, overrides });
+      const body = request.body as { level?: unknown } | undefined;
+      const result = await getCampaignLevels().put(request.params.id, body?.level);
+      response.status(result.ok ? 200 : 400).json(result);
     })().catch((error) => {
-      logger.error("Could not store campaign level overrides", {
+      logger.error("Could not store a campaign level", {
         error: error instanceof Error ? error.message : String(error),
       });
-      response.status(500).json({ ok: false, message: "Could not store the overrides." });
+      response.status(500).json({ ok: false, message: "Could not store the level." });
+    });
+  });
+
+  router.delete("/campaign-levels/:id", (request, response) => {
+    void (async () => {
+      await getCampaignLevels().reset(request.params.id);
+      response.json({ ok: true });
+    })().catch((error) => {
+      logger.error("Could not reset a campaign level", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      response.status(500).json({ ok: false, message: "Could not reset the level." });
     });
   });
 

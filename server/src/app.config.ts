@@ -84,14 +84,15 @@ export default config({
      */
     app.use("/api/campaign", express.json({ limit: "64kb" }));
     /*
-     * The campaign's level overlay, readable by anyone: it is game content,
-     * exactly as public as the level data compiled into the bundle. The game
-     * fetches it best-effort at the campaign menu and caches it locally, so
-     * an admin's rebalance reaches players without a release -- and an
-     * offline player simply plays the cached (or shipped) values.
+     * The campaign's edited levels, readable by anyone: they are game
+     * content, exactly as public as the level data compiled into the bundle.
+     * The game fetches them best-effort at the campaign menu and caches them
+     * locally, so a level edited in the admin reaches players without a
+     * release -- and an offline player simply plays the cached (or shipped)
+     * documents. Only edited levels travel; everything else is in the bundle.
      */
-    app.get("/api/campaign/overrides", (_req, res) => {
-      res.json({ overrides: adminServices().campaignLevels.current() });
+    app.get("/api/campaign/levels", (_req, res) => {
+      res.json({ levels: adminServices().campaignLevels.stored() });
     });
 
     app.post("/api/campaign/event", (req, res) => {

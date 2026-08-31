@@ -16,11 +16,11 @@ import {
   REFINERY_ARENA,
   REFINERY_LEVEL,
   ServerMessage,
-  applyCampaignLevelOverride,
   campaignChain,
   getCampaignArena,
   getCampaignDifficulty,
   getCampaignEnemy,
+  normalizeCampaignLevel,
   getCampaignLevel,
   validateCampaignLevel,
   type ArenaDefinition,
@@ -478,10 +478,16 @@ describe("campaign: the tuning hierarchy, applied", () => {
   });
 });
 
-describe("campaign: an admin override changes how the level plays", () => {
-  it("one life from the overlay means the first death ends the run", () => {
-    const overridden = applyCampaignLevelOverride(OUTPOST_LEVEL, { lives: 1, enemyTuning: { moveSpeed: 0.5 } });
-    const director = makeDirector("normal", overridden);
+describe("campaign: an edited level document changes how the level plays", () => {
+  it("one life in the stored document means the first death ends the run", () => {
+    // Exactly what the editor produces: the shipped document, edited.
+    const { level: edited } = normalizeCampaignLevel({
+      ...JSON.parse(JSON.stringify(OUTPOST_LEVEL)),
+      respawnRule: { kind: "lives", lives: 1 },
+      enemyTuning: { ...OUTPOST_LEVEL.enemyTuning, moveSpeed: 0.5 },
+    });
+    assert.ok(edited, "the edited document normalizes");
+    const director = makeDirector("normal", edited!);
     let failed = false;
     director.ui.on("levelFailed", () => (failed = true));
 
