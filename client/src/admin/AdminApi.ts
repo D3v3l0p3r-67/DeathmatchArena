@@ -1,5 +1,6 @@
 import type {
   ArenaDefinition,
+  CampaignOverrides,
   ArenaIssue,
   ConfigFieldDefinition,
   ConfigValue,
@@ -102,6 +103,18 @@ export class AdminApi {
   async session(): Promise<{ persistent: boolean }> {
     const result = await this.request<{ persistent: boolean }>("GET", "/session");
     return { persistent: result.persistent === true };
+  }
+
+  // -- Campaign levels -------------------------------------------------------
+
+  async loadCampaignLevels(): Promise<CampaignOverrides> {
+    const result = await this.request<{ overrides: CampaignOverrides }>("GET", "/campaign-levels");
+    return result.overrides ?? {};
+  }
+
+  async saveCampaignLevels(overrides: CampaignOverrides): Promise<CampaignOverrides> {
+    const result = await this.request<{ overrides: CampaignOverrides }>("PUT", "/campaign-levels", { overrides });
+    return result.overrides ?? {};
   }
 
   // -- Configuration ---------------------------------------------------------

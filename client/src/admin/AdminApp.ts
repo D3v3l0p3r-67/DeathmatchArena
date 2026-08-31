@@ -1,8 +1,9 @@
 import { AdminApi, AdminApiError } from "./AdminApi.js";
 import { ArenaPanel } from "./ArenaPanel.js";
+import { CampaignPanel } from "./CampaignPanel.js";
 import { ConfigPanel, button, describe } from "./ConfigPanel.js";
 
-type Tab = "arenas" | "config";
+type Tab = "arenas" | "campaign" | "config";
 
 /**
  * The administration interface.
@@ -23,6 +24,7 @@ export class AdminApp {
 
   private readonly configPanel: ConfigPanel;
   private readonly arenaPanel: ArenaPanel;
+  private readonly campaignPanel: CampaignPanel;
 
   private tab: Tab = "arenas";
   private signedIn = false;
@@ -36,11 +38,12 @@ export class AdminApp {
     const notify = (message: string, tone: "info" | "error" | "success") => this.notify(message, tone);
     this.configPanel = new ConfigPanel(this.api, { notify });
     this.arenaPanel = new ArenaPanel(this.api, { notify });
+    this.campaignPanel = new CampaignPanel(this.api, { notify });
 
     // A half-drawn arena is worth a browser's "are you sure": the alternative is
     // losing an afternoon's level design to a stray Cmd-W.
     window.addEventListener("beforeunload", (event) => {
-      if (!this.arenaPanel.isDirty) return;
+      if (!this.arenaPanel.isDirty && !this.campaignPanel.isDirty) return;
       event.preventDefault();
       event.returnValue = "";
     });
@@ -84,6 +87,7 @@ export class AdminApp {
     if (this.signedIn) {
       tabs.append(
         this.tabButton("Arenas", "arenas"),
+        this.tabButton("Campaign levels", "campaign"),
         this.tabButton("Game configuration", "config"),
         button("Sign out", "ghost small", () => this.signOut()),
       );
@@ -173,6 +177,9 @@ export class AdminApp {
       if (tab === "config") {
         await this.configPanel.load();
         this.content.replaceChildren(this.configPanel.element);
+      } else if (tab === "campaign") {
+        await this.campaignPanel.load();
+        this.content.replaceChildren(this.campaignPanel.element);
       } else {
         await this.arenaPanel.load();
         this.content.replaceChildren(this.arenaPanel.element);
@@ -188,7 +195,11 @@ export class AdminApp {
   }
 
   private signOut(): void {
-    if (this.arenaPanel.isDirty && !window.confirm("Discard unsaved changes and sign out?")) return;
+    if (
+      (this.arenaPanel.isDirty || this.campaignPanel.isDirty) &&
+      !window.confirm("Discard unsaved changes and sign out?")
+    )
+      return;
     this.api.clearToken();
     this.tab = "arenas";
     this.renderSignIn();

@@ -16,6 +16,7 @@ import {
   REFINERY_ARENA,
   REFINERY_LEVEL,
   ServerMessage,
+  applyCampaignLevelOverride,
   campaignChain,
   getCampaignArena,
   getCampaignDifficulty,
@@ -474,6 +475,34 @@ describe("campaign: the tuning hierarchy, applied", () => {
     const runtime = director.match.runtimes.get(LOCAL_PLAYER_ID)!;
     assert.equal(runtime.fireRateMultiplier, 1);
     assert.equal(runtime.projectileSpeedMultiplier, 1);
+  });
+});
+
+describe("campaign: an admin override changes how the level plays", () => {
+  it("one life from the overlay means the first death ends the run", () => {
+    const overridden = applyCampaignLevelOverride(OUTPOST_LEVEL, { lives: 1, enemyTuning: { moveSpeed: 0.5 } });
+    const director = makeDirector("normal", overridden);
+    let failed = false;
+    director.ui.on("levelFailed", () => (failed = true));
+
+    director.match.matchManager.applyDamage(LOCAL_PLAYER_ID, "", 1_000_000, 0, 0, "test");
+    tick(director, 100);
+    assert.equal(failed, true, "the overlaid lives rule is the one that plays");
+
+    // And the tuning override reaches a spawned enemy through the level layer.
+    director.debugSetGodMode(true);
+    director.debugTeleport(2350, 1100);
+    tick(director, 300);
+    const soldier = aliveEnemies(director).find((enemy) => enemy.name === "Soldier");
+    if (soldier) {
+      const runtime = director.match.runtimes.get(soldier.sessionId)!;
+      const expected =
+        director.match.config.getCampaignModeConfig().enemyMoveSpeedMultiplier *
+        getCampaignDifficulty("normal").enemyTuning!.moveSpeed! *
+        0.5 *
+        getCampaignEnemy("soldier")!.speed;
+      assert.ok(Math.abs(runtime.baseSpeedMultiplier - expected) < 1e-9, `got ${runtime.baseSpeedMultiplier}`);
+    }
   });
 });
 

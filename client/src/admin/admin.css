@@ -827,3 +827,74 @@ body {
     height: 55dvh;
   }
 }
+
+/* ---- Campaign level editor ---------------------------------------------- */
+
+.campaign-panel {
+  display: grid;
+  gap: 16px;
+  max-width: 860px;
+}
+
+.panel-note {
+  color: var(--text-dim, #8a93a6);
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.campaign-card {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.campaign-card__title {
+  margin: 0 0 10px;
+  font-size: 15px;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.campaign-card__id {
+  font-size: 11px;
+  color: var(--text-dim, #8a93a6);
+  font-weight: normal;
+}
+
+.campaign-card__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px 14px;
+}
+
+.campaign-card__field {
+  display: grid;
+  gap: 4px;
+}
+
+.campaign-card__label {
+  font-size: 12px;
+  color: var(--text-dim, #8a93a6);
+}
+
+.campaign-card__input {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: inherit;
+  padding: 6px 8px;
+  font: inherit;
+}
+
+/* The shipped value stands in as the placeholder: grey means "not overridden". */
+.campaign-card__input::placeholder {
+  color: rgba(255, 255, 255, 0.25);
+}
+
+.campaign-panel__actions {
+  display: flex;
+  justify-content: flex-end;
+}

@@ -83,6 +83,17 @@ export default config({
      * verification first.
      */
     app.use("/api/campaign", express.json({ limit: "64kb" }));
+    /*
+     * The campaign's level overlay, readable by anyone: it is game content,
+     * exactly as public as the level data compiled into the bundle. The game
+     * fetches it best-effort at the campaign menu and caches it locally, so
+     * an admin's rebalance reaches players without a release -- and an
+     * offline player simply plays the cached (or shipped) values.
+     */
+    app.get("/api/campaign/overrides", (_req, res) => {
+      res.json({ overrides: adminServices().campaignLevels.current() });
+    });
+
     app.post("/api/campaign/event", (req, res) => {
       const event = req.body as { kind?: string } | undefined;
       const allowed = new Set(["levelStarted", "checkpointReached", "levelCompleted", "progressChanged"]);
@@ -115,7 +126,14 @@ export default config({
      * What gates it is the token check inside, applied to every route before
      * anything else happens.
      */
-    app.use("/admin/api", createAdminRouter(() => adminServices().arenas, () => adminServices().config));
+    app.use(
+      "/admin/api",
+      createAdminRouter(
+        () => adminServices().arenas,
+        () => adminServices().config,
+        () => adminServices().campaignLevels,
+      ),
+    );
 
     if (serverConfig.enablePlayground) {
       app.use("/playground", playground());

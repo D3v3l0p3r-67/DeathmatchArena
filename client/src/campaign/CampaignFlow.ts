@@ -34,6 +34,8 @@ import type { MenuNavigator } from "../ui/MenuNavigator.js";
 import type { UIManager } from "../ui/UIManager.js";
 import { toggleClass } from "../ui/dom.js";
 import { CampaignDirector } from "./core/CampaignDirector.js";
+import { applyCampaignLevelOverride } from "@deathmatch/shared";
+import { campaignOverrides, refreshCampaignOverrides } from "./core/overrides.js";
 import { HttpCampaignSync, SaveStore } from "./core/SaveStore.js";
 import { buildCampaignConfig, LOCAL_PLAYER_ID } from "./sim/LocalMatch.js";
 import { CampaignScene, CAMPAIGN_SCENE_KEY, type CampaignSceneEvents } from "./scene/CampaignScene.js";
@@ -94,6 +96,9 @@ export class CampaignFlow {
   }
 
   openSelect(): void {
+    // Best-effort: an admin's rebalance reaches the next level start when a
+    // server is reachable, and changes nothing about playing offline.
+    void refreshCampaignOverrides(clientConfig.serverUrl.replace(/^ws/, "http"));
     const save = this.saveStore();
     const chain = campaignChain();
     const checkpoint = chain.map((level) => save.loadCheckpoint(level.id)).find(Boolean) ?? null;
@@ -110,7 +115,9 @@ export class CampaignFlow {
   start(levelId: string, difficulty: CampaignDifficultyId, resume: boolean, fresh = false): void {
     if (fresh) this.run = null;
 
-    const level = CAMPAIGN_LEVELS.find((candidate) => candidate.id === levelId);
+    // The shipped level with the admin's balance overlay laid over it.
+    const shipped = CAMPAIGN_LEVELS.find((candidate) => candidate.id === levelId);
+    const level = shipped ? applyCampaignLevelOverride(shipped, campaignOverrides()[levelId]) : null;
     const arena = level ? getCampaignArena(level.arenaId) : null;
     if (!level || !arena) return;
 
@@ -171,7 +178,12 @@ export class CampaignFlow {
    */
   advance(): void {
     const from = this.lastStarted ? getCampaignLevel(this.lastStarted.levelId) : null;
-    const next = from?.nextLevelId ? getCampaignLevel(from.nextLevelId) : null;
+    const shippedNext = from?.nextLevelId ? getCampaignLevel(from.nextLevelId) : null;
+    // Overlaid here too, so the briefing's loadout chips show what the level
+    // will actually hand over, not what it shipped with.
+    const next = shippedNext
+      ? applyCampaignLevelOverride(shippedNext, campaignOverrides()[shippedNext.id])
+      : null;
     if (!next) return;
 
     this.pendingLevelId = next.id;

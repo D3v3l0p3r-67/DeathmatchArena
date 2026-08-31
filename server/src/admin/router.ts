@@ -5,6 +5,7 @@ import { createLogger } from "../utils/logger.js";
 import { AdminAuthorizationService, createAdminAuthorization } from "./AdminAuthorization.js";
 import type { ArenaService } from "./ArenaService.js";
 import type { GameConfigService } from "./GameConfigService.js";
+import type { CampaignLevelsService } from "./CampaignLevelsService.js";
 
 const logger = createLogger("admin");
 
@@ -37,6 +38,7 @@ export function createAdminRouter(
    */
   getArenas: () => ArenaService,
   getConfig: () => GameConfigService,
+  getCampaignLevels: () => CampaignLevelsService,
 ): Router {
   const router = express.Router();
   const authorization = createAdminAuthorization();
@@ -68,6 +70,25 @@ export function createAdminRouter(
   /** A cheap way for the interface to check a token before showing anything. */
   router.get("/session", (_request, response) => {
     response.json({ ok: true, persistent: serverConfig.admin.persistent });
+  });
+
+  // -- Campaign levels -------------------------------------------------------
+
+  router.get("/campaign-levels", (_request, response) => {
+    response.json({ ok: true, overrides: getCampaignLevels().current() });
+  });
+
+  router.put("/campaign-levels", (request, response) => {
+    void (async () => {
+      const body = request.body as { overrides?: unknown } | undefined;
+      const overrides = await getCampaignLevels().replace(body?.overrides ?? {});
+      response.json({ ok: true, overrides });
+    })().catch((error) => {
+      logger.error("Could not store campaign level overrides", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      response.status(500).json({ ok: false, message: "Could not store the overrides." });
+    });
   });
 
   // -- Game configuration ----------------------------------------------------

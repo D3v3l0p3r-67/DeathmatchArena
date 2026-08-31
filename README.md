@@ -45,7 +45,7 @@ Useful server endpoints in development:
 ### Other commands
 
 ```bash
-npm test           # 569 tests: physics, combat, grenades, power-ups, traps, arenas, configuration,
+npm test           # 577 tests: physics, combat, grenades, power-ups, traps, arenas, configuration,
                    #            administration, NPC brains, campaign, music, presentation, debug
                    #            access, protocol, and real networked matches
 npm run smoke      # 21 checks in a real browser: menus, pickers, a campaign level, pause, settings
@@ -658,6 +658,30 @@ bonus, with S-A-B-C-D ranks cut relative to what the played difficulty made
 achievable. Progress and the checkpoint resume save live in `localStorage`
 first; respawn rules (checkpoint / limited lives / one life) are level
 configuration, not player code.
+
+### The campaign level editor
+
+The administration interface has a third tab, **Campaign levels**: the balance
+overlay over the shipped campaign. Per level it edits the level-layer tuning
+multipliers (move, projectile, fire rate, reaction), the lives, the starting
+grenades and the par time. An empty field means the shipped value — shown
+greyed as the placeholder — and clearing a field is the reset, exactly the
+override discipline the game configuration uses: only deltas are stored
+(`data/campaign-levels.json`), so a future rebalance flows through every field
+nobody touched.
+
+Deliberately *not* a second arena editor: a campaign level's structure —
+geometry, triggers, encounters, bosses — is content and ships with the game.
+What an operator retunes live is how hard the level is.
+
+The campaign plays offline, so the overlay is never something a level waits
+for. Opening the campaign menu fires a best-effort fetch of
+`GET /api/campaign/overrides` (public: it is game content, as public as the
+level data in the bundle) into a local cache; starting a level applies
+whatever the cache holds. Writes go through `PUT /admin/api/campaign-levels`
+behind the same token check as everything else in the admin API, and both the
+store and the game cache only ever hold what passed the shared sanitizer — a
+typo can make a level easier or harder, never broken.
 
 ### A camera lock is a wall
 

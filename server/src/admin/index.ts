@@ -12,6 +12,11 @@ import {
   type GameConfigRepository,
 } from "./GameConfigRepository.js";
 import { GameConfigService } from "./GameConfigService.js";
+import {
+  CampaignLevelsService,
+  FileCampaignLevelsRepository,
+  InMemoryCampaignLevelsRepository,
+} from "./CampaignLevelsService.js";
 
 const logger = createLogger("admin");
 
@@ -20,15 +25,24 @@ const configRepository: GameConfigRepository = new FileGameConfigRepository(serv
 
 export const arenaService = new ArenaService(arenaRepository, logger);
 export const gameConfigService = new GameConfigService(configRepository, logger, readConfigSeed());
+export const campaignLevelsService = new CampaignLevelsService(
+  new FileCampaignLevelsRepository(serverConfig.admin.dataDir),
+  logger,
+);
 
 /** Fallbacks used when storage turns out to be unusable. */
 const memoryArenas = new ArenaService(new InMemoryArenaRepository(), logger);
 const memoryConfig = new GameConfigService(new InMemoryGameConfigRepository(), logger, readConfigSeed());
+const memoryCampaignLevels = new CampaignLevelsService(new InMemoryCampaignLevelsRepository(), logger);
 
-let active = { arenas: arenaService, config: gameConfigService };
+let active = { arenas: arenaService, config: gameConfigService, campaignLevels: campaignLevelsService };
 
 /** The services the routes and rooms should use. */
-export function adminServices(): { arenas: ArenaService; config: GameConfigService } {
+export function adminServices(): {
+  arenas: ArenaService;
+  config: GameConfigService;
+  campaignLevels: CampaignLevelsService;
+} {
   return active;
 }
 
@@ -48,15 +62,17 @@ export async function initialiseAdmin(): Promise<void> {
   try {
     await gameConfigService.initialise();
     await arenaService.initialise();
+    await campaignLevelsService.initialise();
   } catch (error) {
     logger.error("Could not load stored administration data; continuing in memory", {
       dataDir: serverConfig.admin.dataDir,
       error: error instanceof Error ? error.message : String(error),
     });
 
-    active = { arenas: memoryArenas, config: memoryConfig };
+    active = { arenas: memoryArenas, config: memoryConfig, campaignLevels: memoryCampaignLevels };
     await memoryConfig.initialise();
     await memoryArenas.initialise();
+    await memoryCampaignLevels.initialise();
     return;
   }
 
